@@ -35,6 +35,8 @@ export default function Dashboard() {
   })
   const [loading, setLoading] = useState(true)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [showExamPrompt, setShowExamPrompt] = useState(false)
+  const [justOnboarded, setJustOnboarded] = useState(false)
 
   useEffect(() => {
     loadDashboardData()
@@ -46,6 +48,15 @@ export default function Dashboard() {
     try {
       // Verificar se onboarding foi completado
       const profileData = localStorage.getItem(`healthwallet_profile_${user.id}`)
+
+      // Verificar se acabou de fazer onboarding
+      const onboardingCompleted = localStorage.getItem(`healthwallet_onboarding_completed_${user.id}`)
+      if (onboardingCompleted === 'true') {
+        setJustOnboarded(true)
+        setShowExamPrompt(true)
+        localStorage.removeItem(`healthwallet_onboarding_completed_${user.id}`)
+      }
+
       if (!profileData) {
         // Redirecionar para onboarding
         window.location.href = '/onboarding'
@@ -246,6 +257,60 @@ export default function Dashboard() {
               >
                 <Camera className="w-3 h-3" />
                 Upload de Exames
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* First-time Exam Request Modal */}
+      {showExamPrompt && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                <Stethoscope className="w-8 h-8 text-emerald-600" />
+              </div>
+              <h2 className="text-xl font-bold mb-2">
+                {justOnboarded ? 'Parabéns pelo Onboarding!' : 'Hora de Melhorar seu MedScore!'}
+              </h2>
+              <p className="text-gray-600 text-sm">
+                {justOnboarded
+                  ? 'Você completou seu perfil! Agora vamos calcular seu MedScore com exames reais.'
+                  : 'Para calcular seu MedScore com precisão, você precisa enviar seus exames.'}
+              </p>
+            </div>
+
+            <div className="bg-emerald-50 rounded-xl p-4 mb-6">
+              <p className="text-sm font-medium text-emerald-900 mb-3">Exames Recomendados:</p>
+              <div className="space-y-2">
+                {[
+                  { name: 'Hemograma Completo', icon: '🩸' },
+                  { name: 'Perfil Lipídico', icon: '❤️' },
+                  { name: 'Glicemia de Jejum', icon: '📊' },
+                  { name: 'PCR Ultrasensível', icon: '🔬' },
+                ].map((exam, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-sm">
+                    <span>{exam.icon}</span>
+                    <span className="text-emerald-800">{exam.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowExamPrompt(false)}
+                className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+              >
+                Mais tarde
+              </button>
+              <Link
+                to="/upload"
+                className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors text-center flex items-center justify-center gap-2"
+              >
+                <Camera className="w-5 h-5" />
+                Enviar Exames
               </Link>
             </div>
           </div>

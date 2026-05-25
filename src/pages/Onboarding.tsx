@@ -118,6 +118,9 @@ export default function Onboarding() {
         completedAt: new Date().toISOString()
       }))
 
+      // Marcar que acabou de fazer onboarding para mostrar modal de exames
+      localStorage.setItem(`healthwallet_onboarding_completed_${user.id}`, 'true')
+
       // Redirecionar para dashboard
       window.location.href = '/dashboard'
     } catch (err) {
