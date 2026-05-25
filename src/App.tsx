@@ -13,6 +13,9 @@ import Medications from '@/pages/Medications'
 import Family from '@/pages/Family'
 import Profile from '@/pages/Profile'
 import Login from '@/pages/Login'
+import Onboarding from '@/pages/Onboarding'
+import ShareQRCode from '@/pages/ShareQRCode'
+import Chat from '@/pages/Chat'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -59,6 +62,8 @@ export default function App() {
           {/* Public routes */}
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/onboarding" element={<Onboarding />} />
+          <Route path="/share" element={<ShareQRCode />} />
 
           {/* Protected routes */}
           <Route
@@ -137,6 +142,16 @@ export default function App() {
               <ProtectedRoute>
                 <AppLayout>
                   <Profile />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/chat"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <Chat />
                 </AppLayout>
               </ProtectedRoute>
             }

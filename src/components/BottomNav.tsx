@@ -1,10 +1,10 @@
-import { Home, FileText, MessageCircle, User } from 'lucide-react'
+import { Home, FileText, Brain, User } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 
 const navItems = [
   { icon: Home, label: 'Início', path: '/dashboard' },
   { icon: FileText, label: 'Exames', path: '/exams' },
-  { icon: MessageCircle, label: 'IA', path: '/translator' },
+  { icon: Brain, label: 'IA', path: '/chat' },
   { icon: User, label: 'Perfil', path: '/profile' },
 ]
 

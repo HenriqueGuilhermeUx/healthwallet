@@ -1,27 +1,40 @@
-import { Heart, Bell, Menu, Loader2, Activity, Upload, Brain, QrCode, Pill, Calendar, Shield, ChevronRight } from 'lucide-react'
+import { Heart, Bell, Menu, Loader2, Activity, Upload, Brain, QrCode, Pill, Calendar, Shield, ChevronRight, FileText, Users, Stethoscope, Camera, MessageCircle, Sparkles, AlertCircle, TrendingUp } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 
-interface HealthScore {
+interface MedScore {
   score: number
   level: string
-  color: string
-}
-
-interface StatItem {
-  label: string
-  value: string | number
-  icon: React.ElementType
-  color: string
+  levelColor: string
+  confidence: number
+  breakdown: {
+    category: string
+    score: number
+    icon: string
+  }[]
+  missingExams: string[]
 }
 
 export default function Dashboard() {
   const { user, signOut } = useAuth()
-  const [healthScore, setHealthScore] = useState<HealthScore>({ score: 0, level: 'Carregando...', color: 'gray' })
-  const [stats, setStats] = useState<StatItem[]>([])
+  const [medScore, setMedScore] = useState<MedScore>({
+    score: 0,
+    level: 'Calculando...',
+    levelColor: 'gray',
+    confidence: 0,
+    breakdown: [],
+    missingExams: []
+  })
+  const [stats, setStats] = useState({
+    exams: 0,
+    medications: 0,
+    cards: 0,
+    family: 0
+  })
   const [loading, setLoading] = useState(true)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(false)
 
   useEffect(() => {
     loadDashboardData()
@@ -31,49 +44,90 @@ export default function Dashboard() {
     if (!user) return
 
     try {
-      // Carregar profile do usuário
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_id', user.id)
-        .single()
+      // Verificar se onboarding foi completado
+      const profileData = localStorage.getItem(`healthwallet_profile_${user.id}`)
+      if (!profileData) {
+        // Redirecionar para onboarding
+        window.location.href = '/onboarding'
+        return
+      }
 
-      // Carregar exames
-      const { count: examsCount } = await supabase
-        .from('medical_records')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
+      const profile = JSON.parse(profileData)
 
-      // Carregar medicamentos ativos
-      const { count: medsCount } = await supabase
-        .from('medications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-
-      // Carregar carteirinhas
-      const { count: cardsCount } = await supabase
-        .from('health_plans')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-
-      // Calcular score (baseado em dados preenchidos)
-      let score = 50 // base
-      if (profile?.birth_date) score += 10
-      if (profile?.blood_type) score += 10
-      if (profile?.allergies && profile.allergies.length > 0) score += 10
-      if (examsCount && examsCount > 0) score += 10
-      if (medsCount && medsCount > 0) score += 10
-
-      const level = score >= 80 ? 'Excelente' : score >= 60 ? 'Bom' : score >= 40 ? 'Regular' : 'Atenção'
-      const color = score >= 80 ? 'emerald' : score >= 60 ? 'teal' : score >= 40 ? 'yellow' : 'red'
-
-      setHealthScore({ score, level, color })
-      setStats([
-        { label: 'Exames', value: examsCount || 0, icon: Activity, color: 'text-blue-600' },
-        { label: 'Medicamentos', value: medsCount || 0, icon: Pill, color: 'text-orange-600' },
-        { label: 'Carteirinhas', value: cardsCount || 0, icon: QrCode, color: 'text-purple-600' },
+      // Carregar dados do Supabase
+      const [examsRes, medsRes, cardsRes, familyRes] = await Promise.all([
+        supabase.from('medical_records').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('medications').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_active', true),
+        supabase.from('health_plans').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('family_members').select('*', { count: 'exact', head: true }).eq('user_id', user.id)
       ])
+
+      setStats({
+        exams: examsRes.count || 0,
+        medications: medsRes.count || 0,
+        cards: cardsRes.count || 0,
+        family: familyRes.count || 0
+      })
+
+      // Calcular MedScore baseado nos dados
+      let score = profile.medScore || 50
+      let confidence = 30
+
+      if (profile.weight && profile.height) {
+        confidence += 15
+        const bmi = parseFloat(profile.weight) / Math.pow(parseInt(profile.height) / 100, 2)
+        if (bmi >= 18.5 && bmi < 25) score += 5
+      }
+
+      if (profile.physicalActivity) {
+        confidence += 10
+        if (profile.physicalActivity === 'moderate' || profile.physicalActivity === 'active') score += 5
+      }
+
+      if (profile.sleepHours) {
+        confidence += 10
+        if (parseInt(profile.sleepHours) >= 6 && parseInt(profile.sleepHours) <= 9) score += 5
+      }
+
+      if (profile.smokingStatus === 'never') {
+        confidence += 10
+        score += 5
+      }
+
+      if (examsRes.count && examsRes.count > 0) {
+        confidence += 15
+        score += 10
+      }
+
+      // Missing exams
+      const missingExams: string[] = []
+      if (!examsRes.count || examsRes.count === 0) {
+        missingExams.push('Hemograma Completo')
+        missingExams.push('Perfil Lipídico')
+      }
+      if (!profile.bloodType) {
+        missingExams.push('Tipagem Sanguínea')
+      }
+
+      // Determine level
+      let level = 'Atenção'
+      let levelColor = 'red'
+      if (score >= 85) { level = 'Excelente'; levelColor = 'emerald' }
+      else if (score >= 70) { level = 'Bom'; levelColor = 'teal' }
+      else if (score >= 50) { level = 'Regular'; levelColor = 'yellow' }
+
+      setMedScore({
+        score: Math.min(100, score),
+        level,
+        levelColor,
+        confidence: Math.min(100, confidence),
+        breakdown: [
+          { category: 'Perfil', score: 85, icon: '👤' },
+          { category: 'Estilo', score: 70, icon: '🏃' },
+          { category: 'Exames', score: examsRes.count && examsRes.count > 0 ? 80 : 40, icon: '🔬' },
+        ],
+        missingExams
+      })
     } catch (error) {
       console.error('Error loading dashboard:', error)
     } finally {
@@ -88,95 +142,160 @@ export default function Dashboard() {
 
   const userName = user?.user_metadata?.full_name?.split(' ')[0] ||
                    user?.user_metadata?.name?.split(' ')[0] ||
+                   user?.email?.split('@')[0] ||
                    'Usuário'
 
-  const scoreColorMap: Record<string, string> = {
+  const scoreColorClass = {
     emerald: 'text-emerald-600',
     teal: 'text-teal-600',
     yellow: 'text-yellow-600',
     red: 'text-red-600',
-    gray: 'text-gray-600',
+    gray: 'text-gray-600'
+  }[medScore.levelColor]
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-5">
-      {/* Score Card */}
-      <div className="rounded-2xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 p-5 text-white">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
-              <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="10" />
-              <circle
-                cx="50" cy="50" r="40" fill="none"
-                stroke="white" strokeWidth="10"
-                strokeDasharray={`${(healthScore.score / 100) * 251.2} 251.2`}
-                strokeLinecap="round"
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-bold">{healthScore.score}</span>
-              <span className="text-xs opacity-80">/100</span>
+    <div className="space-y-5 pb-20">
+      {/* MedScore Card */}
+      <div className="rounded-2xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 p-5 text-white relative overflow-hidden">
+        {/* Background decoration */}
+        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2" />
+
+        <div className="relative">
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="10" />
+                <circle
+                  cx="50" cy="50" r="40" fill="none"
+                  stroke="white" strokeWidth="10"
+                  strokeDasharray={`${(medScore.score / 100) * 251.2} 251.2`}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold">{medScore.score}</span>
+                <span className="text-xs opacity-80">/100</span>
+              </div>
+            </div>
+
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="w-4 h-4" />
+                <p className="text-white/70 text-xs font-medium uppercase tracking-wider">MedScore</p>
+              </div>
+              <p className="text-xl font-bold">{medScore.level}</p>
+              <p className="text-white/80 text-sm mb-2">Olá, {userName}!</p>
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-300" />
+                <span className="text-xs text-white/70">
+                  {medScore.confidence}% completo
+                </span>
+              </div>
             </div>
           </div>
-          <div className="flex-1">
-            <p className="text-white/70 text-xs font-medium uppercase tracking-wider mb-1">HealthScore</p>
-            <p className="text-xl font-bold">{healthScore.level}</p>
-            <p className="text-white/80 text-sm mb-3">Olá, {userName}!</p>
-            <a
-              href="/profile"
-              className="inline-flex items-center gap-1 text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-full transition-colors"
+
+          {/* Action buttons */}
+          <div className="flex gap-2 mt-4">
+            <Link
+              to="/onboarding"
+              className="flex-1 flex items-center justify-center gap-2 bg-white/20 hover:bg-white/30 py-2 rounded-lg text-sm font-medium transition-colors"
             >
-              Ver perfil <ChevronRight className="w-3 h-3" />
-            </a>
+              <Stethoscope className="w-4 h-4" />
+              Atualizar Dados
+            </Link>
+            <Link
+              to="/share"
+              className="flex-1 flex items-center justify-center gap-2 bg-white/20 hover:bg-white/30 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <QrCode className="w-4 h-4" />
+              Compartilhar
+            </Link>
           </div>
         </div>
       </div>
 
+      {/* Missing Exams Alert */}
+      {medScore.missingExams.length > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-medium text-sm text-yellow-900">Exames Pendentes</p>
+              <p className="text-xs text-yellow-700 mt-1 mb-3">
+                Para melhorar seu MedScore, você precisa fazer:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {medScore.missingExams.map((exam) => (
+                  <span key={exam} className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                    {exam}
+                  </span>
+                ))}
+              </div>
+              <Link
+                to="/upload"
+                className="inline-flex items-center gap-1 mt-3 text-xs text-yellow-800 font-medium"
+              >
+                <Camera className="w-3 h-3" />
+                Upload de Exames
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div>
-        <h2 className="text-sm font-semibold mb-3">Ações rápidas</h2>
+        <h2 className="text-sm font-semibold mb-3">Ações Rápidas</h2>
         <div className="grid grid-cols-4 gap-2">
-          <QuickAction icon={Upload} label="Exame" color="bg-violet-600" href="/upload" />
-          <QuickAction icon={Brain} label="Traduzir" color="bg-purple-600" href="/translator" />
+          <QuickAction icon={Camera} label="Exame" color="bg-violet-600" href="/upload" />
+          <QuickAction icon={Brain} label="IA" color="bg-purple-600" href="/translator" />
+          <QuickAction icon={MessageCircle} label="Chat" color="bg-blue-600" href="/chat" />
           <QuickAction icon={QrCode} label="QR Code" color="bg-teal-600" href="/wallet" />
-          <QuickAction icon={Pill} label="Remédios" color="bg-orange-600" href="/medications" />
         </div>
       </div>
 
       {/* Stats */}
       <div>
-        <h2 className="text-sm font-semibold mb-3">Sua saúde</h2>
-        <div className="grid grid-cols-3 gap-3">
-          {stats.map((stat) => (
-            <div key={stat.label} className="bg-card rounded-xl p-3 border border-border text-center">
-              <stat.icon className={`w-5 h-5 mx-auto mb-2 ${stat.color}`} />
-              <p className="text-lg font-bold">{stat.value}</p>
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
-            </div>
-          ))}
+        <h2 className="text-sm font-semibold mb-3">Seu Cofre de Saúde</h2>
+        <div className="grid grid-cols-4 gap-2">
+          <StatCard icon={Activity} value={stats.exams} label="Exames" color="bg-blue-100 text-blue-600" />
+          <StatCard icon={Pill} value={stats.medications} label="Remédios" color="bg-orange-100 text-orange-600" />
+          <StatCard icon={FileText} value={stats.cards} label="Carteirinhas" color="bg-purple-100 text-purple-600" />
+          <StatCard icon={Users} value={stats.family} label="Família" color="bg-green-100 text-green-600" />
         </div>
       </div>
 
       {/* Menu */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        {[
-          { icon: QrCode, label: 'Carteirinha de Saúde', href: '/wallet' },
-          { icon: Calendar, label: 'Calendário', href: '/exams' },
-          { icon: Shield, label: 'Perfil de Emergência', href: '/profile' },
-          { icon: Brain, label: 'Família', href: '/family' },
-        ].map((item, idx, arr) => (
-          <a
-            key={item.href}
-            href={item.href}
-            className={`flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors ${
-              idx < arr.length - 1 ? 'border-b border-border' : ''
-            }`}
-          >
-            <item.icon className="w-5 h-5 text-muted-foreground" />
-            <span className="flex-1 text-sm font-medium">{item.label}</span>
-            <ChevronRight className="w-4 h-4 text-muted-foreground" />
-          </a>
-        ))}
+        <MenuItem icon={QrCode} label="Carteirinha de Saúde" href="/wallet" />
+        <MenuItem icon={Calendar} label="Calendário de Exames" href="/exams" />
+        <MenuItem icon={Shield} label="Perfil de Emergência" href="/profile" />
+        <MenuItem icon={Users} label="Membros da Família" href="/family" />
+        <MenuItem icon={MessageCircle} label="Assistente de IA" href="/chat" last />
+      </div>
+
+      {/* Health Tips */}
+      <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4 border border-blue-100">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+            <Sparkles className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <p className="font-medium text-sm text-gray-900">Dica de Saúde</p>
+            <p className="text-xs text-gray-600 mt-1">
+              Manter 7-8 horas de sono por noite pode melhorar seu MedScore em até 10 pontos!
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Logout */}
@@ -197,14 +316,51 @@ function QuickAction({ icon: Icon, label, color, href }: {
   href: string
 }) {
   return (
-    <a
-      href={href}
+    <Link
+      to={href}
       className="flex flex-col items-center gap-2 p-3 rounded-xl bg-card border border-border hover:bg-muted/50 active:scale-95 transition-all"
     >
       <div className={`w-10 h-10 rounded-lg ${color} flex items-center justify-center`}>
         <Icon className="w-5 h-5 text-white" />
       </div>
       <span className="text-xs font-medium">{label}</span>
-    </a>
+    </Link>
+  )
+}
+
+function StatCard({ icon: Icon, value, label, color }: {
+  icon: React.ElementType
+  value: number
+  label: string
+  color: string
+}) {
+  return (
+    <div className="bg-card rounded-xl border border-border p-3 text-center">
+      <div className={`w-8 h-8 rounded-full ${color} flex items-center justify-center mx-auto mb-2`}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <p className="text-lg font-bold">{value}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
+    </div>
+  )
+}
+
+function MenuItem({ icon: Icon, label, href, last }: {
+  icon: React.ElementType
+  label: string
+  href: string
+  last?: boolean
+}) {
+  return (
+    <Link
+      to={href}
+      className={`flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors ${
+        !last ? 'border-b border-border' : ''
+      }`}
+    >
+      <Icon className="w-5 h-5 text-muted-foreground" />
+      <span className="flex-1 text-sm font-medium">{label}</span>
+      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+    </Link>
   )
 }
