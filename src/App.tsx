@@ -15,6 +15,7 @@ import Profile from '@/pages/Profile'
 import Login from '@/pages/Login'
 import Onboarding from '@/pages/Onboarding'
 import ShareQRCode from '@/pages/ShareQRCode'
+import ReceivedDocuments from '@/pages/ReceivedDocuments'
 import Chat from '@/pages/Chat'
 
 // Components
@@ -152,6 +153,16 @@ export default function App() {
               <ProtectedRoute>
                 <AppLayout>
                   <Chat />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/documents"
+            element={
+              <ProtectedRoute>
+                <AppLayout>
+                  <ReceivedDocuments />
                 </AppLayout>
               </ProtectedRoute>
             }
