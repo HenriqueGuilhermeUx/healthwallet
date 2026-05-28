@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Wallet, Plus, CreditCard, Shield, ChevronRight, Trash2, Copy, Check } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -30,9 +30,9 @@ export default function HealthWallet() {
     validity: '',
   })
 
-  useState(() => {
+  useEffect(() => {
     loadPlans()
-  })
+  }, [user])
 
   const loadPlans = async () => {
     if (!user) return

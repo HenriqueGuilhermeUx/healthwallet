@@ -89,16 +89,6 @@ export default function Onboarding() {
     setLoading(true)
 
     try {
-      // Salvar perfil no Supabase
-      const { error } = await supabase.from('profiles').upsert({
-        id: user.id,
-        birth_date: data.birthDate || null,
-        gender: data.gender as 'male' | 'female' | 'other' || null,
-        phone: null,
-      })
-
-      if (error) console.error('Erro ao salvar perfil:', error)
-
       // Calcular MedScore preliminar
       const bmi = calculateBMI()
       let baseScore = 50
@@ -109,13 +99,37 @@ export default function Onboarding() {
       if (data.smokingStatus === 'never') baseScore += 10
       if (data.bloodType) baseScore += 5
 
-      // Salvar no localStorage como perfil completo
-      localStorage.setItem(`healthwallet_profile_${user.id}`, JSON.stringify({
-        ...data,
-        bmi,
+      // Salvar perfil COMPLETO no Supabase (não apenas birth_date e gender)
+      const profileData = {
+        birth_date: data.birthDate || null,
+        gender: data.gender as 'male' | 'female' | 'other' || null,
+        blood_type: data.bloodType || null,
+        weight: data.weight ? parseInt(data.weight) : null,
+        height: data.height ? parseInt(data.height) : null,
+        smoking_status: data.smokingStatus || null,
+        alcohol_consumption: data.alcoholConsumption || null,
+        physical_activity: data.physicalActivity || null,
+        sleep_hours: data.sleepHours ? parseInt(data.sleepHours) : null,
+        stress_level: data.stressLevel || null,
+        allergies: data.allergies || null,
+        chronic_conditions: data.chronicConditions || null,
+        family_history: data.familyHistory || null,
+        current_medications: data.currentMedications || null,
+        med_score: baseScore,
+      }
+
+      const { error } = await supabase.from('profiles').upsert({
+        id: user.id,
+        ...profileData,
+      })
+
+      if (error) console.error('Erro ao salvar perfil:', error)
+
+      // Salvar MedScore no localStorage também (para referência rápida)
+      localStorage.setItem(`healthwallet_medscore_${user.id}`, JSON.stringify({
         medScore: baseScore,
-        onboardingCompleted: true,
-        completedAt: new Date().toISOString()
+        bmi,
+        lastUpdated: new Date().toISOString()
       }))
 
       // Marcar que acabou de fazer onboarding para mostrar modal de exames

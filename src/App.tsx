@@ -17,6 +17,8 @@ import Onboarding from '@/pages/Onboarding'
 import ShareQRCode from '@/pages/ShareQRCode'
 import ReceivedDocuments from '@/pages/ReceivedDocuments'
 import Chat from '@/pages/Chat'
+import Terms from '@/pages/Terms'
+import Privacy from '@/pages/Privacy'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -170,6 +172,10 @@ export default function App() {
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
+
+          {/* Public pages - Terms and Privacy */}
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
         </Routes>
         <Toaster position="top-center" richColors />
       </AuthProvider>

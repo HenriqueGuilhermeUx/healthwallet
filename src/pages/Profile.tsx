@@ -23,10 +23,11 @@ export default function Profile() {
   const loadProfile = async () => {
     if (!user) return
     try {
+      // CORRIGIDO: A tabela profiles usa 'id' como PK (que é o user_id do auth.users)
       const { data } = await supabase
         .from('profiles')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('id', user.id)
         .single()
 
       if (data) {
@@ -39,10 +40,10 @@ export default function Profile() {
           allergies: data.allergies || [],
         })
       } else {
-        // Create profile if doesn't exist
+        // Create profile if doesn't exist - usando id como PK
         const { data: newProfile } = await supabase
           .from('profiles')
-          .insert({ user_id: user.id })
+          .insert({ id: user.id })
           .select()
           .single()
         setProfile(newProfile)
@@ -57,10 +58,11 @@ export default function Profile() {
   const handleSave = async () => {
     if (!user) return
     try {
+      // CORRIGIDO: Atualizar usando 'id' como PK
       await supabase
         .from('profiles')
         .update(formData)
-        .eq('user_id', user.id)
+        .eq('id', user.id)
       setEditing(false)
       loadProfile()
     } catch (error) {
