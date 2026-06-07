@@ -13,7 +13,14 @@ export default function Landing() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
               <Heart className="w-5 h-5 text-white" />
             </div>
-            <span className="font-bold text-xl text-foreground">HealthWallet</span>
+            <div>
+  <div className="font-bold text-xl text-foreground leading-tight">
+    HealthWallet
+  </div>
+  <div className="text-xs text-muted-foreground -mt-1">
+    by Nexa
+  </div>
+</div>
           </div>
           {!user && (
             <a
@@ -40,7 +47,7 @@ export default function Landing() {
             seu controle.
           </h1>
           <p className="text-muted-foreground text-lg mb-8 max-w-sm mx-auto">
-            Wallet de saúde digital com carteirinha do plano, análise de exames por IA e muito mais.
+            Organize exames, carteirinhas, histórico médico e informações de saúde em um só lugar, com controle sobre quem pode acessar seus dados.
           </p>
           <div className="flex flex-col gap-3 max-w-xs mx-auto">
             <a
@@ -59,6 +66,28 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      <section className="px-4 pb-8">
+  <div className="max-w-md mx-auto bg-emerald-50 border border-emerald-100 rounded-2xl p-5">
+    <h3 className="font-bold text-emerald-900 mb-2">
+      Área para profissionais de saúde
+    </h3>
+
+    <p className="text-sm text-emerald-800 mb-4">
+      Médicos, clínicas e profissionais podem acessar informações
+      compartilhadas pelos pacientes através do MyDataMed.
+    </p>
+
+    <a
+      href="https://mydatamed.com"
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-emerald-600 text-white font-medium"
+    >
+      Acessar MyDataMed
+    </a>
+  </div>
+</section>
 
       {/* Features */}
       <section id="features" className="py-12 px-4 bg-muted/30">
