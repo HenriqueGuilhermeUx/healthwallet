@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { QrCode, Copy, CheckCircle, Share2, Download, Mail, MessageCircle, Shield, Clock, X, Check, Loader2, Trash2, Eye, Send } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -49,10 +50,13 @@ export default function ShareQRCode() {
   const [copied, setCopied] = useState(false)
   const [codes, setCodes] = useState<GeneratedCode[]>([])
   const [loadingCodes, setLoadingCodes] = useState(true)
+  const [hasConsent, setHasConsent] = useState(false)
+  const [loadingConsent, setLoadingConsent] = useState(true)
 
   useEffect(() => {
     if (user) {
       loadCodes()
+      loadConsent()
     }
   }, [user])
 
@@ -73,8 +77,35 @@ export default function ShareQRCode() {
     setLoadingCodes(false)
   }
 
+  const loadConsent = async () => {
+    if (!user) return
+
+    setLoadingConsent(true)
+
+    const { data, error } = await supabase
+      .from('health_consents')
+      .select('id, created_at')
+      .eq('patient_id', user.id)
+      .eq('consent_type', 'share_health_data')
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (!error && data && data.length > 0) {
+      setHasConsent(true)
+    } else {
+      setHasConsent(false)
+    }
+
+    setLoadingConsent(false)
+  }
+
   const generateCode = async () => {
     if (!user) return
+
+    if (!hasConsent) {
+      toast.error('Antes de compartilhar, assine o consentimento digital.')
+      return
+    }
 
     setLoading(true)
 
@@ -237,10 +268,33 @@ export default function ShareQRCode() {
         </div>
       </div>
 
+      {!loadingConsent && !hasConsent && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <Shield className="w-5 h-5 text-yellow-700 mt-0.5" />
+            <div>
+              <p className="font-semibold text-yellow-900">
+                Consentimento digital necessário
+              </p>
+              <p className="text-sm text-yellow-700">
+                Para compartilhar seus dados de saúde com segurança, assine primeiro o TCLE digital.
+              </p>
+            </div>
+          </div>
+
+          <Link
+            to="/consent"
+            className="block w-full text-center py-3 rounded-xl bg-yellow-600 text-white font-semibold hover:bg-yellow-700 transition-colors"
+          >
+            Assinar Consentimento Digital
+          </Link>
+        </div>
+      )}
+
       {/* Generate Button */}
       <button
         onClick={generateCode}
-        disabled={loading || !Object.values(shareData).some(v => v)}
+        disabled={loading || loadingConsent || !hasConsent || !Object.values(shareData).some(v => v)}
         className="w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
       >
         {loading ? (
