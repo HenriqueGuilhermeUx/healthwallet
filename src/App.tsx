@@ -20,6 +20,7 @@ import Chat from '@/pages/Chat'
 import Terms from '@/pages/Terms'
 import Privacy from '@/pages/Privacy'
 import Consent from '@/pages/Consent'
+import AccessCode from '@/pages/AccessCode'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -68,6 +69,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/share" element={<ShareQRCode />} />
+          <Route path="/access/:code" element={<AccessCode />} />
 
           {/* Protected routes */}
           <Route
