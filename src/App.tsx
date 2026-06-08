@@ -19,6 +19,7 @@ import ReceivedDocuments from '@/pages/ReceivedDocuments'
 import Chat from '@/pages/Chat'
 import Terms from '@/pages/Terms'
 import Privacy from '@/pages/Privacy'
+import Consent from '@/pages/Consent'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -140,35 +141,37 @@ export default function App() {
             }
           />
           <Route
-            path="/profile"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <Profile />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/chat"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <Chat />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/documents"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <ReceivedDocuments />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
+  path="/profile"
+  element={
+    <ProtectedRoute>
+      <AppLayout>
+        <Profile />
+      </AppLayout>
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/consent"
+  element={
+    <ProtectedRoute>
+      <AppLayout>
+        <Consent />
+      </AppLayout>
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/chat"
+  element={
+    <ProtectedRoute>
+      <AppLayout>
+        <Chat />
+      </AppLayout>
+    </ProtectedRoute>
+  }
+/>
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
