@@ -3,6 +3,7 @@ import { QrCode, Copy, CheckCircle, Share2, Download, Mail, MessageCircle, Shiel
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
+import { QRCodeSVG } from 'qrcode.react'
 
 interface ShareData {
   profile: boolean
@@ -129,7 +130,7 @@ export default function ShareQRCode() {
 
   const getShareLink = () => {
     if (generatedCode) {
-      return `https://healthwallet.pro/access/${generatedCode.code}`
+      return `${window.location.origin}/access/${generatedCode.code}`
     }
     return ''
   }
@@ -360,8 +361,13 @@ export default function ShareQRCode() {
               {/* QR Code Tab */}
               {activeTab === 'qr' && (
                 <div className="text-center">
-                  <div className="w-48 h-48 bg-gray-100 rounded-xl mx-auto mb-4 flex items-center justify-center">
-                    <QrCode className="w-32 h-32 text-gray-800" />
+                  <div className="w-48 h-48 bg-white rounded-xl mx-auto mb-4 flex items-center justify-center p-4 border">
+                    <QRCodeSVG
+                      value={getShareLink() || generatedCode.code}
+                      size={160}
+                      level="M"
+                      includeMargin={true}
+                    />
                   </div>
                   <p className="text-sm text-gray-600 mb-4">
                     O profissional escaneia este QR Code ou digita o código manualmente
