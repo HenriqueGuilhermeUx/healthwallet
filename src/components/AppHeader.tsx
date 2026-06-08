@@ -32,12 +32,13 @@ export default function AppHeader() {
             <Stethoscope className="w-4 h-4 text-emerald-600" />
           </a>
 
-          <button
-            title="Nexa ID Beta"
-            className="w-9 h-9 rounded-xl border flex items-center justify-center hover:bg-blue-50 transition-colors"
-          >
-            <Shield className="w-4 h-4 text-blue-600" />
-          </button>
+          <Link
+  to="/consent"
+  title="Consentimento Digital"
+  className="w-9 h-9 rounded-xl border flex items-center justify-center hover:bg-blue-50 transition-colors"
+>
+  <Shield className="w-4 h-4 text-blue-600" />
+</Link>
 
           <button className="w-9 h-9 rounded-xl border flex items-center justify-center hover:bg-muted/50">
             <Bell className="w-4 h-4" />
