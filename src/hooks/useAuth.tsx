@@ -3,7 +3,7 @@ import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
 interface AuthContextType {
-  user: User | null
+  user: User | any | null
   session: Session | null
   loading: boolean
   signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>
@@ -21,18 +21,40 @@ const AuthContext = createContext<AuthContextType>({
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<User | any | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const loadAuth = async () => {
+      const nexaUser = localStorage.getItem('healthwallet_nexa_user')
+
+      if (nexaUser) {
+        setUser(JSON.parse(nexaUser))
+        setSession(null)
+        setLoading(false)
+        return
+      }
+
+      const { data: { session } } = await supabase.auth.getSession()
+
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
-    })
+    }
+
+    loadAuth()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const nexaUser = localStorage.getItem('healthwallet_nexa_user')
+
+      if (nexaUser) {
+        setUser(JSON.parse(nexaUser))
+        setSession(null)
+        setLoading(false)
+        return
+      }
+
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
@@ -42,14 +64,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const signInWithEmail = async (email: string, password: string) => {
+    localStorage.removeItem('healthwallet_nexa_user')
+    localStorage.removeItem('healthwallet_nexa_token')
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
+
     return { error: error as Error | null }
   }
 
   const signUpWithEmail = async (email: string, password: string, name: string) => {
+    localStorage.removeItem('healthwallet_nexa_user')
+    localStorage.removeItem('healthwallet_nexa_token')
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -59,12 +88,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
       },
     })
+
     return { error: error as Error | null }
   }
 
   const signOut = async () => {
+    localStorage.removeItem('healthwallet_nexa_user')
+    localStorage.removeItem('healthwallet_nexa_token')
+
     const { error } = await supabase.auth.signOut()
     if (error) console.error('Error signing out:', error)
+
+    setUser(null)
+    setSession(null)
   }
 
   return (
