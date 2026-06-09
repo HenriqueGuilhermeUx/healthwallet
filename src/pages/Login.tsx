@@ -1,19 +1,58 @@
-import { useState } from 'react'
-import { Heart, Loader2, Eye, EyeOff } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Heart, Loader2, Eye, EyeOff, ShieldCheck } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { Link } from 'react-router-dom'
 
+const NEXA_API_URL = 'https://nexa-backend-p2u0.onrender.com/api/v1'
 export default function Login() {
   const { user, loading: authLoading, signInWithEmail, signUpWithEmail } = useAuth()
   const [isSignUp, setIsSignUp] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
+const [nexaLoading, setNexaLoading] = useState(false)
+const [error, setError] = useState('')
+const [showPassword, setShowPassword] = useState(false)
 
   // Form states
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
+
+  useEffect(() => {
+  const params = new URLSearchParams(window.location.search)
+  const nexaToken = params.get('nexaToken')
+
+  if (nexaToken) {
+    loginWithNexaToken(nexaToken)
+  }
+}, [])
+
+const loginWithNexaToken = async (nexaToken: string) => {
+  setNexaLoading(true)
+  setError('')
+
+  try {
+    const response = await fetch(`${NEXA_API_URL}/nexa-id/validate/${nexaToken}`)
+    const data = await response.json()
+
+    if (!data.success || !data.user) {
+      setError('Token Nexa ID inválido ou expirado')
+      return
+    }
+
+    localStorage.setItem('healthwallet_nexa_user', JSON.stringify(data.user))
+    localStorage.setItem('healthwallet_nexa_token', nexaToken)
+
+    window.location.href = '/dashboard'
+  } catch (err) {
+    setError('Erro ao entrar com Nexa ID')
+  } finally {
+    setNexaLoading(false)
+  }
+}
+
+const handleNexaLogin = () => {
+  setError('Abra o HealthWallet pelo app Nexa para entrar automaticamente com Nexa ID.')
+}
 
   // Se já está logado, redireciona
   if (user) {
@@ -83,6 +122,26 @@ export default function Login() {
               : 'Entre para acessar sua carteira de saúde digital'
             }
           </p>
+
+          <button
+  type="button"
+  onClick={handleNexaLogin}
+  disabled={nexaLoading}
+  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-4"
+>
+  {nexaLoading ? (
+    <Loader2 className="w-5 h-5 animate-spin" />
+  ) : (
+    <ShieldCheck className="w-5 h-5" />
+  )}
+  <span>{nexaLoading ? 'Validando Nexa ID...' : 'Entrar com Nexa ID'}</span>
+</button>
+
+<div className="flex items-center gap-3 mb-5">
+  <div className="h-px bg-gray-200 flex-1" />
+  <span className="text-xs text-gray-400 font-medium">ou entre com e-mail</span>
+  <div className="h-px bg-gray-200 flex-1" />
+</div>
 
           {/* Error message */}
           {error && (
