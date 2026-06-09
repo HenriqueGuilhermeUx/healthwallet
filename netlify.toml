@@ -12,8 +12,3 @@
   from = "/api/analyze-exam"
   to = "/.netlify/functions/analyze-exam"
   status = 200
-
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
