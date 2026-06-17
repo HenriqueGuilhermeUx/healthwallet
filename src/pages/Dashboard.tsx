@@ -320,11 +320,31 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <div>
         <h2 className="text-sm font-semibold mb-3">Ações Rápidas</h2>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <QuickAction icon={Camera} label="Exame" color="bg-violet-600" href="/upload" />
           <QuickAction icon={Brain} label="IA" color="bg-purple-600" href="/translator" />
           <QuickAction icon={MessageCircle} label="Chat" color="bg-blue-600" href="/chat" />
           <QuickAction icon={QrCode} label="QR Code" color="bg-teal-600" href="/wallet" />
+          <QuickAction
+  icon={FileText}
+  label="Resumo"
+  color="bg-emerald-600"
+  href="/summary"
+/>
+
+<QuickAction
+  icon={Calendar}
+  label="Timeline"
+  color="bg-indigo-600"
+  href="/timeline"
+/>
+
+<QuickAction
+  icon={Shield}
+  label="Passport"
+  color="bg-red-600"
+  href="/passport"
+/>
         </div>
       </div>
 
