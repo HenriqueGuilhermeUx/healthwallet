@@ -47,7 +47,9 @@ export default function Dashboard() {
 
     try {
       // Verificar se onboarding foi completado
-      const profileData = localStorage.getItem(`healthwallet_profile_${user.id}`)
+      const profileData =
+  localStorage.getItem(`healthwallet_profile_${user.id}`) ||
+  localStorage.getItem('healthwallet_profile')
 
       // Verificar se acabou de fazer onboarding
       const onboardingCompleted = localStorage.getItem(`healthwallet_onboarding_completed_${user.id}`)
