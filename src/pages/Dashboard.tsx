@@ -174,11 +174,27 @@ if (recordsText.includes('hemograma')) {
       else if (score >= 70) { level = 'Bom'; levelColor = 'teal' }
       else if (score >= 50) { level = 'Regular'; levelColor = 'yellow' }
 
+      const finalScore = Math.max(0, Math.min(100, score))
+const finalConfidence = Math.max(0, Math.min(100, confidence))
+
+await supabase.from('health_scores').insert({
+  user_id: user.id,
+  score: finalScore,
+  status: level,
+  factors: {
+    confidence: finalConfidence,
+    levelColor,
+    missingExams,
+    calculatedFrom: ['profile', 'lifestyle', 'exams', 'conditions'],
+  },
+  calculated_at: new Date().toISOString(),
+})
+
       setMedScore({
-        score: Math.min(100, score),
+        score: finalScore,
         level,
         levelColor,
-        confidence: Math.min(100, confidence),
+        confidence: finalConfidence,
         breakdown: [
   { category: 'Perfil', score: profile.bloodType ? 90 : 60, icon: '👤' },
   { category: 'Estilo', score: profile.physicalActivity ? 75 : 50, icon: '🏃' },
