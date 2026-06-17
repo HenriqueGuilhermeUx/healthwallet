@@ -66,12 +66,14 @@ export default function Dashboard() {
       const profile = JSON.parse(profileData)
 
       // Carregar dados do Supabase
-      const [examsRes, medsRes, cardsRes, familyRes] = await Promise.all([
-        supabase.from('medical_records').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('medications').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_active', true),
-        supabase.from('health_plans').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('family_members').select('*', { count: 'exact', head: true }).eq('user_id', user.id)
-      ])
+      const [examsRes, medsRes, cardsRes, familyRes, conditionsRes, recordsFullRes] = await Promise.all([
+  supabase.from('medical_records').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+  supabase.from('medications').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_active', true),
+  supabase.from('health_plans').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+  supabase.from('family_members').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+  supabase.from('patient_conditions').select('*').eq('user_id', user.id),
+  supabase.from('medical_records').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
+])
 
       setStats({
         exams: examsRes.count || 0,
@@ -110,6 +112,51 @@ export default function Dashboard() {
         score += 10
       }
 
+      if (profile.bloodType) {
+  confidence += 5
+  score += 2
+}
+
+if (profile.bloodPressure || profile.systolicPressure || profile.diastolicPressure) {
+  confidence += 5
+  score += 2
+}
+
+if (conditionsRes.data && conditionsRes.data.length > 0) {
+  confidence += 10
+  score -= Math.min(10, conditionsRes.data.length * 3)
+}
+
+const recordsText = JSON.stringify(recordsFullRes.data || []).toLowerCase()
+
+if (recordsText.includes('glicemia')) {
+  confidence += 5
+  if (
+    recordsText.includes('normal') ||
+    recordsText.includes('85') ||
+    recordsText.includes('90') ||
+    recordsText.includes('95')
+  ) {
+    score += 3
+  }
+}
+
+if (recordsText.includes('ldl') || recordsText.includes('colesterol')) {
+  confidence += 5
+  if (
+    recordsText.includes('normal') ||
+    recordsText.includes('baixo risco') ||
+    recordsText.includes('desejável')
+  ) {
+    score += 3
+  }
+}
+
+if (recordsText.includes('hemograma')) {
+  confidence += 5
+  score += 2
+}
+
       // Missing exams
       const missingExams: string[] = []
       if (!examsRes.count || examsRes.count === 0) {
@@ -133,10 +180,11 @@ export default function Dashboard() {
         levelColor,
         confidence: Math.min(100, confidence),
         breakdown: [
-          { category: 'Perfil', score: 85, icon: '👤' },
-          { category: 'Estilo', score: 70, icon: '🏃' },
-          { category: 'Exames', score: examsRes.count && examsRes.count > 0 ? 80 : 40, icon: '🔬' },
-        ],
+  { category: 'Perfil', score: profile.bloodType ? 90 : 60, icon: '👤' },
+  { category: 'Estilo', score: profile.physicalActivity ? 75 : 50, icon: '🏃' },
+  { category: 'Exames', score: examsRes.count && examsRes.count > 0 ? 80 : 40, icon: '🔬' },
+  { category: 'Condições', score: conditionsRes.data?.length ? 60 : 90, icon: '🩺' },
+],
         missingExams
       })
     } catch (error) {
