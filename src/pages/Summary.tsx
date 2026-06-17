@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { createProfessionalShare } from '@/services/shareAccess'
+import { useAuth } from '@/hooks/useAuth'
 
 export default function Summary() {
+  const { user } = useAuth()
   const [summary, setSummary] = useState<any>(null)
 
   useEffect(() => {
@@ -25,10 +28,29 @@ export default function Summary() {
       </h1>
 
       <div className="bg-white rounded-xl border p-4">
-        <pre className="whitespace-pre-wrap">
-          {summary?.summary || 'Nenhum resumo disponível'}
-        </pre>
-      </div>
+
+  <pre className="whitespace-pre-wrap">
+    {summary?.summary || 'Nenhum resumo disponível'}
+  </pre>
+
+  <button
+    onClick={async () => {
+
+      if (!user) return
+
+      const share =
+        await createProfessionalShare(user.id)
+
+      alert(
+        `Código para o profissional: ${share.access_code}`
+      )
+    }}
+    className="mt-4 w-full bg-emerald-600 text-white py-3 rounded-xl font-medium"
+  >
+    Compartilhar com Profissional
+  </button>
+
+</div>
     </div>
   )
 }
