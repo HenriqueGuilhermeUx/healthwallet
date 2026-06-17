@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Pill, Plus, Clock, CheckCircle, Trash2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import { createMedicalEvent } from '@/services/medicalTimeline'
 
 interface Medication {
   id: string
@@ -44,21 +45,41 @@ export default function Medications() {
   }
 
   const handleAddMedication = async () => {
-    if (!user || !formData.name) return
+  if (!user || !formData.name) return
 
-    try {
-      await supabase.from('medications').insert({
+  try {
+    const { data, error } = await supabase
+      .from('medications')
+      .insert({
         user_id: user.id,
         ...formData,
         is_active: true,
       })
-      setShowAddForm(false)
-      setFormData({ name: '', dosage: '', frequency: '' })
-      loadMedications()
-    } catch (error) {
-      console.error('Error adding medication:', error)
-    }
+      .select()
+      .single()
+
+    if (error) throw error
+
+    await createMedicalEvent({
+      userId: user.id,
+      type: 'medication',
+      title: 'Medicamento cadastrado',
+      description: `${formData.name} ${formData.dosage || ''} adicionado ao HealthWallet.`,
+    })
+
+    setShowAddForm(false)
+
+    setFormData({
+      name: '',
+      dosage: '',
+      frequency: '',
+    })
+
+    loadMedications()
+  } catch (error) {
+    console.error('Error adding medication:', error)
   }
+}
 
   const handleToggleActive = async (id: string, currentStatus: boolean) => {
     await supabase.from('medications').update({ is_active: !currentStatus }).eq('id', id)
