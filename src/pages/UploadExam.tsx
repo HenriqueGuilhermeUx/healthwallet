@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { Upload, Camera, FileText, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import { createMedicalEvent } from '@/services/medicalTimeline'
 
 export default function UploadExam() {
   const { user } = useAuth()
@@ -45,22 +46,28 @@ export default function UploadExam() {
 
       // Salvar registro no banco
       const { data: record, error: dbError } = await supabase
-        .from('medical_records')
-        .insert({
-          user_id: user.id,
-          file_url: publicUrl,
-          file_name: file.name,
-          exam_type: 'Exame',
-          status: 'pending',
-        })
-        .select()
-        .single()
+  .from('medical_records')
+  .insert({
+    user_id: user.id,
+    file_url: publicUrl,
+    file_name: file.name,
+    exam_type: 'Exame',
+    status: 'pending',
+  })
+  .select()
+  .single()
 
-      if (dbError) throw dbError
+if (dbError) throw dbError
 
-      setUploadedFile({ name: file.name, id: record.id })
-      setProcessing(true)
+await createMedicalEvent({
+  userId: user.id,
+  type: 'exam',
+  title: 'Exame enviado',
+  description: `${file.name} enviado para análise`,
+})
 
+setUploadedFile({ name: file.name, id: record.id })
+setProcessing(true)
       // Simular processamento de IA (em produção, chamaria a API de IA)
       setTimeout(() => {
         setProcessing(false)
