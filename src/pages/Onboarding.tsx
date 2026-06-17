@@ -158,7 +158,7 @@ localStorage.setItem(
       localStorage.setItem(`healthwallet_onboarding_completed_${user.id}`, 'true')
 
       // Redirecionar para dashboard
-      window.location.href = '/upload'
+      window.location.href = '/dashboard'
     } catch (err) {
       console.error('Erro:', err)
     } finally {
