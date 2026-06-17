@@ -125,6 +125,28 @@ export default function Onboarding() {
 
       if (error) console.error('Erro ao salvar perfil:', error)
 
+      const localProfileData = {
+  ...data,
+  fullName:
+    user.user_metadata?.full_name ||
+    user.user_metadata?.name ||
+    user.email?.split('@')[0] ||
+    'Usuário',
+  medScore: baseScore,
+  bmi,
+  createdAt: new Date().toISOString(),
+}
+
+localStorage.setItem(
+  `healthwallet_profile_${user.id}`,
+  JSON.stringify(localProfileData)
+)
+
+localStorage.setItem(
+  'healthwallet_profile',
+  JSON.stringify(localProfileData)
+)
+
       // Salvar MedScore no localStorage também (para referência rápida)
       localStorage.setItem(`healthwallet_medscore_${user.id}`, JSON.stringify({
         medScore: baseScore,
@@ -136,7 +158,7 @@ export default function Onboarding() {
       localStorage.setItem(`healthwallet_onboarding_completed_${user.id}`, 'true')
 
       // Redirecionar para dashboard
-      window.location.href = '/dashboard'
+      window.location.href = '/upload'
     } catch (err) {
       console.error('Erro:', err)
     } finally {
@@ -586,7 +608,7 @@ export default function Onboarding() {
         {/* Skip option */}
         {currentStep === STEPS.length && (
           <button
-            onClick={() => window.location.href = '/dashboard'}
+            onClick={saveAndFinish}
             className="w-full mt-4 text-center text-sm text-gray-500 hover:text-gray-700"
           >
             Pular por agora e fazer depois
