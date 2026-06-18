@@ -91,7 +91,7 @@ await supabase
   .from('medical_records')
   .update({
     status: 'processed',
-    ai_analysis: analysis.summary,
+    ai_analysis: analysis.summary || '',
     ai_result: analysis,
     extracted_text: analysis.extractedText || null,
     analyzed_at: new Date().toISOString(),
@@ -206,7 +206,7 @@ setResult(analysis)
           <div>
             <p className="text-sm font-medium mb-2">Resultado da análise:</p>
             <div className="space-y-2">
-              {result.items.map((item: any, idx: number) => (
+              {(result.items || []).map((item: any, idx: number) => (
                 <div
                   key={idx}
                   className={`p-3 rounded-lg border ${
