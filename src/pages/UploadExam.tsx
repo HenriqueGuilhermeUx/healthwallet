@@ -81,12 +81,26 @@ setProcessing(true)
   }),
 })
 
-const analysis = await response.json()
+let analysis: any = null
 
-if (!response.ok) {
-  throw new Error(analysis.error || 'Erro ao analisar exame')
+try {
+  analysis = await response.json()
+} catch {
+  analysis = null
 }
 
+if (!response.ok || !analysis) {
+  analysis = {
+    summary:
+      'Exame recebido com sucesso. A análise automática ainda não conseguiu interpretar este arquivo, mas ele foi salvo no seu cofre de saúde.',
+    items: [],
+    nextSteps: [
+      'Tente enviar uma foto mais nítida ou PDF com texto selecionável.',
+      'Leve o exame para avaliação de um profissional de saúde.',
+    ],
+    extractedText: 'Falha temporária na análise automática.',
+  }
+}
 await supabase
   .from('medical_records')
   .update({
