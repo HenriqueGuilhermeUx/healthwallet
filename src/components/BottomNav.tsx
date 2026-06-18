@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom'
 const navItems = [
   { icon: Home, label: 'Início', path: '/dashboard' },
   { icon: FileText, label: 'Exames', path: '/exams' },
-  { icon: Mail, label: 'Docs', path: '/documents' },
+  { icon: Mail, label: 'Receitas', path: '/documents' },
   { icon: User, label: 'Perfil', path: '/profile' },
 ]
 
