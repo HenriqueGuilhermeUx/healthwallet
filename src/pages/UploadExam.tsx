@@ -98,10 +98,17 @@ if (!response.ok || !analysis) {
       'Tente enviar uma foto mais nítida ou PDF com texto selecionável.',
       'Leve o exame para avaliação de um profissional de saúde.',
     ],
-    extractedText: analysis?.error || 'Falha temporária na análise automática.',
+    extractedText:
+      analysis?.error ||
+      analysis?.extractedText ||
+      `Falha na Function analyze-exam. HTTP status: ${response.status}`,
+    error:
+      analysis?.error ||
+      analysis?.extractedText ||
+      `Falha na Function analyze-exam. HTTP status: ${response.status}`,
   }
 }
-await supabase
+   await supabase
   .from('medical_records')
   .update({
     status: 'processed',
