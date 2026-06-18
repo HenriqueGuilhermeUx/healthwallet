@@ -264,11 +264,45 @@ setResult(analysis)
           </div>
 
           <a
-            href="/exams"
-            className="block w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold text-center hover:bg-emerald-700 transition-colors"
-          >
-            Ver meus exames
-          </a>
+            {result.summary && (
+  <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
+    <p className="font-semibold text-blue-900 mb-2">
+      Comentário da IA
+    </p>
+
+    <p className="text-sm text-blue-800">
+      {result.summary}
+    </p>
+  </div>
+)}
+
+{result.nextSteps?.length > 0 && (
+  <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
+    <p className="font-semibold text-amber-900 mb-2">
+      Próximos passos
+    </p>
+
+    <ul className="text-sm text-amber-800 space-y-1">
+      {result.nextSteps.map((step: string, idx: number) => (
+        <li key={idx}>• {step}</li>
+      ))}
+    </ul>
+  </div>
+)}
+
+<a
+  href={`/chat?context=exam&examId=${uploadedFile?.id}`}
+  className="block w-full py-3 rounded-xl bg-purple-600 text-white font-semibold text-center hover:bg-purple-700 transition-colors"
+>
+  Conversar sobre este exame
+</a>
+
+<a
+  href="/exams"
+  className="block w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold text-center hover:bg-emerald-700 transition-colors"
+>
+  Ver meus exames
+</a>
         </div>
       )}
 
