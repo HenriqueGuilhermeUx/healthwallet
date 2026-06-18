@@ -16,20 +16,49 @@ export default function Passport() {
   }, [user])
 
   async function load() {
-    if (!user) return
+  if (!user) return
 
-    const profileRaw = localStorage.getItem(`healthwallet_profile_${user.id}`)
-    setProfile(profileRaw ? JSON.parse(profileRaw) : {})
+  const profileRaw =
+    localStorage.getItem(`healthwallet_profile_${user.id}`) ||
+    localStorage.getItem('healthwallet_profile')
 
-    const [medsRes, conditionsRes] = await Promise.all([
-      supabase.from('medications').select('*').eq('user_id', user.id),
-      supabase.from('patient_conditions').select('*').eq('user_id', user.id),
-    ])
+  let localProfile = profileRaw ? JSON.parse(profileRaw) : {}
 
-    setMedications(medsRes.data || [])
-    setConditions(conditionsRes.data || [])
+  const { data: dbProfile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (dbProfile) {
+    localProfile = {
+      ...localProfile,
+      fullName:
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        user.email?.split('@')[0],
+      birthDate: dbProfile.birth_date,
+      gender: dbProfile.gender,
+      bloodType: dbProfile.blood_type,
+      weight: dbProfile.weight,
+      height: dbProfile.height,
+      allergies: dbProfile.allergies,
+      chronicConditions: dbProfile.chronic_conditions,
+      currentMedications: dbProfile.current_medications,
+      medScore: dbProfile.med_score,
+    }
   }
 
+  setProfile(localProfile)
+
+  const [medsRes, conditionsRes] = await Promise.all([
+    supabase.from('medications').select('*').eq('user_id', user.id),
+    supabase.from('patient_conditions').select('*').eq('user_id', user.id),
+  ])
+
+  setMedications(medsRes.data || [])
+  setConditions(conditionsRes.data || [])
+}
   async function generateEmergencyCode() {
     if (!user) return
     const share = await createProfessionalShare(user.id)
