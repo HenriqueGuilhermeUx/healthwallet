@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Shield, Pill, AlertTriangle, Phone, QrCode, CreditCard, Copy, Check } from 'lucide-react'
+import {
+  Shield,
+  Pill,
+  AlertTriangle,
+  Phone,
+  QrCode,
+  CreditCard,
+  Copy,
+  Check,
+  Siren,
+  HeartPulse,
+} from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { createProfessionalShare } from '@/services/shareAccess'
@@ -44,6 +55,10 @@ export default function Passport() {
         currentMedications: dbProfile.current_medications,
         familyHistory: dbProfile.family_history,
         medScore: dbProfile.med_score,
+        surgeries: dbProfile.surgeries,
+        emergencyContactName: dbProfile.emergency_contact_name,
+        emergencyContactPhone: dbProfile.emergency_contact_phone,
+        emergencyContactRelationship: dbProfile.emergency_contact_relationship,
       })
     }
 
@@ -98,6 +113,38 @@ export default function Passport() {
         </div>
       </div>
 
+      <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Siren className="w-5 h-5 text-red-600" />
+          <h2 className="font-bold text-red-700">Contato de Emergência</h2>
+        </div>
+
+        {profile.emergencyContactName ? (
+          <div className="space-y-1 text-sm">
+            <p><strong>Nome:</strong> {profile.emergencyContactName}</p>
+            <p><strong>Telefone:</strong> {profile.emergencyContactPhone || 'Não informado'}</p>
+            <p><strong>Parentesco:</strong> {profile.emergencyContactRelationship || 'Não informado'}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">Nenhum contato cadastrado.</p>
+        )}
+      </div>
+
+      <div className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <HeartPulse className="w-5 h-5 text-blue-600" />
+          <h2 className="font-bold text-blue-700">Resumo de Emergência</h2>
+        </div>
+
+        <ul className="space-y-2 text-sm">
+          <li><strong>Tipo sanguíneo:</strong> {profile.bloodType || 'Não informado'}</li>
+          <li><strong>Alergias:</strong> {allergies.length > 0 ? allergies.join(', ') : 'Nenhuma informada'}</li>
+          <li><strong>Condições:</strong> {profile.chronicConditions || 'Nenhuma informada'}</li>
+          <li><strong>Medicamentos:</strong> {profile.currentMedications || 'Nenhum informado'}</li>
+          <li><strong>Cirurgias:</strong> {profile.surgeries || 'Nenhuma informada'}</li>
+        </ul>
+      </div>
+
       <div className="mt-4 bg-white rounded-xl border p-4">
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle className="w-5 h-5 text-red-600" />
@@ -150,6 +197,19 @@ export default function Passport() {
           <p className="text-sm text-gray-700">{profile.chronicConditions}</p>
         ) : (
           <p className="text-sm text-gray-500">Nenhuma condição cadastrada.</p>
+        )}
+      </div>
+
+      <div className="mt-4 bg-white rounded-xl border p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Shield className="w-5 h-5 text-indigo-600" />
+          <h2 className="font-bold">Cirurgias e Internações</h2>
+        </div>
+
+        {profile.surgeries ? (
+          <p className="text-sm text-gray-700">{profile.surgeries}</p>
+        ) : (
+          <p className="text-sm text-gray-500">Nenhuma cirurgia cadastrada.</p>
         )}
       </div>
 
