@@ -119,13 +119,14 @@ setProcessing(true)
             : 'border-border hover:border-emerald-500 hover:bg-muted/50'
         }`}
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,.pdf"
-          onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-          className="hidden"
-        />
+       <input
+  ref={fileInputRef}
+  type="file"
+  accept="image/*,.pdf"
+  capture="environment"
+  onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+  className="hidden"
+/>
 
         {uploading ? (
           <div className="flex flex-col items-center gap-3">
@@ -144,6 +145,14 @@ setProcessing(true)
           </>
         )}
       </div>
+
+      <button
+  onClick={() => fileInputRef.current?.click()}
+  className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold flex items-center justify-center gap-2"
+>
+  <Camera className="w-5 h-5" />
+  Fotografar exame
+</button>
 
       {/* Error */}
       {error && (
