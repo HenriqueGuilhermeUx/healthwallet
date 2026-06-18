@@ -52,7 +52,7 @@ export default function UploadExam() {
     file_url: publicUrl,
     file_name: file.name,
     exam_type: 'Exame',
-    status: 'pending',
+    status: 'uploaded',
   })
   .select()
   .single()
@@ -237,10 +237,10 @@ setResult(analysis)
           </div>
 
           <a
-            href="/translator"
+            href="/exams"
             className="block w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold text-center hover:bg-emerald-700 transition-colors"
           >
-            Ver análise completa
+            Ver meus exames
           </a>
         </div>
       )}
