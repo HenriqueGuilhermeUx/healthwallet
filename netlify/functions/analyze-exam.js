@@ -77,11 +77,6 @@ Arquivo: ${fileName || 'exame'}
             ],
           },
         ],
-        text: {
-          format: {
-            type: 'json_object',
-          },
-        },
       }),
     })
 
@@ -120,7 +115,8 @@ Arquivo: ${fileName || 'exame'}
         summary: parsed.summary || 'Exame recebido e analisado.',
         items: Array.isArray(parsed.items) ? parsed.items : [],
         nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
-        extractedText: parsed.extractedText || '',
+        extractedText: parsed.extractedText || parsed.error || '',
+        error: parsed.error || null,
       }),
     }
   } catch (error: any) {
@@ -141,5 +137,6 @@ function fallbackAnalysis(reason: string) {
       'Leve o exame para avaliação de um profissional de saúde.',
     ],
     extractedText: reason,
+    error: reason,
   }
 }
