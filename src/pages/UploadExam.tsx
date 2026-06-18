@@ -98,7 +98,7 @@ if (!response.ok || !analysis) {
       'Tente enviar uma foto mais nítida ou PDF com texto selecionável.',
       'Leve o exame para avaliação de um profissional de saúde.',
     ],
-    extractedText: 'Falha temporária na análise automática.',
+    extractedText: analysis?.error || 'Falha temporária na análise automática.',
   }
 }
 await supabase
