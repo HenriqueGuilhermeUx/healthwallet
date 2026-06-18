@@ -211,7 +211,7 @@ export default function HealthWallet() {
       {/* Add Form Modal */}
       {showAddForm && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
-          <div className="bg-background rounded-2xl w-full max-w-md overflow-hidden">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-xl">
             <div className="p-4 border-b flex items-center justify-between">
               <h2 className="font-bold">Adicionar Carteirinha</h2>
               <button onClick={() => setShowAddForm(false)} className="text-muted-foreground">
@@ -224,7 +224,7 @@ export default function HealthWallet() {
                 <select
                   value={formData.plan_type}
                   onChange={(e) => setFormData({ ...formData, plan_type: e.target.value as 'private' | 'sus' })}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-900"
                 >
                   <option value="private">Plano de Saúde</option>
                   <option value="sus">SUS</option>
@@ -238,7 +238,7 @@ export default function HealthWallet() {
                   value={formData.plan_name}
                   onChange={(e) => setFormData({ ...formData, plan_name: e.target.value })}
                   placeholder={formData.plan_type === 'sus' ? 'SUS' : 'Ex: Amil, Bradesco Saúde...'}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-900"
                 />
               </div>
 
@@ -250,7 +250,7 @@ export default function HealthWallet() {
                     value={formData.operator_name}
                     onChange={(e) => setFormData({ ...formData, operator_name: e.target.value })}
                     placeholder="Nome da operadora"
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-900"
                   />
                 </div>
               )}
@@ -272,7 +272,7 @@ export default function HealthWallet() {
                   type="text"
                   value={formData.beneficiary_name}
                   onChange={(e) => setFormData({ ...formData, beneficiary_name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-900"
                 />
               </div>
 
@@ -283,7 +283,7 @@ export default function HealthWallet() {
                   value={formData.validity}
                   onChange={(e) => setFormData({ ...formData, validity: e.target.value })}
                   placeholder="MM/AA"
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-900"
                 />
               </div>
 
