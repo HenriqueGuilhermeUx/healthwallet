@@ -112,6 +112,9 @@ if (!response.ok || !analysis) {
   .from('medical_records')
   .update({
     status: 'processed',
+    exam_type: analysis.examType || 'Exame',
+    exam_date: analysis.examDate || null,
+    laboratory: analysis.laboratory || null,
     ai_analysis: analysis.summary || '',
     ai_result: analysis,
     extracted_text: analysis.extractedText || null,
