@@ -58,12 +58,21 @@ export default function Chat() {
 
     const params = new URLSearchParams(window.location.search)
     const mode = params.get('context')
+    const examId = params.get('examId')
+const selectedExam = examId
+  ? ctx.exams.find((exam: any) => exam.id === examId)
+  : null
 
     setMessages([
       {
         id: 'welcome',
         role: 'assistant',
-        content: mode === 'score' ? buildScoreOpening(ctx) : buildDefaultOpening(ctx),
+        content:
+  mode === 'exam' && selectedExam
+    ? buildExamOpening(ctx, selectedExam)
+    : mode === 'score'
+      ? buildScoreOpening(ctx)
+      : buildDefaultOpening(ctx),
         timestamp: new Date(),
       },
     ])
@@ -110,7 +119,7 @@ export default function Chat() {
   ]
 
   return (
-    <div className="space-y-4 pb-20">
+    <div className="space-y-4 pb-40">
       <div className="flex items-center gap-3 mb-4">
         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
           <Bot className="w-6 h-6 text-white" />
@@ -386,6 +395,44 @@ function formatMissingExams(profile: any, examsText: string) {
   if (!missing.length) return '- Nenhum exame básico pendente identificado no momento.'
 
   return missing.map((m) => `- ${m}`).join('\n')
+}
+
+function buildExamOpening(ctx: any, exam: any) {
+  const p = ctx?.profile || {}
+  const result = exam.ai_result || {}
+  const items = Array.isArray(result.items) ? result.items : []
+
+  const itemsText = items.length
+    ? items
+        .map((item: any) => {
+          return `- ${item.name}: ${item.value} | Ref: ${item.reference || 'não informada'} | Status: ${item.status}`
+        })
+        .join('\n')
+    : 'A IA ainda não conseguiu extrair marcadores estruturados deste arquivo.'
+
+  return `Analisei este exame:
+
+Arquivo: ${exam.file_name || 'Exame'}
+Status: ${exam.status || 'não informado'}
+
+Resumo da IA:
+${exam.ai_analysis || result.summary || 'Resumo não disponível.'}
+
+Marcadores encontrados:
+${itemsText}
+
+Contexto do seu perfil:
+- Peso: ${p.weight ? `${p.weight} kg` : 'não informado'}
+- Altura: ${p.height ? `${p.height} cm` : 'não informado'}
+- Tipo sanguíneo: ${p.blood_type || 'não informado'}
+- Atividade física: ${translate(p.physical_activity)}
+- Tabagismo: ${translate(p.smoking_status)}
+- Álcool: ${translate(p.alcohol_consumption)}
+- Sono: ${p.sleep_hours ? `${p.sleep_hours}h/noite` : 'não informado'}
+- Condições: ${p.chronic_conditions || 'não informado'}
+- Medicamentos: ${p.current_medications || 'não informado'}
+
+Pode me perguntar qualquer coisa sobre este exame.`
 }
 
 function translate(value: any) {
