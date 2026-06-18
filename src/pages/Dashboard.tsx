@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { calculateMedScore } from '@/services/calculateMedScore'
 
 interface MedScore {
   score: number
@@ -116,136 +117,29 @@ if (profileData) {
         family: familyRes.count || 0
       })
 
-      // Calcular MedScore baseado nos dados
-      let score = profile.medScore || 50
-      let confidence = 30
-
-      if (profile.weight && profile.height) {
-        confidence += 15
-        const bmi = parseFloat(profile.weight) / Math.pow(parseInt(profile.height) / 100, 2)
-        if (bmi >= 18.5 && bmi < 25) score += 5
-      }
-
-      if (profile.physicalActivity) {
-        confidence += 10
-        if (profile.physicalActivity === 'moderate' || profile.physicalActivity === 'active') score += 5
-      }
-
-      if (profile.sleepHours) {
-        confidence += 10
-        if (parseInt(profile.sleepHours) >= 6 && parseInt(profile.sleepHours) <= 9) score += 5
-      }
-
-      if (profile.smokingStatus === 'never') {
-        confidence += 10
-        score += 5
-      }
-
-      if (examsRes.count && examsRes.count > 0) {
-        confidence += 15
-        score += 10
-      }
-
-      if (profile.bloodType) {
-  confidence += 5
-  score += 2
-}
-
-if (profile.bloodPressure || profile.systolicPressure || profile.diastolicPressure) {
-  confidence += 5
-  score += 2
-}
-
-if (conditionsRes.data && conditionsRes.data.length > 0) {
-  confidence += 10
-  score -= Math.min(10, conditionsRes.data.length * 3)
-}
-
-const recordsText = JSON.stringify(recordsFullRes.data || []).toLowerCase()
-
-if (recordsText.includes('glicemia')) {
-  confidence += 5
-  if (
-    recordsText.includes('normal') ||
-    recordsText.includes('85') ||
-    recordsText.includes('90') ||
-    recordsText.includes('95')
-  ) {
-    score += 3
-  }
-}
-
-if (recordsText.includes('ldl') || recordsText.includes('colesterol')) {
-  confidence += 5
-  if (
-    recordsText.includes('normal') ||
-    recordsText.includes('baixo risco') ||
-    recordsText.includes('desejável')
-  ) {
-    score += 3
-  }
-}
-
-if (recordsText.includes('hemograma')) {
-  confidence += 5
-  score += 2
-}
-
-      // Missing exams
-      const missingExams: string[] = []
-      if (!examsRes.count || examsRes.count === 0) {
-        missingExams.push('Hemograma Completo')
-        missingExams.push('Perfil Lipídico')
-      }
-      const hasBloodType =
-  !!profile.bloodType ||
-  !!profile.blood_type ||
-  recordsText.includes('tipagem') ||
-  recordsText.includes('sanguínea') ||
-  recordsText.includes('sanguinea') ||
-  recordsText.includes('abo') ||
-  recordsText.includes('rh')
-
-if (!hasBloodType) {
-  missingExams.push('Tipagem Sanguínea')
-}
-
-      // Determine level
-      let level = 'Atenção'
-      let levelColor = 'red'
-      if (score >= 85) { level = 'Excelente'; levelColor = 'emerald' }
-      else if (score >= 70) { level = 'Bom'; levelColor = 'teal' }
-      else if (score >= 50) { level = 'Regular'; levelColor = 'yellow' }
-
-      const finalScore = Math.max(0, Math.min(100, score))
-const finalConfidence = Math.max(0, Math.min(100, confidence))
+const calculated = calculateMedScore(
+  profile,
+  recordsFullRes.data || [],
+  conditionsRes.data || []
+)
 
 await supabase.from('health_scores').insert({
   user_id: user.id,
-  score: finalScore,
-  status: level,
+  score: calculated.score,
+  status: calculated.level,
   factors: {
-    confidence: finalConfidence,
-    levelColor,
-    missingExams,
-    calculatedFrom: ['profile', 'lifestyle', 'exams', 'conditions'],
+    confidence: calculated.confidence,
+    levelColor: calculated.levelColor,
+    missingExams: calculated.missingExams,
+    alerts: calculated.alerts,
+    breakdown: calculated.breakdown,
+    calculatedFrom: ['profile', 'lifestyle', 'real_exams', 'conditions'],
   },
   calculated_at: new Date().toISOString(),
 })
-
-      setMedScore({
-        score: finalScore,
-        level,
-        levelColor,
-        confidence: finalConfidence,
-        breakdown: [
-  { category: 'Perfil', score: profile.bloodType ? 90 : 60, icon: '👤' },
-  { category: 'Estilo', score: profile.physicalActivity ? 75 : 50, icon: '🏃' },
-  { category: 'Exames', score: examsRes.count && examsRes.count > 0 ? 80 : 40, icon: '🔬' },
-  { category: 'Condições', score: conditionsRes.data?.length ? 60 : 90, icon: '🩺' },
-],
-        missingExams
-      })
+      
+      setMedScore(calculated)
+      
     } catch (error) {
       console.error('Error loading dashboard:', error)
     } finally {
