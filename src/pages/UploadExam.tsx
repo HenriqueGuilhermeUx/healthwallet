@@ -68,7 +68,7 @@ await createMedicalEvent({
 
 setUploadedFile({ name: file.name, id: record.id })
 setProcessing(true)
-      const response = await fetch('https://SEU-SERVICO.onrender.com/analyze-exam', {
+      const response = await fetch('https://healthwallet-ocr-api.onrender.com/analyze-exam', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
