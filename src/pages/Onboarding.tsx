@@ -99,23 +99,29 @@ export default function Onboarding() {
     if (data.bloodType) baseScore += 5
 
     const profileData = {
-      id: user.id,
-      birth_date: data.birthDate || null,
-      gender: data.gender || null,
-      blood_type: data.bloodType || null,
-      weight: data.weight ? parseInt(data.weight) : null,
-      height: data.height ? parseInt(data.height) : null,
-      smoking_status: data.smokingStatus || null,
-      alcohol_consumption: data.alcoholConsumption || null,
-      physical_activity: data.physicalActivity || null,
-      sleep_hours: data.sleepHours ? parseInt(data.sleepHours) : null,
-      stress_level: data.stressLevel || null,
-      allergies: data.allergies || null,
-      chronic_conditions: data.chronicConditions || null,
-      family_history: data.familyHistory || null,
-      current_medications: data.currentMedications || null,
-      med_score: baseScore,
-    }
+  id: user.id,
+  birth_date: data.birthDate || null,
+  gender: data.gender || null,
+  blood_type: data.bloodType || null,
+  weight: data.weight ? parseInt(data.weight) : null,
+  height: data.height ? parseInt(data.height) : null,
+  smoking_status: data.smokingStatus || null,
+  alcohol_consumption: data.alcoholConsumption || null,
+  physical_activity: data.physicalActivity || null,
+  sleep_hours: data.sleepHours ? parseInt(data.sleepHours) : null,
+  stress_level: data.stressLevel || null,
+  allergies: data.allergies
+    ? data.allergies
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [],
+  chronic_conditions: data.chronicConditions || null,
+  family_history: data.familyHistory || null,
+  current_medications: data.currentMedications || null,
+  med_score: baseScore,
+  updated_at: new Date().toISOString(),
+}
 
     const { error: profileError } = await supabase
       .from('profiles')
