@@ -1,95 +1,61 @@
+import pdfParse from 'pdf-parse'
+
 export async function handler(event: any) {
   try {
     const { fileUrl, fileName } = JSON.parse(event.body || '{}')
 
-    if (!fileUrl) return ok(fallbackAnalysis('Arquivo sem URL informada.'))
+    if (!fileUrl) return ok(fallback('Arquivo sem URL.'))
 
     const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) return ok(fallbackAnalysis('OPENAI_API_KEY não configurada.'))
+    if (!apiKey) return ok(fallback('OPENAI_API_KEY não configurada.'))
 
     const fileRes = await fetch(fileUrl)
-    if (!fileRes.ok) return ok(fallbackAnalysis('Não foi possível baixar o arquivo.'))
+    if (!fileRes.ok) return ok(fallback('Não foi possível baixar o exame.'))
 
-    const contentType = fileRes.headers.get('content-type') || 'application/pdf'
-    const arrayBuffer = await fileRes.arrayBuffer()
+    const contentType = fileRes.headers.get('content-type') || ''
+    const buffer = Buffer.from(await fileRes.arrayBuffer())
+
+    let extractedText = ''
+
+    if (contentType.includes('pdf') || fileName?.toLowerCase().endsWith('.pdf')) {
+      const pdf = await pdfParse(buffer)
+      extractedText = pdf.text || ''
+    } else {
+      extractedText = 'Imagem enviada. OCR visual ainda não disponível nesta versão.'
+    }
+
+    if (!extractedText.trim()) {
+      return ok(fallback('PDF sem texto extraível. Provavelmente é imagem/scanner. Envie foto nítida ou PDF pesquisável.'))
+    }
 
     const prompt = `
-Você é um especialista em exames laboratoriais brasileiros.
+Analise este exame de saúde.
 
-Extraia TODOS os dados visíveis do exame:
-- tipo do exame
-- data
-- laboratório
-- paciente, se visível
-- todos os marcadores
-- valor
-- unidade
-- referência
-- status: normal, alto, baixo ou atencao
-- explicação simples
-- próximos passos
+Texto extraído:
+${extractedText.slice(0, 12000)}
 
 Responda SOMENTE JSON válido:
 {
-  "summary": "resumo claro para paciente",
+  "summary": "resumo simples para paciente",
   "examType": "tipo do exame",
-  "examDate": "YYYY-MM-DD ou null",
-  "laboratory": "laboratório ou null",
-  "patientName": "nome ou null",
-  "confidence": 0.0,
+  "examDate": null,
+  "laboratory": null,
+  "confidence": 0.8,
   "items": [
     {
-      "name": "Glicemia",
-      "value": "95",
-      "unit": "mg/dL",
-      "reference": "70-99",
+      "name": "nome do marcador",
+      "value": "valor",
+      "unit": "unidade",
+      "reference": "referência",
       "status": "normal|alto|baixo|atencao",
-      "explanation": "explicação simples",
-      "context": "contexto clínico sem diagnóstico"
+      "explanation": "explicação simples"
     }
   ],
-  "nextSteps": ["passo 1", "passo 2"],
-  "extractedText": "texto relevante extraído"
+  "nextSteps": ["orientação 1", "orientação 2"],
+  "extractedText": "resumo do texto extraído"
 }
-
 Não dê diagnóstico.
-Não substitua consulta médica.
 `
-
-    let content: any[] = [{ type: 'input_text', text: prompt }]
-
-    if (contentType.startsWith('image/')) {
-      const base64 = Buffer.from(arrayBuffer).toString('base64')
-      content.push({
-        type: 'input_image',
-        image_url: `data:${contentType};base64,${base64}`,
-      })
-    } else {
-      const form = new FormData()
-      form.append('purpose', 'user_data')
-      form.append(
-        'file',
-        new Blob([arrayBuffer], { type: contentType }),
-        fileName || 'exame.pdf'
-      )
-
-      const uploadRes = await fetch('https://api.openai.com/v1/files', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}` },
-        body: form,
-      })
-
-      const uploadJson = await uploadRes.json()
-
-      if (!uploadRes.ok || !uploadJson.id) {
-        return ok(fallbackAnalysis(uploadJson.error?.message || 'Erro ao subir arquivo para OpenAI.'))
-      }
-
-      content.push({
-        type: 'input_file',
-        file_id: uploadJson.id,
-      })
-    }
 
     const openaiRes = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -99,15 +65,12 @@ Não substitua consulta médica.
       },
       body: JSON.stringify({
         model: 'gpt-4.1-mini',
-        input: [{ role: 'user', content }],
+        input: prompt,
       }),
     })
 
     const json = await openaiRes.json()
-
-    if (!openaiRes.ok) {
-      return ok(fallbackAnalysis(json.error?.message || 'Erro OpenAI sem mensagem.'))
-    }
+    if (!openaiRes.ok) return ok(fallback(json.error?.message || 'Erro OpenAI.'))
 
     const text = json.output_text || ''
     let parsed: any
@@ -115,23 +78,22 @@ Não substitua consulta médica.
     try {
       parsed = JSON.parse(text)
     } catch {
-      parsed = fallbackAnalysis(text || 'IA não retornou JSON válido.')
+      parsed = fallback('IA não retornou JSON válido.')
     }
 
     return ok({
-      summary: parsed.summary || 'Exame recebido e analisado.',
-      examType: parsed.examType || null,
+      summary: parsed.summary || 'Exame analisado.',
+      examType: parsed.examType || 'Exame',
       examDate: parsed.examDate || null,
       laboratory: parsed.laboratory || null,
-      patientName: parsed.patientName || null,
-      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
+      confidence: parsed.confidence || 0.7,
       items: Array.isArray(parsed.items) ? parsed.items : [],
       nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
-      extractedText: parsed.extractedText || parsed.error || '',
-      error: parsed.error || null,
+      extractedText: parsed.extractedText || extractedText.slice(0, 3000),
+      error: null,
     })
   } catch (error: any) {
-    return ok(fallbackAnalysis(error.message || 'Erro inesperado.'))
+    return ok(fallback(error.message || 'Erro inesperado.'))
   }
 }
 
@@ -142,19 +104,18 @@ function ok(body: any) {
   }
 }
 
-function fallbackAnalysis(reason: string) {
+function fallback(reason: string) {
   return {
     summary:
-      'Exame recebido com sucesso. A análise automática não conseguiu interpretar o arquivo neste momento, mas o documento foi salvo no seu cofre de saúde.',
+      'Exame recebido com sucesso, mas a análise automática não conseguiu interpretar o arquivo.',
     examType: null,
     examDate: null,
     laboratory: null,
-    patientName: null,
     confidence: 0,
     items: [],
     nextSteps: [
-      'Tente enviar uma foto mais nítida ou PDF com texto selecionável.',
-      'Leve o exame para avaliação de um profissional de saúde.',
+      'Envie PDF pesquisável ou foto nítida.',
+      'Leve o exame para avaliação profissional.',
     ],
     extractedText: reason,
     error: reason,
