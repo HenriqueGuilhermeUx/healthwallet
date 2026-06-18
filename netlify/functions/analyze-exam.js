@@ -21,15 +21,15 @@ export async function handler(event: any) {
       const pdf = await pdfParse(buffer)
       extractedText = pdf.text || ''
     } else {
-      extractedText = 'Imagem enviada. OCR visual ainda não disponível nesta versão.'
+      return ok(fallback('Imagem recebida. OCR visual será tratado no próximo passo.'))
     }
 
     if (!extractedText.trim()) {
-      return ok(fallback('PDF sem texto extraível. Provavelmente é imagem/scanner. Envie foto nítida ou PDF pesquisável.'))
+      return ok(fallback('PDF sem texto extraível. Provavelmente é escaneado/imagem.'))
     }
 
     const prompt = `
-Analise este exame de saúde.
+Analise este exame de saúde brasileiro.
 
 Texto extraído:
 ${extractedText.slice(0, 12000)}
@@ -48,13 +48,16 @@ Responda SOMENTE JSON válido:
       "unit": "unidade",
       "reference": "referência",
       "status": "normal|alto|baixo|atencao",
-      "explanation": "explicação simples"
+      "explanation": "explicação simples",
+      "context": "contexto clínico sem diagnóstico"
     }
   ],
   "nextSteps": ["orientação 1", "orientação 2"],
   "extractedText": "resumo do texto extraído"
 }
+
 Não dê diagnóstico.
+Não substitua consulta médica.
 `
 
     const openaiRes = await fetch('https://api.openai.com/v1/responses', {
@@ -70,7 +73,10 @@ Não dê diagnóstico.
     })
 
     const json = await openaiRes.json()
-    if (!openaiRes.ok) return ok(fallback(json.error?.message || 'Erro OpenAI.'))
+
+    if (!openaiRes.ok) {
+      return ok(fallback(json.error?.message || 'Erro OpenAI.'))
+    }
 
     const text = json.output_text || ''
     let parsed: any
@@ -114,8 +120,8 @@ function fallback(reason: string) {
     confidence: 0,
     items: [],
     nextSteps: [
-      'Envie PDF pesquisável ou foto nítida.',
-      'Leve o exame para avaliação profissional.',
+      'Envie PDF pesquisável ou arquivo com texto selecionável.',
+      'Se for exame escaneado, enviaremos suporte visual no próximo passo.',
     ],
     extractedText: reason,
     error: reason,
