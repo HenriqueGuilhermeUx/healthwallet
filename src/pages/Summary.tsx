@@ -36,7 +36,11 @@ export default function Summary() {
 
     setLoading(true)
 
-    const profileRaw = localStorage.getItem(`healthwallet_profile_${user.id}`)
+    const { data: profile } = await supabase
+  .from('profiles')
+  .select('*')
+  .eq('id', user.id)
+  .single()
     const profile = profileRaw ? JSON.parse(profileRaw) : {}
 
     const [recordsRes, medsRes, conditionsRes, scoreRes] = await Promise.all([
