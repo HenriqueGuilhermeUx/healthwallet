@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { User, Phone, Calendar, Heart, Shield, ChevronRight, Activity } from 'lucide-react'
+import { User, Phone, Calendar, Heart, Shield, ChevronRight, Activity, Siren } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 
@@ -25,6 +25,10 @@ export default function Profile() {
     family_history: '',
     current_medications: '',
     allergies_text: '',
+    surgeries: '',
+    emergency_contact_name: '',
+    emergency_contact_phone: '',
+    emergency_contact_relationship: '',
   })
 
   useEffect(() => {
@@ -59,6 +63,10 @@ export default function Profile() {
           family_history: data.family_history || '',
           current_medications: data.current_medications || '',
           allergies_text: Array.isArray(data.allergies) ? data.allergies.join(', ') : '',
+          surgeries: data.surgeries || '',
+          emergency_contact_name: data.emergency_contact_name || '',
+          emergency_contact_phone: data.emergency_contact_phone || '',
+          emergency_contact_relationship: data.emergency_contact_relationship || '',
         })
       } else {
         const { data: newProfile } = await supabase
@@ -115,6 +123,10 @@ export default function Profile() {
         chronic_conditions: formData.chronic_conditions || null,
         family_history: formData.family_history || null,
         current_medications: formData.current_medications || null,
+        surgeries: formData.surgeries || null,
+        emergency_contact_name: formData.emergency_contact_name || null,
+        emergency_contact_phone: formData.emergency_contact_phone || null,
+        emergency_contact_relationship: formData.emergency_contact_relationship || null,
         allergies: formData.allergies_text
           ? formData.allergies_text.split(',').map((item) => item.trim()).filter(Boolean)
           : [],
@@ -160,6 +172,10 @@ export default function Profile() {
           chronicConditions: payload.chronic_conditions,
           familyHistory: payload.family_history,
           currentMedications: payload.current_medications,
+          surgeries: payload.surgeries,
+          emergencyContactName: payload.emergency_contact_name,
+          emergencyContactPhone: payload.emergency_contact_phone,
+          emergencyContactRelationship: payload.emergency_contact_relationship,
           medScore: score,
           fullName:
             user.user_metadata?.full_name ||
@@ -255,6 +271,18 @@ export default function Profile() {
             <Textarea label="Condições / doenças" value={formData.chronic_conditions} onChange={(v) => setFormData({ ...formData, chronic_conditions: v })} placeholder="Ex: hipertensão, diabetes" />
             <Textarea label="Medicamentos atuais" value={formData.current_medications} onChange={(v) => setFormData({ ...formData, current_medications: v })} placeholder="Ex: Losartana 50mg" />
             <Textarea label="Histórico familiar" value={formData.family_history} onChange={(v) => setFormData({ ...formData, family_history: v })} placeholder="Ex: diabetes na mãe, hipertensão no pai" />
+            <Textarea label="Cirurgias / internações importantes" value={formData.surgeries} onChange={(v) => setFormData({ ...formData, surgeries: v })} placeholder="Ex: apendicite em 2015, cirurgia ortopédica..." />
+
+            <div className="rounded-xl border border-red-100 bg-red-50 p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Siren className="w-5 h-5 text-red-600" />
+                <p className="font-semibold text-red-900">Contato de emergência</p>
+              </div>
+
+              <Input label="Nome do contato" type="text" value={formData.emergency_contact_name} onChange={(v) => setFormData({ ...formData, emergency_contact_name: v })} />
+              <Input label="Telefone do contato" type="tel" value={formData.emergency_contact_phone} onChange={(v) => setFormData({ ...formData, emergency_contact_phone: v })} />
+              <Input label="Parentesco / relação" type="text" value={formData.emergency_contact_relationship} onChange={(v) => setFormData({ ...formData, emergency_contact_relationship: v })} />
+            </div>
 
             <button onClick={handleSave} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold">
               Salvar Perfil
@@ -266,6 +294,7 @@ export default function Profile() {
             <Info icon={Heart} label="Tipo Sanguíneo" value={profile?.blood_type} />
             <Info icon={Activity} label="Peso / Altura" value={`${profile?.weight || '—'} kg / ${profile?.height || '—'} cm`} />
             <Info icon={Phone} label="Telefone" value={profile?.phone} />
+            <Info icon={Siren} label="Emergência" value={profile?.emergency_contact_name ? `${profile.emergency_contact_name} - ${profile.emergency_contact_phone || ''}` : ''} />
           </div>
         )}
       </div>
