@@ -1,152 +1,78 @@
-exports.handler = async function (event) {
+export async function handler(event: any) {
   try {
-    if (event.httpMethod !== 'POST') {
+    const { fileUrl, fileName } = JSON.parse(event.body || '{}')
+
+    if (!fileUrl) {
       return {
-        statusCode: 405,
-        body: JSON.stringify({
-          error: 'Method not allowed',
-        }),
-      };
+        statusCode: 400,
+        body: JSON.stringify({ error: 'fileUrl obrigatório' }),
+      }
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY
 
     if (!apiKey) {
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: 'OPENAI_API_KEY não configurada no Netlify',
-        }),
-      };
+        body: JSON.stringify({ error: 'OPENAI_API_KEY não configurada' }),
+      }
     }
 
-    const body = JSON.parse(event.body || '{}');
-    const examText = body.examText || '';
-    const examType = body.examType || 'outro';
+    const prompt = `
+Você é um assistente de saúde.
 
-    if (!examText) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          error: 'examText é obrigatório',
-        }),
-      };
-    }
+Analise este exame enviado pelo paciente.
 
-    const examTypeLabels = {
-      hemograma: 'Hemograma Completo',
-      lipidico: 'Perfil Lipídico',
-      tireoide: 'Função Tireoidiana',
-      glicemia: 'Glicemia e Diabetes',
-      renal: 'Função Renal',
-      hepatico: 'Função Hepática',
-      outro: 'Exame Geral',
-    };
+Extraia:
+- nome dos exames encontrados
+- valores
+- referências
+- status: normal, alto, baixo ou atenção
+- resumo simples para paciente
+- pontos de atenção para conversar com médico
 
-    const prompt = `Você é um assistente médico especializado em análise de exames laboratoriais. Analise o texto do exame abaixo e forneça uma interpretação clara em português.
+Não dê diagnóstico.
+Não substitua consulta médica.
 
-Tipo de exame: ${examTypeLabels[examType] || examType}
+Arquivo: ${fileName}
+URL: ${fileUrl}
+`
 
-Texto do exame:
-${examText}
-
-Siga EXATAMENTE este formato JSON (sem markdown, sem código, apenas o JSON puro):
-{
-  "summary": "Resumo geral dos resultados em 2-3 frases, linguagem acessível para paciente",
-  "items": [
-    {
-      "name": "Nome do exame",
-      "value": "valor encontrado",
-      "reference": "faixa de referência",
-      "status": "normal|alto|baixo|atencao",
-      "explanation": "Explicação simples do que significa este valor"
-    }
-  ],
-  "nextSteps": ["Passo 1", "Passo 2", "Passo 3"]
-}
-
-Regras importantes:
-1. STATUS: Use "normal" se dentro da referência, "alto" se acima, "baixo" se abaixo, "atencao" se muito fora ou crítico
-2. Cada item deve ter name, value, reference, status e explanation
-3. nextSteps deve ter 2-4 sugestões práticas
-4. summary deve ser uma visão geral em português simples
-5. Não dê diagnóstico médico definitivo
-6. Recomende sempre consultar um profissional de saúde
-7. Responda APENAS com o JSON, sem texto adicional`;
-
-    const response = await fetch(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Você é um assistente educativo de saúde. Explique exames laboratoriais em português claro. Não dê diagnóstico definitivo, não prescreva medicamentos e recomende acompanhamento médico quando apropriado. Responda apenas com JSON válido.',
-            },
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          temperature: 0.2,
-          max_tokens: 2000,
-        }),
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
-    );
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.2,
+      }),
+    })
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-
-      return {
-        statusCode: response.status,
-        body: JSON.stringify({
-          error:
-            errorData.error?.message ||
-            `OpenAI API error: ${response.status}`,
-        }),
-      };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content?.trim();
-
-    if (!content) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({
-          error: 'No response from OpenAI',
-        }),
-      };
-    }
-
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({
-          error: 'Invalid response format',
-        }),
-      };
-    }
+    const json = await openaiRes.json()
+    const text = json.choices?.[0]?.message?.content || ''
 
     return {
       statusCode: 200,
-      body: jsonMatch[0],
-    };
-  } catch (error) {
+      body: JSON.stringify({
+        summary: text,
+        extractedText: text,
+        items: [],
+      }),
+    }
+  } catch (error: any) {
     return {
       statusCode: 500,
       body: JSON.stringify({
-        error: error.message || String(error),
+        error: error.message || 'Erro ao analisar exame',
       }),
-    };
+    }
   }
-};
+}
