@@ -429,7 +429,7 @@ await supabase.from('health_scores').insert({
         <h2 className="text-sm font-semibold mb-3">Ações Rápidas</h2>
         <div className="grid grid-cols-3 gap-2">
           <QuickAction icon={Camera} label="Exame" color="bg-violet-600" href="/upload" />
-          <QuickAction icon={Brain} label="IA" color="bg-purple-600" href="/translator" />
+          <QuickAction icon={Brain} label="Chat" color="bg-purple-600" href="/chat" />
           <QuickAction icon={MessageCircle} label="Chat" color="bg-blue-600" href="/chat" />
           <QuickAction icon={QrCode} label="QR Code" color="bg-teal-600" href="/wallet" />
           <QuickAction
