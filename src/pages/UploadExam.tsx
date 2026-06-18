@@ -68,17 +68,38 @@ await createMedicalEvent({
 
 setUploadedFile({ name: file.name, id: record.id })
 setProcessing(true)
-      // Simular processamento de IA (em produção, chamaria a API de IA)
-      setTimeout(() => {
-        setProcessing(false)
-        setResult({
-          summary: 'Exame processado com sucesso!',
-          items: [
-            { name: 'Glicemia', value: '95', reference: '70-99', status: 'normal' },
-            { name: 'Colesterol Total', value: '210', reference: '<190', status: 'alto' },
-          ]
-        })
-      }, 2000)
+      const response = await fetch('/api/analyze-exam', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    recordId: record.id,
+    userId: user.id,
+    fileUrl: publicUrl,
+    fileName: file.name,
+  }),
+})
+
+const analysis = await response.json()
+
+if (!response.ok) {
+  throw new Error(analysis.error || 'Erro ao analisar exame')
+}
+
+await supabase
+  .from('medical_records')
+  .update({
+    status: 'analyzed',
+    ai_analysis: analysis.summary,
+    ai_result: analysis,
+    extracted_text: analysis.extractedText || null,
+    analyzed_at: new Date().toISOString(),
+  })
+  .eq('id', record.id)
+
+setProcessing(false)
+setResult(analysis)
 
     } catch (err: any) {
       setError(err.message || 'Erro ao enviar arquivo')
