@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, Bot, User, Loader2, Sparkles, AlertCircle, X } from 'lucide-react'
+import { Send, Bot, User, Loader2, Sparkles, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 
@@ -15,7 +15,6 @@ export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [showTip, setShowTip] = useState(true)
   const [context, setContext] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -33,13 +32,19 @@ export default function Chat() {
     const [profileRes, examsRes, medsRes, scoreRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
       supabase
-  .from('medical_records')
-  .select('id, file_name, exam_type, status, ai_analysis, ai_result, extracted_text, created_at')
-  .eq('user_id', user.id)
-  .order('created_at', { ascending: false })
-  .limit(10),
+        .from('medical_records')
+        .select('id, file_name, exam_type, status, ai_analysis, ai_result, extracted_text, created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10),
       supabase.from('medications').select('*').eq('user_id', user.id),
-      supabase.from('health_scores').select('*').eq('user_id', user.id).order('calculated_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase
+        .from('health_scores')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('calculated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ])
 
     const ctx = {
@@ -51,19 +56,14 @@ export default function Chat() {
 
     setContext(ctx)
 
-    const searchParams = new URLSearchParams(window.location.search)
-    const mode = searchParams.get('context')
-
-    const welcome =
-      mode === 'score'
-        ? buildScoreOpening(ctx)
-        : buildDefaultOpening(ctx)
+    const params = new URLSearchParams(window.location.search)
+    const mode = params.get('context')
 
     setMessages([
       {
         id: 'welcome',
         role: 'assistant',
-        content: welcome,
+        content: mode === 'score' ? buildScoreOpening(ctx) : buildDefaultOpening(ctx),
         timestamp: new Date(),
       },
     ])
@@ -77,7 +77,7 @@ export default function Chat() {
     setMessages((prev) => [
       ...prev,
       {
-        id: Date.now().toString(),
+        id: String(Date.now()),
         role: 'user',
         content: question,
         timestamp: new Date(),
@@ -86,7 +86,6 @@ export default function Chat() {
 
     setInput('')
     setLoading(true)
-    setShowTip(false)
 
     const response = generateContextualResponse(question, context)
 
@@ -107,7 +106,6 @@ export default function Chat() {
     'Como melhorar meu HealthScore?',
     'O que meus exames mostram?',
     'Quais exames estão faltando?',
-    'Como melhorar colesterol e metabolismo?',
     'Monte um plano de 30 dias',
   ]
 
@@ -123,28 +121,26 @@ export default function Chat() {
         </div>
       </div>
 
-      {showTip && (
-        <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl p-4 border border-purple-100">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-purple-600" />
-            </div>
-            <div className="flex-1">
-              <p className="text-xs font-medium text-purple-900 mb-1">Contexto ativo</p>
-              <p className="text-sm text-purple-800">
-                Vou responder usando seu perfil, HealthScore, exames enviados e medicamentos cadastrados.
-              </p>
-            </div>
-            <button onClick={() => setShowTip(false)} className="text-purple-400">
-              <X className="w-4 h-4" />
-            </button>
+      <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl p-4 border border-purple-100">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-purple-600" />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-purple-900 mb-1">Contexto ativo</p>
+            <p className="text-sm text-purple-800">
+              Vou usar seu perfil, exames, medicamentos e HealthScore.
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
       <div className="space-y-4 min-h-[50vh]">
         {messages.map((message) => (
-          <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+          <div
+            key={message.id}
+            className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
+          >
             {message.role === 'assistant' && (
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center flex-shrink-0">
                 <Bot className="w-4 h-4 text-white" />
@@ -251,37 +247,21 @@ function buildScoreOpening(ctx: any) {
   const score = ctx?.score?.score || p.med_score || 'não calculado'
   const exams = ctx?.exams || []
   const examsText = JSON.stringify(exams).toLowerCase()
-  const examSummaries = exams
-  .map((e: any) => {
-    const result = e.ai_result
-    const items = result?.items || []
-    const itemText = Array.isArray(items)
-      ? items.map((item: any) => `${item.name}: ${item.value} (${item.status})`).join(', ')
-      : ''
-
-    return `${e.file_name || 'Exame'}: ${e.ai_analysis || result?.summary || itemText || 'sem análise estruturada'}`
-  })
-  .join('\n')
-
-  const missing = []
-  if (!examsText.includes('hemograma')) missing.push('Hemograma completo')
-  if (!examsText.includes('colesterol') && !examsText.includes('ldl') && !examsText.includes('lipid')) missing.push('Perfil lipídico')
-  if (!examsText.includes('glicemia') && !examsText.includes('glucose')) missing.push('Glicemia de jejum')
-  if (!p.blood_type) missing.push('Tipagem sanguínea')
+  const missing = buildMissingExams(p, examsText)
 
   return `Vamos analisar seu HealthScore.
 
 Score atual: ${score}/100.
 
-Dados que encontrei:
-• Peso: ${p.weight ? `${p.weight} kg` : 'não informado'}
-• Altura: ${p.height ? `${p.height} cm` : 'não informado'}
-• Atividade física: ${translate(p.physical_activity)}
-• Tabagismo: ${translate(p.smoking_status)}
-• Sono: ${p.sleep_hours ? `${p.sleep_hours}h/noite` : 'não informado'}
-• Exames enviados: ${exams.length}
+Dados encontrados:
+- Peso: ${p.weight ? `${p.weight} kg` : 'não informado'}
+- Altura: ${p.height ? `${p.height} cm` : 'não informado'}
+- Atividade física: ${translate(p.physical_activity)}
+- Tabagismo: ${translate(p.smoking_status)}
+- Sono: ${p.sleep_hours ? `${p.sleep_hours}h/noite` : 'não informado'}
+- Exames enviados: ${exams.length}
 
-${missing.length ? `Exames/dados que ainda podem melhorar sua análise:\n${missing.map((m) => `• ${m}`).join('\n')}` : 'Você já tem os principais dados básicos cadastrados.'}
+${missing.length ? `Exames/dados que ainda faltam:\n${missing.map((m) => `- ${m}`).join('\n')}` : 'Você já tem os principais dados básicos cadastrados.'}
 
 Quer que eu monte um plano de melhoria para os próximos 30 dias?`
 }
@@ -293,25 +273,26 @@ function generateContextualResponse(question: string, ctx: any) {
   const meds = ctx?.medications || []
   const score = ctx?.score?.score || p.med_score || 'não calculado'
   const examsText = JSON.stringify(exams).toLowerCase()
+  const examSummaries = buildExamSummaries(exams)
 
   if (q.includes('plano') || q.includes('30 dias')) {
     return `Plano inicial de 30 dias:
 
 1. Movimento
-• Caminhada 30 minutos, 5x por semana.
-• Se já treina, manter consistência e registrar evolução.
+- Caminhada 30 minutos, 5x por semana.
+- Se já treina, manter consistência.
 
 2. Alimentação
-• Reduzir ultraprocessados, açúcar e frituras.
-• Priorizar proteína magra, legumes, frutas, fibras e água.
+- Reduzir ultraprocessados, açúcar e frituras.
+- Priorizar proteínas magras, legumes, fibras, frutas e água.
 
-3. Exames
-${buildMissingExamList(p, examsText)}
+3. Exames/dados faltantes
+${formatMissingExams(p, examsText)}
 
 4. Acompanhamento
-• Atualize peso, sono e atividade física no Perfil.
-• Suba novos exames em Exames.
-• Recalcule seu HealthScore após atualizar os dados.
+- Atualize peso, sono e atividade física no Perfil.
+- Suba novos exames em Exames.
+- Recalcule seu HealthScore depois.
 
 Seu score atual é ${score}/100.`
   }
@@ -321,84 +302,90 @@ Seu score atual é ${score}/100.`
 
 Ele considera perfil, hábitos, exames, medicamentos e dados preventivos.
 
-Pontos que encontrei:
-• Peso: ${p.weight || 'não informado'}
-• Altura: ${p.height || 'não informado'}
-• Atividade física: ${translate(p.physical_activity)}
-• Sono: ${p.sleep_hours || 'não informado'}
-• Tabagismo: ${translate(p.smoking_status)}
-• Exames enviados: ${exams.length}
+Pontos encontrados:
+- Peso: ${p.weight || 'não informado'}
+- Altura: ${p.height || 'não informado'}
+- Atividade física: ${translate(p.physical_activity)}
+- Sono: ${p.sleep_hours || 'não informado'}
+- Tabagismo: ${translate(p.smoking_status)}
+- Exames enviados: ${exams.length}
 
 Para melhorar:
-${buildMissingExamList(p, examsText)}
-• Manter rotina de exercício.
-• Atualizar medicamentos e condições no Perfil.
-• Revisar alterações dos exames com profissional.`
+${formatMissingExams(p, examsText)}
+- Manter rotina de exercício.
+- Atualizar medicamentos e condições no Perfil.
+- Revisar alterações dos exames com profissional.`
   }
 
   if (q.includes('exame') || q.includes('colesterol') || q.includes('glicemia')) {
-    const altered = exams.filter((e: any) => {
-      const text = JSON.stringify(e).toLowerCase()
-      return text.includes('alto') || text.includes('baixo') || text.includes('atenção') || text.includes('alterado') || text.includes('colesterol')
-    })
-
     return `Você tem ${exams.length} exame(s) cadastrado(s).
 
 Resumo do que encontrei:
 ${examSummaries || 'Ainda não há análise IA salva nos exames.'}
 
 Sugestão:
-• Abra Exames e revise os arquivos enviados.
-• Se colesterol apareceu alto, converse com médico sobre perfil lipídico completo: LDL, HDL e triglicerídeos.
-• Combine isso com atividade física, sono e alimentação.
+- Abra Exames e revise os arquivos enviados.
+- Se colesterol apareceu alto, converse com médico sobre perfil lipídico completo: LDL, HDL e triglicerídeos.
+- Combine isso com atividade física, sono e alimentação.
 
-Posso montar um plano específico para colesterol, se quiser.`
-
-${altered.length ? `Encontrei possíveis pontos de atenção em ${altered.length} registro(s), especialmente quando aparece colesterol, valores altos/baixos ou análise da IA.` : 'Ainda não encontrei alterações estruturadas nos exames.'}
-
-Sugestão:
-• Abra Exames e revise os arquivos enviados.
-• Se colesterol apareceu alto, converse com médico sobre perfil lipídico completo: LDL, HDL e triglicerídeos.
-• Combine isso com atividade física, sono e alimentação.
-
-Posso montar um plano específico para colesterol, se quiser.`
+Posso montar um plano específico para colesterol.`
   }
 
   if (q.includes('medicamento') || q.includes('remédio')) {
     return `Medicamentos cadastrados: ${meds.length}.
 
-${meds.length ? meds.map((m: any) => `• ${m.name || m.medication_name || 'Medicamento'} ${m.dosage || ''}`).join('\n') : 'Nenhum medicamento estruturado cadastrado.'}
+${meds.length ? meds.map((m: any) => `- ${m.name || m.medication_name || 'Medicamento'} ${m.dosage || ''}`).join('\n') : 'Nenhum medicamento estruturado cadastrado.'}
 
-Mantenha essa lista atualizada. Isso ajuda muito em consulta, emergência e compartilhamento com profissional.`
+Mantenha essa lista atualizada. Isso ajuda em consulta, emergência e compartilhamento com profissional.`
   }
 
   return `Com base no seu perfil atual:
 
-• HealthScore: ${score}/100
-• Exames cadastrados: ${exams.length}
-• Medicamentos cadastrados: ${meds.length}
-• Atividade física: ${translate(p.physical_activity)}
-• Tabagismo: ${translate(p.smoking_status)}
+- HealthScore: ${score}/100
+- Exames cadastrados: ${exams.length}
+- Medicamentos cadastrados: ${meds.length}
+- Atividade física: ${translate(p.physical_activity)}
+- Tabagismo: ${translate(p.smoking_status)}
 
 Posso ajudar com:
-• melhorar score
-• entender exames
-• plano de 30 dias
-• lista de exames faltantes
-• preparação para consulta médica`
+- melhorar score
+- entender exames
+- plano de 30 dias
+- lista de exames faltantes
+- preparação para consulta médica`
 }
 
-function buildMissingExamList(profile: any, examsText: string) {
-  const missing = []
+function buildExamSummaries(exams: any[]) {
+  return exams
+    .map((e: any) => {
+      const result = e.ai_result || {}
+      const items = Array.isArray(result.items) ? result.items : []
+      const itemText = items
+        .map((item: any) => `${item.name}: ${item.value} (${item.status})`)
+        .join(', ')
+
+      return `${e.file_name || 'Exame'}: ${e.ai_analysis || result.summary || itemText || 'sem análise estruturada'}`
+    })
+    .join('\n')
+}
+
+function buildMissingExams(profile: any, examsText: string) {
+  const missing: string[] = []
 
   if (!examsText.includes('hemograma')) missing.push('Hemograma completo')
   if (!examsText.includes('colesterol') && !examsText.includes('ldl') && !examsText.includes('lipid')) missing.push('Perfil lipídico')
   if (!examsText.includes('glicemia') && !examsText.includes('glucose')) missing.push('Glicemia de jejum')
   if (!profile?.blood_type) missing.push('Tipagem sanguínea')
 
-  if (!missing.length) return '• Nenhum exame básico pendente identificado no momento.'
+  return missing
+}
 
-  return missing.map((m) => `• ${m}`).join('\n')
+function formatMissingExams(profile: any, examsText: string) {
+  const missing = buildMissingExams(profile, examsText)
+
+  if (!missing.length) return '- Nenhum exame básico pendente identificado no momento.'
+
+  return missing.map((m) => `- ${m}`).join('\n')
 }
 
 function translate(value: any) {
