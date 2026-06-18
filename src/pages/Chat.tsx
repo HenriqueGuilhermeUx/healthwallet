@@ -231,7 +231,7 @@ export default function Chat() {
       {/* Disclaimer */}
       <p className="text-xs text-center text-muted-foreground mt-4">
         <AlertCircle className="w-3 h-3 inline mr-1" />
-        Este assistente fornece informações generales e não substitui orientação médica profissional.
+        Este assistente fornece informações gerais e não substitui orientação médica profissional.
       </p>
     </div>
   )
