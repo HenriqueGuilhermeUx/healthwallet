@@ -32,7 +32,12 @@ export default function Chat() {
 
     const [profileRes, examsRes, medsRes, scoreRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-      supabase.from('medical_records').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
+      supabase
+  .from('medical_records')
+  .select('id, file_name, exam_type, status, ai_analysis, ai_result, extracted_text, created_at')
+  .eq('user_id', user.id)
+  .order('created_at', { ascending: false })
+  .limit(10),
       supabase.from('medications').select('*').eq('user_id', user.id),
       supabase.from('health_scores').select('*').eq('user_id', user.id).order('calculated_at', { ascending: false }).limit(1).maybeSingle(),
     ])
@@ -246,6 +251,17 @@ function buildScoreOpening(ctx: any) {
   const score = ctx?.score?.score || p.med_score || 'não calculado'
   const exams = ctx?.exams || []
   const examsText = JSON.stringify(exams).toLowerCase()
+  const examSummaries = exams
+  .map((e: any) => {
+    const result = e.ai_result
+    const items = result?.items || []
+    const itemText = Array.isArray(items)
+      ? items.map((item: any) => `${item.name}: ${item.value} (${item.status})`).join(', ')
+      : ''
+
+    return `${e.file_name || 'Exame'}: ${e.ai_analysis || result?.summary || itemText || 'sem análise estruturada'}`
+  })
+  .join('\n')
 
   const missing = []
   if (!examsText.includes('hemograma')) missing.push('Hemograma completo')
@@ -326,7 +342,17 @@ ${buildMissingExamList(p, examsText)}
       return text.includes('alto') || text.includes('baixo') || text.includes('atenção') || text.includes('alterado') || text.includes('colesterol')
     })
 
-    return `Você tem ${exams.length} exame(s) cadastrados.
+    return `Você tem ${exams.length} exame(s) cadastrado(s).
+
+Resumo do que encontrei:
+${examSummaries || 'Ainda não há análise IA salva nos exames.'}
+
+Sugestão:
+• Abra Exames e revise os arquivos enviados.
+• Se colesterol apareceu alto, converse com médico sobre perfil lipídico completo: LDL, HDL e triglicerídeos.
+• Combine isso com atividade física, sono e alimentação.
+
+Posso montar um plano específico para colesterol, se quiser.`
 
 ${altered.length ? `Encontrei possíveis pontos de atenção em ${altered.length} registro(s), especialmente quando aparece colesterol, valores altos/baixos ou análise da IA.` : 'Ainda não encontrei alterações estruturadas nos exames.'}
 
