@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Send, Bot, User, Loader2, Sparkles, AlertCircle, X } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
-// import { analyzeExamWithAI } from '@/lib/openai'
+import { supabase } from '@/lib/supabase'
 
 interface Message {
   id: string
@@ -10,141 +10,142 @@ interface Message {
   timestamp: Date
 }
 
-const HEALTH_TIPS = [
-  "Manter 7-8 horas de sono por noite melhora sua saúde cardiovascular",
-  "Beber pelo menos 2 litros de água por dia ajuda na digestão e energia",
-  "30 minutos de caminhada diária podem reduzir risco de doenças em 40%",
-  "Exames de sangue anuais são essenciais para prevenção",
-  "Meditação de 10 minutos diários reduz níveis de cortisol",
-]
-
-const SUGGESTED_QUESTIONS = [
-  "O que significa meu MedScore?",
-  "Como melhorar minha saúde cardiovascular?",
-  "Quais exames devo fazer este ano?",
-  "Como interpretar meus exames de sangue?",
-  "Dicas para qualidade do sono",
-]
-
 export default function Chat() {
   const { user } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [showTip, setShowTip] = useState(true)
+  const [context, setContext] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // Mensagem inicial do assistente
-    if (messages.length === 0) {
-      const userName = user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || ''
-      setMessages([
-        {
-          id: 'welcome',
-          role: 'assistant',
-          content: `Olá${userName ? `, ${userName}` : ''}! Sou seu Assessor de Saúde pessoal. Como posso ajudá-lo hoje?\n\nPosso ajudar com:\n• Análise de exames\n• Interpretação do MedScore\n• Dicas de saúde\n• Informações sobre medicamentos`,
-          timestamp: new Date()
-        }
-      ])
-    }
-  }, [])
+    loadContext()
+  }, [user])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return
+  async function loadContext() {
+    if (!user) return
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input.trim(),
-      timestamp: new Date()
+    const [profileRes, examsRes, medsRes, scoreRes] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+      supabase.from('medical_records').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
+      supabase.from('medications').select('*').eq('user_id', user.id),
+      supabase.from('health_scores').select('*').eq('user_id', user.id).order('calculated_at', { ascending: false }).limit(1).maybeSingle(),
+    ])
+
+    const ctx = {
+      profile: profileRes.data,
+      exams: examsRes.data || [],
+      medications: medsRes.data || [],
+      score: scoreRes.data,
     }
 
-    setMessages(prev => [...prev, userMessage])
+    setContext(ctx)
+
+    const searchParams = new URLSearchParams(window.location.search)
+    const mode = searchParams.get('context')
+
+    const welcome =
+      mode === 'score'
+        ? buildScoreOpening(ctx)
+        : buildDefaultOpening(ctx)
+
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: welcome,
+        timestamp: new Date(),
+      },
+    ])
+  }
+
+  async function handleSend() {
+    if (!input.trim() || loading) return
+
+    const question = input.trim()
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        role: 'user',
+        content: question,
+        timestamp: new Date(),
+      },
+    ])
+
     setInput('')
     setLoading(true)
     setShowTip(false)
 
-    try {
-      // Simular resposta do assistente (em produção usaria API)
-      const response = await generateHealthResponse(input.trim(), user)
+    const response = generateContextualResponse(question, context)
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: String(Date.now() + 1),
         role: 'assistant',
         content: response,
-        timestamp: new Date()
-      }
+        timestamp: new Date(),
+      },
+    ])
 
-      setMessages(prev => [...prev, assistantMessage])
-    } catch (error) {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'Desculpe, tive um problema ao processar sua mensagem. Tente novamente.',
-        timestamp: new Date()
-      }
-      setMessages(prev => [...prev, errorMessage])
-    } finally {
-      setLoading(false)
-    }
+    setLoading(false)
   }
 
-  const handleSuggestedQuestion = (question: string) => {
-    setInput(question)
-  }
+  const suggestedQuestions = [
+    'Como melhorar meu HealthScore?',
+    'O que meus exames mostram?',
+    'Quais exames estão faltando?',
+    'Como melhorar colesterol e metabolismo?',
+    'Monte um plano de 30 dias',
+  ]
 
   return (
     <div className="space-y-4 pb-20">
-      {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
           <Bot className="w-6 h-6 text-white" />
         </div>
         <div>
-          <h1 className="text-lg font-bold">Assistente de Saúde</h1>
-          <p className="text-xs text-muted-foreground">IA personalizada</p>
+          <h1 className="text-lg font-bold">Health Coach</h1>
+          <p className="text-xs text-muted-foreground">IA contextual com seus dados</p>
         </div>
       </div>
 
-      {/* Health Tip Banner */}
-      {showTip && messages.length <= 2 && (
+      {showTip && (
         <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl p-4 border border-purple-100">
           <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-purple-600" />
             </div>
             <div className="flex-1">
-              <p className="text-xs font-medium text-purple-900 mb-1">Dica de Saúde</p>
+              <p className="text-xs font-medium text-purple-900 mb-1">Contexto ativo</p>
               <p className="text-sm text-purple-800">
-                {HEALTH_TIPS[Math.floor(Math.random() * HEALTH_TIPS.length)]}
+                Vou responder usando seu perfil, HealthScore, exames enviados e medicamentos cadastrados.
               </p>
             </div>
-            <button
-              onClick={() => setShowTip(false)}
-              className="text-purple-400 hover:text-purple-600"
-            >
+            <button onClick={() => setShowTip(false)} className="text-purple-400">
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
 
-      {/* Messages */}
       <div className="space-y-4 min-h-[50vh]">
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
-          >
+          <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
             {message.role === 'assistant' && (
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center flex-shrink-0">
                 <Bot className="w-4 h-4 text-white" />
               </div>
             )}
+
             <div
               className={`max-w-[80%] rounded-2xl px-4 py-3 ${
                 message.role === 'user'
@@ -153,12 +154,11 @@ export default function Chat() {
               }`}
             >
               <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-              <p className={`text-xs mt-1 ${
-                message.role === 'user' ? 'text-emerald-200' : 'text-muted-foreground'
-              }`}>
-                {formatTime(message.timestamp)}
+              <p className={`text-xs mt-1 ${message.role === 'user' ? 'text-emerald-200' : 'text-muted-foreground'}`}>
+                {message.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
+
             {message.role === 'user' && (
               <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
                 <User className="w-4 h-4 text-emerald-600" />
@@ -184,16 +184,15 @@ export default function Chat() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Suggested Questions */}
-      {messages.length <= 3 && !loading && (
+      {messages.length <= 2 && (
         <div className="bg-card rounded-xl border border-border p-4">
           <p className="text-xs font-medium text-muted-foreground mb-3">Perguntas sugeridas:</p>
           <div className="flex flex-wrap gap-2">
-            {SUGGESTED_QUESTIONS.map((question, index) => (
+            {suggestedQuestions.map((question) => (
               <button
-                key={index}
-                onClick={() => handleSuggestedQuestion(question)}
-                className="text-xs bg-purple-50 text-purple-700 px-3 py-2 rounded-full hover:bg-purple-100 transition-colors"
+                key={question}
+                onClick={() => setInput(question)}
+                className="text-xs bg-purple-50 text-purple-700 px-3 py-2 rounded-full hover:bg-purple-100"
               >
                 {question}
               </button>
@@ -202,176 +201,192 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Input */}
       <div className="fixed bottom-20 left-0 right-0 bg-background border-t border-border p-4">
         <div className="max-w-md mx-auto flex gap-2">
           <input
-            type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Digite sua pergunta..."
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Pergunte sobre seu score, exames ou saúde..."
             className="flex-1 bg-card border border-border rounded-full px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
             disabled={loading}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading}
-            className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors"
+            className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center disabled:opacity-50"
           >
-            {loading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Send className="w-5 h-5" />
-            )}
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
           </button>
         </div>
       </div>
 
-      {/* Disclaimer */}
       <p className="text-xs text-center text-muted-foreground mt-4">
         <AlertCircle className="w-3 h-3 inline mr-1" />
-        Este assistente fornece informações gerais e não substitui orientação médica profissional.
+        Informativo. Não substitui orientação médica profissional.
       </p>
     </div>
   )
 }
 
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+function buildDefaultOpening(ctx: any) {
+  const score = ctx?.score?.score || ctx?.profile?.med_score || 'não calculado'
+  const exams = ctx?.exams?.length || 0
+
+  return `Olá! Sou seu Health Coach.
+
+Seu HealthScore atual: ${score}/100.
+Exames cadastrados: ${exams}.
+
+Posso te ajudar a entender seus exames, melhorar seu score, revisar hábitos e montar um plano de ação.`
 }
 
-// Função para gerar respostas de saúde
-async function generateHealthResponse(question: string, user: any): Promise<string> {
-  const lowerQuestion = question.toLowerCase()
+function buildScoreOpening(ctx: any) {
+  const p = ctx?.profile || {}
+  const score = ctx?.score?.score || p.med_score || 'não calculado'
+  const exams = ctx?.exams || []
+  const examsText = JSON.stringify(exams).toLowerCase()
 
-  // Análise de MedScore
-  if (lowerQuestion.includes('medscore') || lowerQuestion.includes('score')) {
-    return `Seu **MedScore** é calculado com base em 4 categorias principais:
+  const missing = []
+  if (!examsText.includes('hemograma')) missing.push('Hemograma completo')
+  if (!examsText.includes('colesterol') && !examsText.includes('ldl') && !examsText.includes('lipid')) missing.push('Perfil lipídico')
+  if (!examsText.includes('glicemia') && !examsText.includes('glucose')) missing.push('Glicemia de jejum')
+  if (!p.blood_type) missing.push('Tipagem sanguínea')
 
-**1. Metabólico (35%)** - Exames de sangue como glicemia, colesterol, PCR
-**2. Funcional (25%)** - IMC, pressão arterial, capacidade física
-**3. Comportamental (25%)** - Sono, exercícios, passos diários
-**4. Mental (15%)** - Níveis de stress e qualidade de vida
+  return `Vamos analisar seu HealthScore.
 
-Para melhorar seu score:
-• Faça exames Laboratoriais completos
-• Mantenha peso saudável
-• Pratique 150min de exercício por semana
-• Durma 7-8 horas por noite
-• Faça check-ups anuais`
+Score atual: ${score}/100.
 
+Dados que encontrei:
+• Peso: ${p.weight ? `${p.weight} kg` : 'não informado'}
+• Altura: ${p.height ? `${p.height} cm` : 'não informado'}
+• Atividade física: ${translate(p.physical_activity)}
+• Tabagismo: ${translate(p.smoking_status)}
+• Sono: ${p.sleep_hours ? `${p.sleep_hours}h/noite` : 'não informado'}
+• Exames enviados: ${exams.length}
+
+${missing.length ? `Exames/dados que ainda podem melhorar sua análise:\n${missing.map((m) => `• ${m}`).join('\n')}` : 'Você já tem os principais dados básicos cadastrados.'}
+
+Quer que eu monte um plano de melhoria para os próximos 30 dias?`
+}
+
+function generateContextualResponse(question: string, ctx: any) {
+  const q = question.toLowerCase()
+  const p = ctx?.profile || {}
+  const exams = ctx?.exams || []
+  const meds = ctx?.medications || []
+  const score = ctx?.score?.score || p.med_score || 'não calculado'
+  const examsText = JSON.stringify(exams).toLowerCase()
+
+  if (q.includes('plano') || q.includes('30 dias')) {
+    return `Plano inicial de 30 dias:
+
+1. Movimento
+• Caminhada 30 minutos, 5x por semana.
+• Se já treina, manter consistência e registrar evolução.
+
+2. Alimentação
+• Reduzir ultraprocessados, açúcar e frituras.
+• Priorizar proteína magra, legumes, frutas, fibras e água.
+
+3. Exames
+${buildMissingExamList(p, examsText)}
+
+4. Acompanhamento
+• Atualize peso, sono e atividade física no Perfil.
+• Suba novos exames em Exames.
+• Recalcule seu HealthScore após atualizar os dados.
+
+Seu score atual é ${score}/100.`
   }
 
-  // Cardiovascular
-  if (lowerQuestion.includes('cardiovascular') || lowerQuestion.includes('coração') || lowerQuestion.includes('coração')) {
-    return `Para **saúde cardiovascular**, recomendo:
+  if (q.includes('score') || q.includes('healthscore') || q.includes('medscore')) {
+    return `Seu HealthScore atual é ${score}/100.
 
-1. **Exames essenciais:**
-   - Perfil lipídico (LDL, HDL, Triglicerídeos)
-   - Glicemia de jejum
-   - PCR-ultrassensível
+Ele considera perfil, hábitos, exames, medicamentos e dados preventivos.
 
-2. **Hábitos saudáveis:**
-   - 30 min de caminhada diária
-   - Reduzir sal e alimentos processados
-   - Controlar estresse
-   - Dormir bem
+Pontos que encontrei:
+• Peso: ${p.weight || 'não informado'}
+• Altura: ${p.height || 'não informado'}
+• Atividade física: ${translate(p.physical_activity)}
+• Sono: ${p.sleep_hours || 'não informado'}
+• Tabagismo: ${translate(p.smoking_status)}
+• Exames enviados: ${exams.length}
 
-3. **Sinais de alerta:**
-   - Pressão > 140/90
-   - Colesterol total > 200
-   - Glicemia > 100 em jejum
-
-Consulte seu cardiologista para avaliação personalizada.`
+Para melhorar:
+${buildMissingExamList(p, examsText)}
+• Manter rotina de exercício.
+• Atualizar medicamentos e condições no Perfil.
+• Revisar alterações dos exames com profissional.`
   }
 
-  // Exames anuais
-  if (lowerQuestion.includes('exame') && (lowerQuestion.includes('ano') || lowerQuestion.includes('anual'))) {
-    return `**Exames anuais recomendados:**
+  if (q.includes('exame') || q.includes('colesterol') || q.includes('glicemia')) {
+    const altered = exams.filter((e: any) => {
+      const text = JSON.stringify(e).toLowerCase()
+      return text.includes('alto') || text.includes('baixo') || text.includes('atenção') || text.includes('alterado') || text.includes('colesterol')
+    })
 
-🔬 **Hemograma completo**
-   - Anemia, infecções, problemas de coagulação
+    return `Você tem ${exams.length} exame(s) cadastrados.
 
-🧪 **Perfil lipídico**
-   - Colesterol total, LDL, HDL, Triglicerídeos
+${altered.length ? `Encontrei possíveis pontos de atenção em ${altered.length} registro(s), especialmente quando aparece colesterol, valores altos/baixos ou análise da IA.` : 'Ainda não encontrei alterações estruturadas nos exames.'}
 
-💉 **Glicemia e HbA1c**
-   - Detecção precoce de diabetes
+Sugestão:
+• Abra Exames e revise os arquivos enviados.
+• Se colesterol apareceu alto, converse com médico sobre perfil lipídico completo: LDL, HDL e triglicerídeos.
+• Combine isso com atividade física, sono e alimentação.
 
-🫁 **PCR-ultrassensível**
-   - Risco cardiovascular inflamatório
-
-💊 **Função tireoidiana**
-   - TSH, T4 livre
-
-🫀 **Eletrocardiograma**
-   - Avaliação elétrica do coração
-
-📅 **Clique em "Upload de Exames" para Registrar seus resultados!**
-`
+Posso montar um plano específico para colesterol, se quiser.`
   }
 
-  // Interpretação de exames
-  if (lowerQuestion.includes('exame') && (lowerQuestion.includes('interpretar') || lowerQuestion.includes('significa'))) {
-    return `Para **interpretar seus exames**, você pode:
+  if (q.includes('medicamento') || q.includes('remédio')) {
+    return `Medicamentos cadastrados: ${meds.length}.
 
-1. **Upload de imagem:** Tire foto do exame e envie na seção "Upload de Exames"
-2. **IA analisa:** Vou extrair os valores e explicar cada指标
-3. **Recomendações:** Forneço orientações baseadas nos resultados
+${meds.length ? meds.map((m: any) => `• ${m.name || m.medication_name || 'Medicamento'} ${m.dosage || ''}`).join('\n') : 'Nenhum medicamento estruturado cadastrado.'}
 
-Os principais valores a observar:
-- **Glicemia:** <100 normal, 100-125 pré-diabetes, ≥126 diabetes
-- **Colesterol LDL:** <100 ideal, 100-129 quase ideal
-- **HDL:** ≥60 proteção, <40 baixo
-- **Triglicerídeos:** <150 normal
-
-Quer fazer upload de um exame agora?`
+Mantenha essa lista atualizada. Isso ajuda muito em consulta, emergência e compartilhamento com profissional.`
   }
 
-  // Sono
-  if (lowerQuestion.includes('sono') || lowerQuestion.includes('dormir')) {
-    return `Para melhorar a **qualidade do sono:**
+  return `Com base no seu perfil atual:
 
-🌙 **Rotina noturna:**
-   - Desligue telas 1h antes de dormir
-   - Mantenha quarto escuro e fresco (18-21°C)
-   - Evite café após 14h
+• HealthScore: ${score}/100
+• Exames cadastrados: ${exams.length}
+• Medicamentos cadastrados: ${meds.length}
+• Atividade física: ${translate(p.physical_activity)}
+• Tabagismo: ${translate(p.smoking_status)}
 
-⏰ **Horários fixos:**
-   - Acorde e durma no mesmo horário
-   - Ideal: 22h-23h para dormir
+Posso ajudar com:
+• melhorar score
+• entender exames
+• plano de 30 dias
+• lista de exames faltantes
+• preparação para consulta médica`
+}
 
-🧘 **Relaxamento:**
-   - Meditação de 10min antes de dormir
-   -alongamento leve
-   - Leitura ou música calma
+function buildMissingExamList(profile: any, examsText: string) {
+  const missing = []
 
-😴 **Quantidade ideal:**
-   - 7-8 horas para adultos
-   - Manter consistência no fim de semana
+  if (!examsText.includes('hemograma')) missing.push('Hemograma completo')
+  if (!examsText.includes('colesterol') && !examsText.includes('ldl') && !examsText.includes('lipid')) missing.push('Perfil lipídico')
+  if (!examsText.includes('glicemia') && !examsText.includes('glucose')) missing.push('Glicemia de jejum')
+  if (!profile?.blood_type) missing.push('Tipagem sanguínea')
 
-Sono de qualidade melhora MedScore em até 15 pontos!`
+  if (!missing.length) return '• Nenhum exame básico pendente identificado no momento.'
+
+  return missing.map((m) => `• ${m}`).join('\n')
+}
+
+function translate(value: any) {
+  const map: Record<string, string> = {
+    moderate: 'moderada',
+    active: 'ativa',
+    light: 'leve',
+    sedentary: 'sedentária',
+    never: 'nunca',
+    former: 'ex-fumante',
+    current: 'fumante atual',
+    occasional: 'ocasional',
+    frequent: 'frequente',
   }
 
-  // Medicamentos
-  if (lowerQuestion.includes('medicamento') || lowerQuestion.includes('remédio') || lowerQuestion.includes('remédios')) {
-    return `Sobre **medicamentos**, sempre consulte seu médico!
-
-📋 **Dicas importantes:**
-   - Nunca pare medicação por conta própria
-   - Mantenha lista atualizada dos seus remédios
-   - Informe ao médico sobre efeitos colaterais
-   - Faça acompanhamento regular
-
-💊 Na seção "Medicamentos" do app, você pode:
-   - Cadastrar seus remédios atuais
-   - Definir horários de lembrete
-   - Registrar doses
-
-Quer ajuda para cadastrar seus medicamentos?`
-  }
-
-  // Resposta padrão
-  return `Entendi sua dúvida! Para ajudá-lo melhor, pode ser mais específico?\n\nPosso ajudar com:\n• Análise do seu MedScore\n• Interpretação de exames\n• Dicas de alimentação e exercícios\n• Informações sobre sono e saúde mental\n• Cadastro de medicamentos\n\nOu faça upload de um exame para análise!`
+  return value ? map[value] || value : 'não informado'
 }
