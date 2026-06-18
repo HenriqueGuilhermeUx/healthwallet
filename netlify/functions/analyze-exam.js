@@ -3,37 +3,23 @@ export async function handler(event: any) {
     const { fileUrl, fileName } = JSON.parse(event.body || '{}')
 
     if (!fileUrl) {
-      return {
-        statusCode: 200,
-        body: JSON.stringify(fallbackAnalysis('Arquivo sem URL informada.')),
-      }
+      return ok(fallbackAnalysis('Arquivo sem URL informada.'))
     }
 
     const apiKey = process.env.OPENAI_API_KEY
 
     if (!apiKey) {
-      return {
-        statusCode: 200,
-        body: JSON.stringify(fallbackAnalysis('OPENAI_API_KEY não configurada.')),
-      }
+      return ok(fallbackAnalysis('OPENAI_API_KEY não configurada.'))
     }
-
-    const fileRes = await fetch(fileUrl)
-
-    if (!fileRes.ok) {
-      return {
-        statusCode: 200,
-        body: JSON.stringify(fallbackAnalysis('Não foi possível baixar o arquivo do exame.')),
-      }
-    }
-
-    const contentType = fileRes.headers.get('content-type') || 'application/pdf'
-    const arrayBuffer = await fileRes.arrayBuffer()
-    const base64 = Buffer.from(arrayBuffer).toString('base64')
-    const dataUrl = `data:${contentType};base64,${base64}`
 
     const prompt = `
-Analise este exame de saúde enviado pelo paciente.
+Analise este exame de saúde pela URL pública abaixo.
+
+URL do arquivo:
+${fileUrl}
+
+Arquivo:
+${fileName || 'exame'}
 
 Responda SOMENTE JSON válido:
 {
@@ -53,7 +39,6 @@ Responda SOMENTE JSON válido:
 
 Não dê diagnóstico.
 Não substitua consulta médica.
-Arquivo: ${fileName || 'exame'}
 `
 
     const openaiRes = await fetch('https://api.openai.com/v1/responses', {
@@ -64,66 +49,41 @@ Arquivo: ${fileName || 'exame'}
       },
       body: JSON.stringify({
         model: 'gpt-4.1-mini',
-        input: [
-          {
-            role: 'user',
-            content: [
-              { type: 'input_text', text: prompt },
-              {
-                type: 'input_file',
-                filename: fileName || 'exame.pdf',
-                file_data: dataUrl,
-              },
-            ],
-          },
-        ],
+        input: prompt,
       }),
     })
 
     const json = await openaiRes.json()
 
     if (!openaiRes.ok) {
-      return {
-        statusCode: 200,
-        body: JSON.stringify(
-          fallbackAnalysis(json.error?.message || 'Erro ao analisar com OpenAI.')
-        ),
-      }
+      return ok(fallbackAnalysis(json.error?.message || 'Erro OpenAI sem mensagem.'))
     }
 
-    const outputText =
-      json.output_text ||
-      json.output?.[0]?.content?.[0]?.text ||
-      json.output?.[0]?.content?.[0]?.json ||
-      ''
-
+    const text = json.output_text || ''
     let parsed: any
 
-    if (typeof outputText === 'object') {
-      parsed = outputText
-    } else {
-      try {
-        parsed = JSON.parse(outputText)
-      } catch {
-        parsed = fallbackAnalysis(String(outputText || 'IA não retornou JSON estruturado.'))
-      }
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      parsed = fallbackAnalysis(text || 'IA não retornou JSON válido.')
     }
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        summary: parsed.summary || 'Exame recebido e analisado.',
-        items: Array.isArray(parsed.items) ? parsed.items : [],
-        nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
-        extractedText: parsed.extractedText || parsed.error || '',
-        error: parsed.error || null,
-      }),
-    }
+    return ok({
+      summary: parsed.summary || 'Exame recebido e analisado.',
+      items: Array.isArray(parsed.items) ? parsed.items : [],
+      nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
+      extractedText: parsed.extractedText || parsed.error || '',
+      error: parsed.error || null,
+    })
   } catch (error: any) {
-    return {
-      statusCode: 200,
-      body: JSON.stringify(fallbackAnalysis(error.message || 'Erro inesperado na análise.')),
-    }
+    return ok(fallbackAnalysis(error.message || 'Erro inesperado.'))
+  }
+}
+
+function ok(body: any) {
+  return {
+    statusCode: 200,
+    body: JSON.stringify(body),
   }
 }
 
