@@ -21,6 +21,9 @@ import Terms from '@/pages/Terms'
 import Privacy from '@/pages/Privacy'
 import Consent from '@/pages/Consent'
 import AccessCode from '@/pages/AccessCode'
+import Passport from '@/pages/Passport'
+import Summary from '@/pages/Summary'
+import Timeline from '@/pages/Timeline'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -59,6 +62,14 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   )
 }
 
+function ProtectedPage({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <AppLayout>{children}</AppLayout>
+    </ProtectedRoute>
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -70,118 +81,29 @@ export default function App() {
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/share" element={<ShareQRCode />} />
           <Route path="/access/:code" element={<AccessCode />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
 
           {/* Protected routes */}
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <Dashboard />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/wallet"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <HealthWallet />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/exams"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <Exams />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/upload"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <UploadExam />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/translator"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <ExamTranslator />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/medications"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <Medications />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/family"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <Family />
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-  path="/profile"
-  element={
-    <ProtectedRoute>
-      <AppLayout>
-        <Profile />
-      </AppLayout>
-    </ProtectedRoute>
-  }
-/>
-
-<Route
-  path="/consent"
-  element={
-    <ProtectedRoute>
-      <AppLayout>
-        <Consent />
-      </AppLayout>
-    </ProtectedRoute>
-  }
-/>
-
-<Route
-  path="/chat"
-  element={
-    <ProtectedRoute>
-      <AppLayout>
-        <Chat />
-      </AppLayout>
-    </ProtectedRoute>
-  }
-/>
+          <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
+          <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
+          <Route path="/exams" element={<ProtectedPage><Exams /></ProtectedPage>} />
+          <Route path="/upload" element={<ProtectedPage><UploadExam /></ProtectedPage>} />
+          <Route path="/translator" element={<ProtectedPage><ExamTranslator /></ProtectedPage>} />
+          <Route path="/medications" element={<ProtectedPage><Medications /></ProtectedPage>} />
+          <Route path="/family" element={<ProtectedPage><Family /></ProtectedPage>} />
+          <Route path="/profile" element={<ProtectedPage><Profile /></ProtectedPage>} />
+          <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
+          <Route path="/chat" element={<ProtectedPage><Chat /></ProtectedPage>} />
+          <Route path="/passport" element={<ProtectedPage><Passport /></ProtectedPage>} />
+          <Route path="/summary" element={<ProtectedPage><Summary /></ProtectedPage>} />
+          <Route path="/timeline" element={<ProtectedPage><Timeline /></ProtectedPage>} />
+          <Route path="/documents" element={<ProtectedPage><ReceivedDocuments /></ProtectedPage>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
-
-          {/* Public pages - Terms and Privacy */}
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy" element={<Privacy />} />
         </Routes>
+
         <Toaster position="top-center" richColors />
       </AuthProvider>
     </BrowserRouter>
