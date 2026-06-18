@@ -52,7 +52,7 @@ export default function UploadExam() {
     file_url: publicUrl,
     file_name: file.name,
     exam_type: 'Exame',
-    status: 'uploaded',
+    status: 'pending',
   })
   .select()
   .single()
@@ -90,7 +90,7 @@ if (!response.ok) {
 await supabase
   .from('medical_records')
   .update({
-    status: 'analyzed',
+    status: 'processed',
     ai_analysis: analysis.summary,
     ai_result: analysis,
     extracted_text: analysis.extractedText || null,
