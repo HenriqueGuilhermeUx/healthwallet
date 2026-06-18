@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Upload, Camera, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
+import { Upload, Camera, Loader2, CheckCircle, AlertCircle, Send } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { createMedicalEvent } from '@/services/medicalTimeline'
@@ -13,6 +13,8 @@ export default function UploadExam() {
   const [processing, setProcessing] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [examQuestion, setExamQuestion] = useState('')
+  const [examAnswer, setExamAnswer] = useState('')
 
   const handleFileSelect = async (file: File) => {
     if (!user) return
@@ -145,6 +147,29 @@ export default function UploadExam() {
     setDragOver(true)
   }
 
+  function askAboutExam() {
+  if (!examQuestion.trim() || !result) return
+
+  const altered = (result.items || [])
+    .filter((item: any) => item.status !== 'normal')
+    .map((item: any) => `${item.name}: ${item.value} (${item.status})`)
+    .join(', ')
+
+  setExamAnswer(
+    `Com base neste exame:
+
+${altered || 'Nenhuma alteração importante encontrada.'}
+
+Resumo da IA:
+${result.summary || ''}
+
+Pergunta:
+${examQuestion}
+
+Esta resposta serve apenas como apoio educacional e não substitui avaliação médica.`
+  )
+}
+  
   return (
     <div className="space-y-5">
       <div>
@@ -294,13 +319,33 @@ export default function UploadExam() {
             </div>
           )}
 
-          <a
-            href={`/chat?context=exam&examId=${uploadedFile?.id}`}
-            className="block w-full py-3 rounded-xl bg-purple-600 text-white font-semibold text-center hover:bg-purple-700 transition-colors"
-          >
-            Conversar sobre este exame
-          </a>
+          <div className="p-4 rounded-xl bg-purple-50 border border-purple-200 space-y-3">
+  <p className="font-semibold text-purple-900">
+    Pergunte sobre este exame
+  </p>
 
+  <textarea
+    value={examQuestion}
+    onChange={(e) => setExamQuestion(e.target.value)}
+    placeholder="Ex: Meu colesterol está alto? Preciso me preocupar?"
+    className="w-full min-h-[100px] rounded-xl border border-purple-200 p-3 text-sm"
+  />
+
+  <button
+    onClick={askAboutExam}
+    className="w-full py-3 rounded-xl bg-purple-600 text-white font-semibold"
+  >
+    Perguntar sobre este exame
+  </button>
+
+  {examAnswer && (
+    <div className="bg-white border rounded-xl p-3">
+      <p className="text-sm whitespace-pre-wrap">
+        {examAnswer}
+      </p>
+    </div>
+  )}
+</div>
           <a
             href="/exams"
             className="block w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold text-center hover:bg-emerald-700 transition-colors"
