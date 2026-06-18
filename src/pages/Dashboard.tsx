@@ -197,9 +197,18 @@ if (recordsText.includes('hemograma')) {
         missingExams.push('Hemograma Completo')
         missingExams.push('Perfil Lipídico')
       }
-      if (!profile.bloodType) {
-        missingExams.push('Tipagem Sanguínea')
-      }
+      const hasBloodType =
+  !!profile.bloodType ||
+  !!profile.blood_type ||
+  recordsText.includes('tipagem') ||
+  recordsText.includes('sanguínea') ||
+  recordsText.includes('sanguinea') ||
+  recordsText.includes('abo') ||
+  recordsText.includes('rh')
+
+if (!hasBloodType) {
+  missingExams.push('Tipagem Sanguínea')
+}
 
       // Determine level
       let level = 'Atenção'
