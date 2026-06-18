@@ -321,6 +321,13 @@ await supabase.from('health_scores').insert({
             </div>
           </div>
 
+          <a
+  href="/chat?context=score"
+  className="mt-3 block w-full text-center bg-purple-600 text-white py-3 rounded-xl font-medium"
+>
+  Conversar sobre meu HealthScore
+</a>
+
           {/* Action buttons */}
           <div className="flex gap-2 mt-4">
             <Link
