@@ -68,18 +68,20 @@ await createMedicalEvent({
 
 setUploadedFile({ name: file.name, id: record.id })
 setProcessing(true)
-      const response = await fetch('/api/analyze-exam', {
+      const response = await fetch('https://SEU-SERVICO.onrender.com/analyze-exam', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
   },
   body: JSON.stringify({
-    recordId: record.id,
-    userId: user.id,
-    fileUrl: publicUrl,
-    fileName: file.name,
-  }),
-})
+  recordId: record.id,
+  userId: user.id,
+  fileUrl: publicUrl,
+  fileName: file.name,
+  profile: {
+    email: user.email,
+  },
+}),
 
 let analysis: any = null
 
