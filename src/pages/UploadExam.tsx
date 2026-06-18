@@ -74,14 +74,15 @@ setProcessing(true)
     'Content-Type': 'application/json',
   },
   body: JSON.stringify({
-  recordId: record.id,
-  userId: user.id,
-  fileUrl: publicUrl,
-  fileName: file.name,
-  profile: {
-    email: user.email,
-  },
-}),
+    recordId: record.id,
+    userId: user.id,
+    fileUrl: publicUrl,
+    fileName: file.name,
+    profile: {
+      email: user.email,
+    },
+  }),
+})
 
 let analysis: any = null
 
