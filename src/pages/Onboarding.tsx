@@ -85,87 +85,102 @@ export default function Onboarding() {
   }
 
   const saveAndFinish = async () => {
-    if (!user) return
-    setLoading(true)
+  if (!user) return
+  setLoading(true)
 
-    try {
-      // Calcular MedScore preliminar
-      const bmi = calculateBMI()
-      let baseScore = 50
+  try {
+    const bmi = calculateBMI()
+    let baseScore = 50
 
-      if (bmi && parseFloat(bmi) >= 18.5 && parseFloat(bmi) < 25) baseScore += 10
-      if (data.physicalActivity === 'moderate' || data.physicalActivity === 'active') baseScore += 10
-      if (data.sleepHours && parseInt(data.sleepHours) >= 6 && parseInt(data.sleepHours) <= 9) baseScore += 10
-      if (data.smokingStatus === 'never') baseScore += 10
-      if (data.bloodType) baseScore += 5
+    if (bmi && parseFloat(bmi) >= 18.5 && parseFloat(bmi) < 25) baseScore += 10
+    if (data.physicalActivity === 'moderate' || data.physicalActivity === 'active') baseScore += 10
+    if (data.sleepHours && parseInt(data.sleepHours) >= 6 && parseInt(data.sleepHours) <= 9) baseScore += 10
+    if (data.smokingStatus === 'never') baseScore += 10
+    if (data.bloodType) baseScore += 5
 
-      // Salvar perfil COMPLETO no Supabase (não apenas birth_date e gender)
-      const profileData = {
-        birth_date: data.birthDate || null,
-        gender: data.gender as 'male' | 'female' | 'other' || null,
-        blood_type: data.bloodType || null,
-        weight: data.weight ? parseInt(data.weight) : null,
-        height: data.height ? parseInt(data.height) : null,
-        smoking_status: data.smokingStatus || null,
-        alcohol_consumption: data.alcoholConsumption || null,
-        physical_activity: data.physicalActivity || null,
-        sleep_hours: data.sleepHours ? parseInt(data.sleepHours) : null,
-        stress_level: data.stressLevel || null,
-        allergies: data.allergies || null,
-        chronic_conditions: data.chronicConditions || null,
-        family_history: data.familyHistory || null,
-        current_medications: data.currentMedications || null,
-        med_score: baseScore,
-      }
+    const profileData = {
+      id: user.id,
+      birth_date: data.birthDate || null,
+      gender: data.gender || null,
+      blood_type: data.bloodType || null,
+      weight: data.weight ? parseInt(data.weight) : null,
+      height: data.height ? parseInt(data.height) : null,
+      smoking_status: data.smokingStatus || null,
+      alcohol_consumption: data.alcoholConsumption || null,
+      physical_activity: data.physicalActivity || null,
+      sleep_hours: data.sleepHours ? parseInt(data.sleepHours) : null,
+      stress_level: data.stressLevel || null,
+      allergies: data.allergies || null,
+      chronic_conditions: data.chronicConditions || null,
+      family_history: data.familyHistory || null,
+      current_medications: data.currentMedications || null,
+      med_score: baseScore,
+    }
 
-      const { error } = await supabase.from('profiles').upsert({
-        id: user.id,
-        ...profileData,
-      })
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert(profileData)
 
-      if (error) console.error('Erro ao salvar perfil:', error)
+    if (profileError) throw profileError
 
-      const localProfileData = {
-  ...data,
-  fullName:
-    user.user_metadata?.full_name ||
-    user.user_metadata?.name ||
-    user.email?.split('@')[0] ||
-    'Usuário',
-  medScore: baseScore,
-  bmi,
-  createdAt: new Date().toISOString(),
-}
+    await supabase.from('health_scores').insert({
+      user_id: user.id,
+      score: baseScore,
+      status: baseScore >= 75 ? 'Bom' : baseScore >= 60 ? 'Atenção' : 'Regular',
+      factors: {
+        source: 'onboarding',
+        bmi,
+        physicalActivity: data.physicalActivity,
+        sleepHours: data.sleepHours,
+        smokingStatus: data.smokingStatus,
+      },
+      calculated_at: new Date().toISOString(),
+    })
 
-localStorage.setItem(
-  `healthwallet_profile_${user.id}`,
-  JSON.stringify(localProfileData)
-)
+    const localProfileData = {
+      ...data,
+      fullName:
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        user.email?.split('@')[0] ||
+        'Usuário',
+      medScore: baseScore,
+      bmi,
+      createdAt: new Date().toISOString(),
+    }
 
-localStorage.setItem(
-  'healthwallet_profile',
-  JSON.stringify(localProfileData)
-)
+    localStorage.setItem(
+      `healthwallet_profile_${user.id}`,
+      JSON.stringify(localProfileData)
+    )
 
-      // Salvar MedScore no localStorage também (para referência rápida)
-      localStorage.setItem(`healthwallet_medscore_${user.id}`, JSON.stringify({
+    localStorage.setItem(
+      'healthwallet_profile',
+      JSON.stringify(localProfileData)
+    )
+
+    localStorage.setItem(
+      `healthwallet_medscore_${user.id}`,
+      JSON.stringify({
         medScore: baseScore,
         bmi,
-        lastUpdated: new Date().toISOString()
-      }))
+        lastUpdated: new Date().toISOString(),
+      })
+    )
 
-      // Marcar que acabou de fazer onboarding para mostrar modal de exames
-      localStorage.setItem(`healthwallet_onboarding_completed_${user.id}`, 'true')
+    localStorage.setItem(
+      `healthwallet_onboarding_completed_${user.id}`,
+      'true'
+    )
 
-      // Redirecionar para dashboard
-      window.location.href = '/dashboard'
-    } catch (err) {
-      console.error('Erro:', err)
-    } finally {
-      setLoading(false)
-    }
+    window.location.href = '/dashboard'
+  } catch (err) {
+    console.error('Erro ao salvar onboarding:', err)
+    alert('Erro ao salvar perfil de saúde. Tente novamente.')
+  } finally {
+    setLoading(false)
   }
-
+}
   const currentStepData = STEPS[currentStep - 1]
 
   return (
