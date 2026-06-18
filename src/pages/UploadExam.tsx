@@ -102,6 +102,7 @@ setProcessing(false)
 setResult(analysis)
 
     } catch (err: any) {
+      setProcessing(false)
       setError(err.message || 'Erro ao enviar arquivo')
     } finally {
       setUploading(false)
