@@ -3,68 +3,47 @@ export async function handler(event: any) {
     const { fileUrl, fileName } = JSON.parse(event.body || '{}')
 
     if (!fileUrl) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'fileUrl obrigatório' }),
-      }
+      return { statusCode: 400, body: JSON.stringify({ error: 'fileUrl obrigatório' }) }
     }
 
     const apiKey = process.env.OPENAI_API_KEY
 
     if (!apiKey) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: 'OPENAI_API_KEY não configurada no Netlify' }),
-      }
+      return { statusCode: 500, body: JSON.stringify({ error: 'OPENAI_API_KEY não configurada' }) }
     }
 
     const fileRes = await fetch(fileUrl)
 
     if (!fileRes.ok) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'Não foi possível baixar o arquivo do exame' }),
-      }
+      return { statusCode: 400, body: JSON.stringify({ error: 'Não foi possível baixar o exame' }) }
     }
 
-    const contentType = fileRes.headers.get('content-type') || 'application/octet-stream'
-    const arrayBuffer = await fileRes.arrayBuffer()
-    const base64 = Buffer.from(arrayBuffer).toString('base64')
+    const contentType = fileRes.headers.get('content-type') || 'application/pdf'
+    const buffer = await fileRes.arrayBuffer()
+    const base64 = Buffer.from(buffer).toString('base64')
     const dataUrl = `data:${contentType};base64,${base64}`
 
     const prompt = `
-Você é um assistente de saúde.
+Analise este exame de saúde.
 
-Analise o exame enviado pelo paciente.
-
-Extraia:
-- exames encontrados
-- valores
-- referências
-- status: normal, alto, baixo ou atenção
-- resumo simples para paciente
-- pontos de atenção para conversar com médico
-
-Responda APENAS em JSON válido neste formato:
-
+Responda somente JSON válido:
 {
-  "summary": "texto curto",
+  "summary": "resumo claro para paciente",
   "items": [
     {
-      "name": "nome do exame",
-      "value": "valor",
+      "name": "nome do marcador",
+      "value": "valor encontrado",
       "reference": "referência",
       "status": "normal|alto|baixo|atencao",
       "explanation": "explicação simples"
     }
   ],
-  "nextSteps": ["orientação 1", "orientação 2"],
-  "extractedText": "texto extraído resumido"
+  "nextSteps": ["próximo passo 1", "próximo passo 2"],
+  "extractedText": "texto relevante extraído"
 }
 
 Não dê diagnóstico.
 Não substitua consulta médica.
-Arquivo: ${fileName}
 `
 
     const openaiRes = await fetch('https://api.openai.com/v1/responses', {
@@ -80,7 +59,11 @@ Arquivo: ${fileName}
             role: 'user',
             content: [
               { type: 'input_text', text: prompt },
-              { type: 'input_file', filename: fileName || 'exame.pdf', file_data: dataUrl },
+              {
+                type: 'input_file',
+                filename: fileName || 'exame.pdf',
+                file_data: dataUrl,
+              },
             ],
           },
         ],
@@ -92,13 +75,11 @@ Arquivo: ${fileName}
     if (!openaiRes.ok) {
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: json.error?.message || 'Erro na OpenAI',
-        }),
+        body: JSON.stringify({ error: json.error?.message || 'Erro na análise IA' }),
       }
     }
 
-    const outputText =
+    const text =
       json.output_text ||
       json.output?.[0]?.content?.[0]?.text ||
       ''
@@ -106,13 +87,13 @@ Arquivo: ${fileName}
     let parsed
 
     try {
-      parsed = JSON.parse(outputText)
+      parsed = JSON.parse(text)
     } catch {
       parsed = {
-        summary: outputText || 'Exame recebido, mas não foi possível estruturar a análise.',
+        summary: text || 'Exame recebido, mas a IA não conseguiu estruturar a análise.',
         items: [],
-        nextSteps: ['Converse com um profissional de saúde para interpretar o exame.'],
-        extractedText: outputText,
+        nextSteps: ['Procure um profissional de saúde para interpretação.'],
+        extractedText: text,
       }
     }
 
@@ -123,9 +104,7 @@ Arquivo: ${fileName}
   } catch (error: any) {
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: error.message || 'Erro ao analisar exame',
-      }),
+      body: JSON.stringify({ error: error.message || 'Erro ao analisar exame' }),
     }
   }
 }
