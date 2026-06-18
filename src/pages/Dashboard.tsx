@@ -59,13 +59,45 @@ export default function Dashboard() {
         localStorage.removeItem(`healthwallet_onboarding_completed_${user.id}`)
       }
 
-      if (!profileData) {
-        // Redirecionar para onboarding
-        window.location.href = '/onboarding'
-        return
-      }
+      let profile: any = null
 
-      const profile = JSON.parse(profileData)
+if (profileData) {
+  profile = JSON.parse(profileData)
+} else {
+  const { data: dbProfile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (!dbProfile) {
+    window.location.href = '/onboarding'
+    return
+  }
+
+  profile = {
+    birthDate: dbProfile.birth_date,
+    gender: dbProfile.gender,
+    weight: dbProfile.weight,
+    height: dbProfile.height,
+    bloodType: dbProfile.blood_type,
+    smokingStatus: dbProfile.smoking_status,
+    alcoholConsumption: dbProfile.alcohol_consumption,
+    physicalActivity: dbProfile.physical_activity,
+    sleepHours: dbProfile.sleep_hours,
+    stressLevel: dbProfile.stress_level,
+    allergies: dbProfile.allergies,
+    chronicConditions: dbProfile.chronic_conditions,
+    familyHistory: dbProfile.family_history,
+    currentMedications: dbProfile.current_medications,
+    medScore: dbProfile.med_score,
+  }
+
+  localStorage.setItem(
+    `healthwallet_profile_${user.id}`,
+    JSON.stringify(profile)
+  )
+}
 
       // Carregar dados do Supabase
       const [examsRes, medsRes, cardsRes, familyRes, conditionsRes, recordsFullRes] = await Promise.all([
