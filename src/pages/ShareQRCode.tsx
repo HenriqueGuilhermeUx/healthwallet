@@ -305,7 +305,7 @@ export default function ShareQRCode() {
         ) : (
           <>
             <QrCode className="w-5 h-5" />
-            Gerar Código de Acesso
+            Compartilhar
           </>
         )}
       </button>
