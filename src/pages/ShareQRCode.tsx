@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { QrCode, Copy, CheckCircle, Share2, Download, Mail, MessageCircle, Shield, Clock, X, Check, Loader2, Trash2, Eye, Send } from 'lucide-react'
+import { QrCode, Copy, Mail, MessageCircle, Shield, Clock, X, Check, Loader2, Trash2, Share2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -13,6 +12,8 @@ interface ShareData {
   allergies: boolean
   medscore: boolean
   ai_analysis: boolean
+  emergency_contact: boolean
+  summary: boolean
 }
 
 interface GeneratedCode {
@@ -30,16 +31,30 @@ const DURATION_OPTIONS = [
   { value: 720, label: '30 dias' },
 ]
 
+const SHARE_OPTIONS = [
+  { key: 'summary', label: 'Resumo', icon: '📄', desc: 'Resumo profissional' },
+  { key: 'profile', label: 'Perfil', icon: '👤', desc: 'Dados principais' },
+  { key: 'medscore', label: 'MedScore', icon: '📊', desc: 'Pontuação e risco' },
+  { key: 'exams', label: 'Exames', icon: '📋', desc: 'Resultados enviados' },
+  { key: 'ai_analysis', label: 'Análise IA', icon: '🤖', desc: 'Comentários dos exames' },
+  { key: 'allergies', label: 'Alergias', icon: '⚠️', desc: 'Alertas importantes' },
+  { key: 'medications', label: 'Remédios', icon: '💊', desc: 'Medicamentos em uso' },
+  { key: 'emergency_contact', label: 'Emergência', icon: '☎️', desc: 'Contato de emergência' },
+]
+
 export default function ShareQRCode() {
   const { user } = useAuth()
   const [shareData, setShareData] = useState<ShareData>({
+    summary: true,
     profile: true,
     exams: true,
-    medications: false,
+    medications: true,
     allergies: true,
     medscore: true,
     ai_analysis: true,
+    emergency_contact: true,
   })
+
   const [duration, setDuration] = useState(24)
   const [loading, setLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
@@ -50,20 +65,16 @@ export default function ShareQRCode() {
   const [copied, setCopied] = useState(false)
   const [codes, setCodes] = useState<GeneratedCode[]>([])
   const [loadingCodes, setLoadingCodes] = useState(true)
-  const [hasConsent, setHasConsent] = useState(false)
-  const [loadingConsent, setLoadingConsent] = useState(true)
 
   useEffect(() => {
-    if (user) {
-      loadCodes()
-      loadConsent()
-    }
+    if (user) loadCodes()
   }, [user])
 
-  const loadCodes = async () => {
+  async function loadCodes() {
     if (!user) return
 
     setLoadingCodes(true)
+
     const { data } = await supabase
       .from('access_codes')
       .select('*')
@@ -71,49 +82,23 @@ export default function ShareQRCode() {
       .order('created_at', { ascending: false })
       .limit(10)
 
-    if (data) {
-      setCodes(data)
-    }
+    setCodes(data || [])
     setLoadingCodes(false)
   }
 
-  const loadConsent = async () => {
+  async function generateCode() {
     if (!user) return
 
-    setLoadingConsent(true)
-
-    const { data, error } = await supabase
-      .from('health_consents')
-      .select('id, created_at')
-      .eq('patient_id', user.id)
-      .eq('consent_type', 'share_health_data')
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (!error && data && data.length > 0) {
-      setHasConsent(true)
-    } else {
-      setHasConsent(false)
-    }
-
-    setLoadingConsent(false)
-  }
-
-  const generateCode = async () => {
-    if (!user) return
-
-    if (!hasConsent) {
-      toast.error('Antes de compartilhar, assine o consentimento digital.')
+    if (!Object.values(shareData).some(Boolean)) {
+      toast.error('Selecione pelo menos uma informação para compartilhar.')
       return
     }
 
     setLoading(true)
 
     try {
-      // Generate 6-digit code
       const code = Math.floor(100000 + Math.random() * 900000).toString()
 
-      // Calculate expiration
       const expiresAt = new Date()
       expiresAt.setHours(expiresAt.getHours() + duration)
 
@@ -132,57 +117,56 @@ export default function ShareQRCode() {
 
       setGeneratedCode(data)
       setShowModal(true)
-      loadCodes()
-      toast.success('Código gerado com sucesso!')
+      await loadCodes()
+      toast.success('Compartilhamento gerado!')
     } catch (err) {
-      console.error('Error generating code:', err)
-      toast.error('Erro ao gerar código')
+      console.error(err)
+      toast.error('Erro ao gerar compartilhamento.')
     } finally {
       setLoading(false)
     }
   }
 
-  const deleteCode = async (id: string) => {
+  async function deleteCode(id: string) {
     const { error } = await supabase.from('access_codes').delete().eq('id', id)
 
     if (!error) {
-      setCodes(prev => prev.filter(c => c.id !== id))
-      toast.success('Código excluído')
+      setCodes((prev) => prev.filter((c) => c.id !== id))
+      toast.success('Acesso revogado.')
     }
   }
 
-  const copyToClipboard = () => {
-    if (generatedCode) {
-      navigator.clipboard.writeText(generatedCode.code)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
+  function copyToClipboard() {
+    if (!generatedCode) return
+
+    navigator.clipboard.writeText(generatedCode.code)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
-  const getShareLink = () => {
-    if (generatedCode) {
-      return `${window.location.origin}/access/${generatedCode.code}`
-    }
-    return ''
+  function getShareLink() {
+    if (!generatedCode) return ''
+    return `${window.location.origin}/access/${generatedCode.code}`
   }
 
-  const sendEmail = () => {
+  function sendEmail() {
     if (!doctorEmail || !generatedCode) return
 
     const link = getShareLink()
     const subject = encodeURIComponent('HealthWallet - Compartilhamento de Dados de Saúde')
     const body = encodeURIComponent(
       `Olá${doctorName ? ` Dr(a). ${doctorName}` : ''},\n\n` +
-      `Estou compartilhando meu histórico de saúde com você através do HealthWallet.\n\n` +
+      `Estou compartilhando meus dados de saúde pelo HealthWallet.\n\n` +
       `Código de acesso: ${generatedCode.code}\n` +
-      `Ou acesse diretamente: ${link}\n\n` +
-      `Este link expira em ${duration} hora${duration > 1 ? 's' : ''}.\n\n` +
+      `Link: ${link}\n\n` +
+      `Este acesso expira em ${formatExpiration(generatedCode.expires_at)}.\n\n` +
       `Atenciosamente`
     )
+
     window.open(`mailto:${doctorEmail}?subject=${subject}&body=${body}`)
   }
 
-  const formatExpiration = (date: string) => {
+  function formatExpiration(date: string) {
     const expires = new Date(date)
     const now = new Date()
     const diff = expires.getTime() - now.getTime()
@@ -196,31 +180,24 @@ export default function ShareQRCode() {
     return `${hours} hora${hours > 1 ? 's' : ''}`
   }
 
-  const isExpired = (date: string) => {
+  function isExpired(date: string) {
     return new Date(date) < new Date()
   }
 
   return (
     <div className="space-y-6 pb-20">
-      {/* Header */}
       <div>
         <h1 className="text-xl font-bold">Compartilhar Dados</h1>
-        <p className="text-sm text-muted-foreground">Gere um código para profissionais de saúde acessarem seus dados</p>
+        <p className="text-sm text-muted-foreground">
+          Escolha o que compartilhar e por quanto tempo.
+        </p>
       </div>
 
-      {/* Data Selection */}
       <div className="bg-white rounded-xl border p-4 space-y-4">
-        <h3 className="font-medium">O que deseja compartilhar?</h3>
+        <h3 className="font-medium">O que compartilhar?</h3>
 
         <div className="grid grid-cols-2 gap-3">
-          {[
-            { key: 'profile', label: 'Perfil', icon: '👤', desc: 'Dados pessoais' },
-            { key: 'medscore', label: 'MedScore', icon: '📊', desc: 'Sua pontuação' },
-            { key: 'exams', label: 'Exames', icon: '📋', desc: 'Resultados' },
-            { key: 'ai_analysis', label: 'Análise IA', icon: '🤖', desc: 'Interpretação' },
-            { key: 'allergies', label: 'Alergias', icon: '⚠️', desc: 'Alergias' },
-            { key: 'medications', label: 'Remédios', icon: '💊', desc: 'Em uso' },
-          ].map((item) => (
+          {SHARE_OPTIONS.map((item) => (
             <label
               key={item.key}
               className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
@@ -232,14 +209,22 @@ export default function ShareQRCode() {
               <input
                 type="checkbox"
                 checked={shareData[item.key as keyof ShareData]}
-                onChange={(e) => setShareData(prev => ({ ...prev, [item.key]: e.target.checked }))}
+                onChange={(e) =>
+                  setShareData((prev) => ({
+                    ...prev,
+                    [item.key]: e.target.checked,
+                  }))
+                }
                 className="sr-only"
               />
+
               <span className="text-xl">{item.icon}</span>
+
               <div className="flex-1">
                 <p className="font-medium text-sm">{item.label}</p>
                 <p className="text-xs text-gray-500">{item.desc}</p>
               </div>
+
               {shareData[item.key as keyof ShareData] && (
                 <Check className="w-5 h-5 text-emerald-600" />
               )}
@@ -248,9 +233,9 @@ export default function ShareQRCode() {
         </div>
       </div>
 
-      {/* Duration Selection */}
       <div className="bg-white rounded-xl border p-4">
-        <h3 className="font-medium mb-3">Validade do código</h3>
+        <h3 className="font-medium mb-3">Prazo de acesso</h3>
+
         <div className="grid grid-cols-4 gap-2">
           {DURATION_OPTIONS.map((opt) => (
             <button
@@ -268,33 +253,9 @@ export default function ShareQRCode() {
         </div>
       </div>
 
-      {!loadingConsent && !hasConsent && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 space-y-3">
-          <div className="flex items-start gap-3">
-            <Shield className="w-5 h-5 text-yellow-700 mt-0.5" />
-            <div>
-              <p className="font-semibold text-yellow-900">
-                Consentimento digital necessário
-              </p>
-              <p className="text-sm text-yellow-700">
-                Para compartilhar seus dados de saúde com segurança, assine primeiro o TCLE digital.
-              </p>
-            </div>
-          </div>
-
-          <Link
-            to="/consent"
-            className="block w-full text-center py-3 rounded-xl bg-yellow-600 text-white font-semibold hover:bg-yellow-700 transition-colors"
-          >
-            Assinar Consentimento Digital
-          </Link>
-        </div>
-      )}
-
-      {/* Generate Button */}
       <button
         onClick={generateCode}
-        disabled={loading || loadingConsent || !hasConsent || !Object.values(shareData).some(v => v)}
+        disabled={loading || !Object.values(shareData).some(Boolean)}
         className="w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
       >
         {loading ? (
@@ -310,24 +271,24 @@ export default function ShareQRCode() {
         )}
       </button>
 
-      {/* Info Cards */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-blue-50 rounded-xl p-4">
           <Clock className="w-5 h-5 text-blue-600 mb-2" />
           <p className="font-medium text-sm text-blue-900">Temporário</p>
           <p className="text-xs text-blue-700">Expira automaticamente</p>
         </div>
+
         <div className="bg-green-50 rounded-xl p-4">
           <Shield className="w-5 h-5 text-green-600 mb-2" />
           <p className="font-medium text-sm text-green-900">Seguro</p>
-          <p className="text-xs text-green-700">Dados criptografados</p>
+          <p className="text-xs text-green-700">Você pode revogar</p>
         </div>
       </div>
 
-      {/* Previous Codes */}
       {codes.length > 0 && (
         <div className="bg-white rounded-xl border p-4">
-          <h3 className="font-medium mb-3">Códigos Gerados</h3>
+          <h3 className="font-medium mb-3">Compartilhamentos ativos</h3>
+
           <div className="space-y-2">
             {loadingCodes ? (
               <div className="text-center py-4">
@@ -338,20 +299,27 @@ export default function ShareQRCode() {
                 <div
                   key={code.id}
                   className={`flex items-center justify-between p-3 rounded-xl border ${
-                    isExpired(code.expires_at) ? 'bg-gray-50 border-gray-200' : 'bg-emerald-50 border-emerald-200'
+                    isExpired(code.expires_at)
+                      ? 'bg-gray-50 border-gray-200'
+                      : 'bg-emerald-50 border-emerald-200'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-mono font-bold text-lg">{code.code}</span>
+
                     <div>
                       <p className="text-sm text-gray-600">
-                        {isExpired(code.expires_at) ? 'Expirado' : `Expira em ${formatExpiration(code.expires_at)}`}
+                        {isExpired(code.expires_at)
+                          ? 'Expirado'
+                          : `Expira em ${formatExpiration(code.expires_at)}`}
                       </p>
+
                       <p className="text-xs text-gray-400">
                         {new Date(code.created_at).toLocaleDateString('pt-BR')}
                       </p>
                     </div>
                   </div>
+
                   <button
                     onClick={() => deleteCode(code.id)}
                     className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
@@ -365,32 +333,33 @@ export default function ShareQRCode() {
         </div>
       )}
 
-      {/* Modal */}
       {showModal && generatedCode && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden">
-            {/* Modal Header */}
             <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="font-bold">Código Gerado!</h2>
-              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-100 rounded-full">
+              <h2 className="font-bold">Compartilhamento gerado</h2>
+
+              <button
+                onClick={() => setShowModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-full"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Content */}
             <div className="p-4">
-              {/* Code Display */}
               <div className="text-center mb-6">
-                <p className="text-sm text-gray-500 mb-2">Código de Acesso</p>
+                <p className="text-sm text-gray-500 mb-2">Código de acesso</p>
+
                 <p className="text-4xl font-mono font-bold text-emerald-600 tracking-widest">
                   {generatedCode.code}
                 </p>
+
                 <p className="text-sm text-gray-500 mt-2">
                   Expira em {formatExpiration(generatedCode.expires_at)}
                 </p>
               </div>
 
-              {/* Tabs */}
               <div className="flex gap-2 mb-4">
                 {[
                   { key: 'qr', label: 'QR Code', icon: QrCode },
@@ -412,7 +381,6 @@ export default function ShareQRCode() {
                 ))}
               </div>
 
-              {/* QR Code Tab */}
               {activeTab === 'qr' && (
                 <div className="text-center">
                   <div className="w-48 h-48 bg-white rounded-xl mx-auto mb-4 flex items-center justify-center p-4 border">
@@ -420,30 +388,26 @@ export default function ShareQRCode() {
                       value={getShareLink() || generatedCode.code}
                       size={160}
                       level="M"
-                      includeMargin={true}
+                      includeMargin
                     />
                   </div>
+
                   <p className="text-sm text-gray-600 mb-4">
-                    O profissional escaneia este QR Code ou digita o código manualmente
+                    O profissional pode escanear o QR Code ou digitar o código.
                   </p>
-                  <button
-                    onClick={() => setActiveTab('link')}
-                    className="w-full py-2 text-emerald-600 font-medium"
-                  >
-                    Ver código numérico
-                  </button>
                 </div>
               )}
 
-              {/* Link Tab */}
               {activeTab === 'link' && (
                 <div className="space-y-4">
                   <div className="bg-gray-50 rounded-xl p-4 text-center">
                     <p className="text-sm text-gray-500 mb-2">Código</p>
+
                     <p className="text-3xl font-mono font-bold text-emerald-600 tracking-widest">
                       {generatedCode.code}
                     </p>
                   </div>
+
                   <button
                     onClick={copyToClipboard}
                     className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-medium"
@@ -451,10 +415,13 @@ export default function ShareQRCode() {
                     {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
                     {copied ? 'Copiado!' : 'Copiar Código'}
                   </button>
+
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
-                        const text = encodeURIComponent(`Acesse meus dados de saúde no HealthWallet.\nCódigo: ${generatedCode.code}\nLink: ${getShareLink()}`)
+                        const text = encodeURIComponent(
+                          `Acesse meus dados de saúde no HealthWallet.\nCódigo: ${generatedCode.code}\nLink: ${getShareLink()}`
+                        )
                         window.open(`https://wa.me/?text=${text}`)
                       }}
                       className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-green-500 text-white font-medium"
@@ -462,40 +429,36 @@ export default function ShareQRCode() {
                       <MessageCircle className="w-5 h-5" />
                       WhatsApp
                     </button>
+
                     <button
                       onClick={copyToClipboard}
                       className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-gray-200 font-medium"
                     >
                       <Share2 className="w-5 h-5" />
-                      Compartilhar
+                      Copiar
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* Email Tab */}
               {activeTab === 'email' && (
                 <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Nome do Profissional</label>
-                    <input
-                      type="text"
-                      placeholder="Dr(a). Nome"
-                      value={doctorName}
-                      onChange={(e) => setDoctorName(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border focus:border-emerald-500 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">E-mail</label>
-                    <input
-                      type="email"
-                      placeholder="profissional@clinica.com"
-                      value={doctorEmail}
-                      onChange={(e) => setDoctorEmail(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border focus:border-emerald-500 outline-none"
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    placeholder="Nome do profissional"
+                    value={doctorName}
+                    onChange={(e) => setDoctorName(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border outline-none"
+                  />
+
+                  <input
+                    type="email"
+                    placeholder="profissional@clinica.com"
+                    value={doctorEmail}
+                    onChange={(e) => setDoctorEmail(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border outline-none"
+                  />
+
                   <button
                     onClick={sendEmail}
                     disabled={!doctorEmail}
@@ -508,11 +471,10 @@ export default function ShareQRCode() {
               )}
             </div>
 
-            {/* Modal Footer */}
             <div className="p-4 bg-gray-50 border-t">
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Shield className="w-4 h-4" />
-                <span>Você pode excluir este código a qualquer momento</span>
+                <span>Você pode revogar este acesso a qualquer momento.</span>
               </div>
             </div>
           </div>
