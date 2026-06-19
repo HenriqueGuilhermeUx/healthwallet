@@ -1,11 +1,24 @@
 import { useState, useEffect } from 'react'
-import { QrCode, Copy, Mail, MessageCircle, Shield, Clock, X, Check, Loader2, Trash2, Share2 } from 'lucide-react'
+import {
+  QrCode,
+  Copy,
+  Mail,
+  MessageCircle,
+  Shield,
+  Clock,
+  X,
+  Check,
+  Loader2,
+  Trash2,
+  Share2,
+} from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
 
 interface ShareData {
+  summary: boolean
   profile: boolean
   exams: boolean
   medications: boolean
@@ -13,7 +26,6 @@ interface ShareData {
   medscore: boolean
   ai_analysis: boolean
   emergency_contact: boolean
-  summary: boolean
 }
 
 interface GeneratedCode {
@@ -44,6 +56,7 @@ const SHARE_OPTIONS = [
 
 export default function ShareQRCode() {
   const { user } = useAuth()
+
   const [shareData, setShareData] = useState<ShareData>({
     summary: true,
     profile: true,
@@ -270,20 +283,6 @@ export default function ShareQRCode() {
           </>
         )}
       </button>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-blue-50 rounded-xl p-4">
-          <Clock className="w-5 h-5 text-blue-600 mb-2" />
-          <p className="font-medium text-sm text-blue-900">Temporário</p>
-          <p className="text-xs text-blue-700">Expira automaticamente</p>
-        </div>
-
-        <div className="bg-green-50 rounded-xl p-4">
-          <Shield className="w-5 h-5 text-green-600 mb-2" />
-          <p className="font-medium text-sm text-green-900">Seguro</p>
-          <p className="text-xs text-green-700">Você pode revogar</p>
-        </div>
-      </div>
 
       {codes.length > 0 && (
         <div className="bg-white rounded-xl border p-4">
