@@ -15,6 +15,7 @@ import {
   Sparkles,
   LineChart,
   Stethoscope,
+  Target,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
@@ -26,6 +27,7 @@ export default function MedScore() {
   const [loading, setLoading] = useState(true)
   const [medScore, setMedScore] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
+  const [records, setRecords] = useState<any[]>([])
 
   useEffect(() => {
     load()
@@ -36,14 +38,14 @@ export default function MedScore() {
 
     const [profileRes, recordsRes, conditionsRes, scoreHistoryRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-      supabase.from('medical_records').select('*').eq('user_id', user.id),
+      supabase.from('medical_records').select('*').eq('user_id', user.id).order('created_at', { ascending: true }),
       supabase.from('patient_conditions').select('*').eq('user_id', user.id),
       supabase
         .from('health_scores')
         .select('*')
         .eq('user_id', user.id)
         .order('calculated_at', { ascending: true })
-        .limit(6),
+        .limit(8),
     ])
 
     const calculated = calculateMedScore(
@@ -54,6 +56,7 @@ export default function MedScore() {
 
     setMedScore(calculated)
     setHistory(scoreHistoryRes.data || [])
+    setRecords(recordsRes.data || [])
     setLoading(false)
   }
 
@@ -67,6 +70,12 @@ export default function MedScore() {
 
   const metrics = medScore.metrics || {}
   const cockpit = medScore.cockpit || {}
+  const delta = getScoreDelta(history, medScore.score)
+  const lastUpdate = getLastUpdate(history)
+  const insights = buildInsights(records, history, medScore, metrics)
+  const improveActions = buildImproveActions(medScore)
+  const recommendedExams = buildRecommendedExams(medScore, metrics)
+  const factors = buildMainFactors(medScore, metrics)
 
   const areas = [
     {
@@ -101,13 +110,10 @@ export default function MedScore() {
     },
   ]
 
-  const improveActions = buildImproveActions(medScore)
-  const recommendedExams = buildRecommendedExams(medScore, metrics)
-
   return (
     <div className="space-y-5 pb-20">
       <div className="rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 p-5 text-white">
-        <p className="text-white/80 text-sm mb-1">Seu índice de saúde</p>
+        <p className="text-white/80 text-sm mb-1">Seu MedScore</p>
 
         <div className="flex items-center gap-4">
           <div className="relative">
@@ -132,18 +138,43 @@ export default function MedScore() {
           </div>
 
           <div className="flex-1">
-            <h1 className="text-2xl font-bold">MedScore {medScore.level}</h1>
+            <h1 className="text-2xl font-bold">{medScore.level}</h1>
 
             <p className="text-white/80 text-sm mt-1">
               {medScore.confidence}% de confiança dos dados
             </p>
 
-            <p className="text-white/70 text-xs mt-2">
-              Baseado em exames, perfil, hábitos e histórico clínico.
+            <p className="text-white/80 text-sm mt-2">
+              {delta >= 0 ? '↑' : '↓'} {Math.abs(delta)} pontos desde a última atualização
+            </p>
+
+            <p className="text-white/70 text-xs mt-1">
+              Última atualização: {lastUpdate}
             </p>
           </div>
         </div>
       </div>
+
+      <section className="bg-white rounded-xl border p-4">
+        <h2 className="font-bold mb-3 flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-emerald-600" />
+          Principais fatores do seu score
+        </h2>
+
+        <div className="space-y-2">
+          {factors.good.map((item, idx) => (
+            <p key={`good-${idx}`} className="text-sm text-emerald-700">
+              ✔ {item}
+            </p>
+          ))}
+
+          {factors.attention.map((item, idx) => (
+            <p key={`attention-${idx}`} className="text-sm text-red-700">
+              ⚠ {item}
+            </p>
+          ))}
+        </div>
+      </section>
 
       <section className="bg-white rounded-xl border p-4">
         <h2 className="font-bold mb-3 flex items-center gap-2">
@@ -166,6 +197,19 @@ export default function MedScore() {
         <p className="text-xs text-muted-foreground mt-3">
           Conforme você adiciona exames e informações, o MedScore se torna mais preciso.
         </p>
+      </section>
+
+      <section className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+        <h2 className="font-bold text-indigo-900 mb-3 flex items-center gap-2">
+          <Target className="w-5 h-5" />
+          Health Wallet Insights
+        </h2>
+
+        <div className="space-y-2 text-sm text-indigo-800">
+          {insights.map((item, idx) => (
+            <p key={idx}>• {item}</p>
+          ))}
+        </div>
       </section>
 
       <section className="bg-white rounded-xl border p-4">
@@ -271,14 +315,17 @@ export default function MedScore() {
       )}
 
       <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-        <h2 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
-          <Sparkles className="w-5 h-5" />
-          Seu próximo passo
+        <h2 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
+          <MessageCircle className="w-5 h-5" />
+          Pergunte ao seu Health Coach
         </h2>
 
-        <p className="text-sm text-blue-800">
-          Atualize dados faltantes, envie exames recentes e mantenha seu histórico organizado para aumentar a precisão do MedScore.
-        </p>
+        <div className="grid grid-cols-1 gap-2">
+          <CoachButton text="Como reduzir meu LDL?" />
+          <CoachButton text="Como melhorar meu MedScore?" />
+          <CoachButton text="Quais exames faltam?" />
+          <CoachButton text="Como está meu risco cardiovascular?" />
+        </div>
       </section>
 
       <section className="bg-white rounded-xl border p-4">
@@ -309,14 +356,100 @@ export default function MedScore() {
   )
 }
 
+function CoachButton({ text }: { text: string }) {
+  return (
+    <Link
+      to={`/chat?context=score&question=${encodeURIComponent(text)}`}
+      className="bg-white border border-blue-100 rounded-xl p-3 text-sm text-blue-800 font-medium"
+    >
+      {text}
+    </Link>
+  )
+}
+
+function buildMainFactors(medScore: any, metrics: any) {
+  const good: string[] = []
+  const attention: string[] = []
+
+  if (metrics.hdl && metrics.hdl >= 40) good.push('HDL adequado')
+  if (metrics.fastingGlucose && metrics.fastingGlucose < 100) good.push('Glicemia normal')
+  if (metrics.triglycerides && metrics.triglycerides < 150) good.push('Triglicerídeos normais')
+  if (metrics.hemoglobin) good.push('Hemograma parcialmente avaliado')
+
+  if (metrics.ldl && metrics.ldl >= 130) attention.push('LDL elevado')
+  if (metrics.totalCholesterol && metrics.totalCholesterol >= 190) attention.push('Colesterol total elevado')
+  if (metrics.tfg && metrics.tfg < 90) attention.push('TFG abaixo do ideal')
+
+  const missingInfo = medScore.cockpit?.missingInfo || []
+  if (missingInfo.includes('Histórico familiar')) attention.push('Dados familiares incompletos')
+  if (missingInfo.includes('Peso e altura')) attention.push('Peso e altura incompletos')
+  if (missingInfo.includes('Contato de emergência')) attention.push('Contato de emergência não cadastrado')
+
+  if (!good.length) good.push('Dados iniciais organizados no HealthWallet')
+  if (!attention.length) attention.push('Nenhum alerta principal identificado no momento')
+
+  return { good, attention }
+}
+
+function buildInsights(records: any[], history: any[], medScore: any, metrics: any) {
+  const insights: string[] = []
+
+  insights.push(`Você enviou ${records.length} exame(s).`)
+
+  const delta = getScoreDelta(history, medScore.score)
+  insights.push(`Seu MedScore ${delta >= 0 ? 'subiu' : 'caiu'} ${Math.abs(delta)} ponto(s) desde a última atualização.`)
+
+  const ldlValues = extractMarkerValues(records, ['ldl'])
+  if (ldlValues.length >= 2) {
+    const first = ldlValues[0]
+    const last = ldlValues[ldlValues.length - 1]
+    insights.push(`Seu LDL foi de ${first} para ${last}.`)
+  } else if (metrics.ldl) {
+    insights.push(`Seu LDL atual é ${metrics.ldl}.`)
+  }
+
+  insights.push(`Próximo exame recomendado: ${nextRecommendedExam(medScore, metrics)}.`)
+
+  if (medScore.score < 85) {
+    insights.push('Meta para atingir MedScore 85: completar histórico familiar, inserir HbA1c/ApoB e manter exames atualizados.')
+  } else {
+    insights.push('Meta atual: manter exames e dados atualizados para preservar seu resultado.')
+  }
+
+  return insights
+}
+
+function extractMarkerValues(records: any[], names: string[]) {
+  const values: number[] = []
+
+  records.forEach((record) => {
+    const items = record.ai_result?.items || []
+    items.forEach((item: any) => {
+      const itemName = String(item.name || '').toLowerCase()
+      if (names.some((name) => itemName.includes(name))) {
+        const value = toNumber(item.value)
+        if (value) values.push(value)
+      }
+    })
+  })
+
+  return values
+}
+
+function nextRecommendedExam(medScore: any, metrics: any) {
+  if (!metrics.ldl || metrics.ldl >= 130) return 'ApoB'
+  if (!metrics.fastingGlucose) return 'Hemoglobina glicada'
+  if (!metrics.hemoglobin) return 'Hemograma completo'
+  if (!metrics.tfg) return 'Creatinina e TFG'
+  return 'PCR ultrassensível'
+}
+
 function cardiovascularScore(metrics: any) {
   let score = 85
-
   if (metrics.ldl >= 130) score -= 15
   if (metrics.totalCholesterol >= 190) score -= 8
   if (metrics.hdl && metrics.hdl < 40) score -= 8
   if (metrics.triglycerides >= 150) score -= 8
-
   return clamp(score)
 }
 
@@ -335,7 +468,6 @@ function renalScore(metrics: any) {
 
 function buildImproveActions(medScore: any) {
   const actions: { priority: string; text: string }[] = []
-
   const missing = medScore.missingExams || []
   const missingInfo = medScore.cockpit?.missingInfo || []
 
@@ -372,11 +504,9 @@ function buildImproveActions(medScore: any) {
 
 function buildRecommendedExams(medScore: any, metrics: any) {
   const exams = ['ApoB', 'Lipoproteína(a)', 'Hemoglobina glicada', 'PCR ultrassensível']
-
   if (!metrics.tfg) exams.push('Creatinina e TFG')
   if (!metrics.hemoglobin) exams.push('Hemograma completo')
   if (!metrics.tsh) exams.push('TSH')
-
   return [...new Set(exams)]
 }
 
@@ -392,11 +522,27 @@ function buildEvolutionBars(history: any[], currentScore: number) {
   }
 
   const parsed = history.slice(-5).map((item, idx) => ({
-    label: idx === history.length - 1 ? 'Atual' : `${idx + 1}`,
+    label: idx === history.slice(-5).length - 1 ? 'Atual' : `${idx + 1}`,
     score: Number(item.score || 0),
   }))
 
   return parsed.length >= 2 ? parsed : [...parsed, { label: 'Atual', score: currentScore }]
+}
+
+function getScoreDelta(history: any[], currentScore: number) {
+  if (!history || history.length < 2) return 0
+  const previous = Number(history[history.length - 2]?.score || currentScore)
+  return Number(currentScore) - previous
+}
+
+function getLastUpdate(history: any[]) {
+  const last = history?.[history.length - 1]
+  const date = last?.calculated_at || new Date().toISOString()
+  return new Date(date).toLocaleDateString('pt-BR')
+}
+
+function toNumber(value: any) {
+  return Number(String(value || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
 }
 
 function clamp(value: number) {
