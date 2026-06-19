@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ShieldCheck, CheckCircle, Loader2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -30,6 +30,32 @@ Você pode solicitar a exclusão dos seus dados a qualquer momento.
 Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do HealthWallet.
 `.trim()
 
+  useEffect(() => {
+    async function checkAlreadyAccepted() {
+      if (!user) return
+
+      const localAccepted = localStorage.getItem(`healthwallet_terms_${user.id}`)
+
+      if (localAccepted === 'true') {
+        navigate('/dashboard', { replace: true })
+        return
+      }
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('accepted_terms')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (data?.accepted_terms) {
+        localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
+        navigate('/dashboard', { replace: true })
+      }
+    }
+
+    checkAlreadyAccepted()
+  }, [user, navigate])
+
   async function saveConsent() {
     if (!user) return
 
@@ -43,18 +69,15 @@ Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do 
     try {
       const now = new Date().toISOString()
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('profiles')
-        .upsert(
-          {
-            id: user.id,
-            accepted_terms: true,
-            accepted_terms_at: now,
-          },
-          { onConflict: 'id' }
-        )
+        .update({
+          accepted_terms: true,
+          accepted_terms_at: now,
+        })
+        .eq('id', user.id)
 
-      if (error) throw error
+      if (updateError) throw updateError
 
       await supabase.from('health_consents').insert({
         patient_id: user.id,
@@ -70,14 +93,12 @@ Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do 
         },
       })
 
+      localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
       toast.success('Termos aceitos com sucesso')
-
-      setTimeout(() => {
-        navigate('/dashboard', { replace: true })
-      }, 500)
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       console.error(err)
-      toast.error('Erro ao salvar aceite. Verifique a tabela profiles.')
+      toast.error('Erro ao salvar aceite. Verifique se o perfil existe em profiles.')
     } finally {
       setLoading(false)
     }
