@@ -1,5 +1,15 @@
 import { useState, useEffect } from 'react'
-import { User, Phone, Calendar, Heart, Shield, ChevronRight, Activity, Siren } from 'lucide-react'
+import {
+  User,
+  Mail,
+  Phone,
+  Calendar,
+  Heart,
+  Shield,
+  ChevronRight
+} from 'lucide-react'
+
+import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 
@@ -309,6 +319,23 @@ export default function Profile() {
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </a>
       </div>
+
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+  <a href="/womens-health" className="flex items-center gap-3 p-4 hover:bg-muted/50">
+    <Heart className="w-5 h-5 text-pink-600" />
+    <div className="flex-1">
+      <p className="font-semibold text-sm">
+        Saúde da Mulher
+      </p>
+
+      <p className="text-xs text-muted-foreground">
+        Ciclo menstrual, gravidez, menopausa e prevenção
+      </p>
+    </div>
+
+    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+  </a>
+</div>
 
       <button
         onClick={handleLogout}
