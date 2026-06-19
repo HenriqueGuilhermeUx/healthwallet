@@ -11,8 +11,9 @@ import {
   MessageCircle,
   Sparkles,
   TrendingUp,
-  Clock,
   HeartPulse,
+  Target,
+  AlertCircle,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -35,6 +36,7 @@ export default function Dashboard() {
   const [nextMedication, setNextMedication] = useState<any>(null)
   const [lastExam, setLastExam] = useState<any>(null)
   const [scoreChange, setScoreChange] = useState(0)
+  const [insights, setInsights] = useState<string[]>([])
 
   useEffect(() => {
     loadDashboardData()
@@ -113,10 +115,11 @@ export default function Dashboard() {
           .limit(2),
       ])
 
+      const records = recordsRes.data || []
       const profile = profileRes.data || {}
       const calculated = calculateMedScore(
         profile,
-        recordsRes.data || [],
+        records,
         conditionsRes.data || []
       )
 
@@ -152,17 +155,18 @@ export default function Dashboard() {
 
       setNextEvent(futureEvents[0] || null)
       setNextMedication(activeMedsRes.data?.[0] || null)
-      setLastExam(recordsRes.data?.[0] || null)
+      setLastExam(records[0] || null)
+
+      let delta = 0
 
       if (lastScoreRes.data && lastScoreRes.data.length >= 2) {
-        setScoreChange(
+        delta =
           Number(lastScoreRes.data[0].score || 0) -
-            Number(lastScoreRes.data[1].score || 0)
-        )
-      } else {
-        setScoreChange(0)
+          Number(lastScoreRes.data[1].score || 0)
       }
 
+      setScoreChange(delta)
+      setInsights(buildDashboardInsights(records, calculated, delta))
       setMedScore(calculated)
     } catch (error) {
       console.error('Error loading dashboard:', error)
@@ -305,6 +309,19 @@ export default function Dashboard() {
         </div>
       </section>
 
+      <section className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Target className="w-5 h-5 text-indigo-600" />
+          <h2 className="font-bold text-indigo-900">Insights de Saúde</h2>
+        </div>
+
+        <div className="space-y-2 text-sm text-indigo-800">
+          {insights.map((insight, index) => (
+            <p key={index}>• {insight}</p>
+          ))}
+        </div>
+      </section>
+
       <div className="grid grid-cols-2 gap-3">
         <ActionCard icon={Activity} label="Exames" value={stats.exams} href="/exams" />
         <ActionCard icon={Pill} label="Remédios" value={stats.medications} href="/medications" />
@@ -343,6 +360,72 @@ export default function Dashboard() {
       </button>
     </div>
   )
+}
+
+function buildDashboardInsights(records: any[], medScore: any, scoreChange: number) {
+  const insights: string[] = []
+
+  insights.push(`Você enviou ${records.length} exame(s) até agora.`)
+
+  if (scoreChange > 0) {
+    insights.push(`Seu MedScore subiu ${scoreChange} ponto(s) desde a última atualização.`)
+  } else if (scoreChange < 0) {
+    insights.push(`Seu MedScore caiu ${Math.abs(scoreChange)} ponto(s); vale revisar pontos de atenção.`)
+  } else {
+    insights.push('Seu MedScore está estável desde a última atualização.')
+  }
+
+  const ldlValues = extractMarkerValues(records, ['ldl'])
+
+  if (ldlValues.length >= 2) {
+    const first = ldlValues[ldlValues.length - 1]
+    const last = ldlValues[0]
+
+    insights.push(`Seu LDL foi de ${first} para ${last}.`)
+  } else if (ldlValues.length === 1) {
+    insights.push(`Seu LDL atual registrado é ${ldlValues[0]}.`)
+  }
+
+  const missing = medScore.missingExams || []
+  const nextExam =
+    missing.find((item: string) => item.toLowerCase().includes('glic')) ||
+    missing.find((item: string) => item.toLowerCase().includes('hemograma')) ||
+    missing[0] ||
+    'ApoB'
+
+  insights.push(`Próximo exame recomendado: ${nextExam}.`)
+
+  if (medScore.score < 85) {
+    insights.push('Meta: chegar ao MedScore 85 mantendo exames atualizados e completando dados importantes.')
+  } else {
+    insights.push('Meta: manter seu MedScore com exames e informações sempre atualizados.')
+  }
+
+  return insights
+}
+
+function extractMarkerValues(records: any[], names: string[]) {
+  const values: number[] = []
+
+  records.forEach((record) => {
+    const items = record.ai_result?.items || []
+
+    items.forEach((item: any) => {
+      const itemName = String(item.name || '').toLowerCase()
+
+      if (names.some((name) => itemName.includes(name))) {
+        const value = toNumber(item.value)
+
+        if (value) values.push(value)
+      }
+    })
+  })
+
+  return values
+}
+
+function toNumber(value: any) {
+  return Number(String(value || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
 }
 
 function DailyCard({ title, value, subtitle }: any) {
