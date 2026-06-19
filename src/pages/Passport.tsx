@@ -13,6 +13,8 @@ import {
   ClipboardList,
   Stethoscope,
   User,
+  Siren,
+  Upload,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -75,7 +77,7 @@ export default function Passport() {
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(10),
+        .limit(5),
     ])
 
     setMedications(medsRes.data || [])
@@ -103,50 +105,105 @@ export default function Passport() {
       ? String(profile.allergies).split(',').map((item) => item.trim()).filter(Boolean)
       : []
 
+  const activeMedications = medications.filter((med) => med.is_active !== false)
+
+  const criticalMeds = activeMedications.length
+    ? activeMedications
+    : profile.currentMedications
+      ? [{ id: 'profile-med', name: profile.currentMedications, dosage: '' }]
+      : []
+
+  const mainPlan = plans[0]
+
   const missingFields = [
-    !profile.birthDate && 'Data de nascimento',
     !profile.bloodType && 'Tipo sanguíneo',
-    !profile.weight && 'Peso',
-    !profile.height && 'Altura',
-    !profile.phone && 'Telefone',
     !profile.emergencyContactName && 'Contato de emergência',
     allergies.length === 0 && 'Alergias',
-    !profile.currentMedications && medications.length === 0 && 'Medicamentos atuais',
+    criticalMeds.length === 0 && 'Medicamentos',
+    !mainPlan && 'Plano/SUS',
+    !profile.phone && 'Telefone',
+    !profile.weight && 'Peso',
+    !profile.height && 'Altura',
     !profile.surgeries && 'Cirurgias / internações',
   ].filter(Boolean)
 
   return (
     <div className="p-4 pb-20 space-y-4">
-      <div className="rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white p-6">
+      <div className="rounded-2xl bg-gradient-to-br from-red-600 to-rose-700 text-white p-6">
         <div className="flex items-center gap-3 mb-4">
-          <ClipboardList className="w-8 h-8" />
+          <Siren className="w-8 h-8" />
           <div>
-            <h1 className="text-2xl font-bold">Prontuário Digital</h1>
+            <h1 className="text-2xl font-bold">Passaporte de Emergência</h1>
             <p className="text-white/80 text-sm">
-              Histórico completo de consultas, exames, prescrições e dados de emergência.
+              Informações essenciais para atendimento rápido.
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 mt-4">
-          <MiniStat label="Exames" value={exams.length} />
-          <MiniStat label="Remédios" value={medications.length} />
-          <MiniStat label="Planos" value={plans.length} />
+        <div className="space-y-2 text-sm">
+          <p><strong>Nome:</strong> {profile.fullName || user?.email || 'Não informado'}</p>
+          <p><strong>Tipo sanguíneo:</strong> {profile.bloodType || 'Não informado'}</p>
+          <p><strong>Alergias:</strong> {allergies.length ? allergies.join(', ') : 'Não informado'}</p>
+          <p><strong>Medicamentos:</strong> {formatMedsShort(criticalMeds)}</p>
         </div>
       </div>
 
+      <section className="bg-red-50 border border-red-200 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Phone className="w-5 h-5 text-red-600" />
+          <h2 className="font-bold text-red-800">Contato de emergência</h2>
+        </div>
+
+        {profile.emergencyContactName ? (
+          <div className="space-y-1 text-sm text-red-900">
+            <p className="font-bold text-lg">{profile.emergencyContactName}</p>
+            <p><strong>Telefone:</strong> {profile.emergencyContactPhone || 'Não informado'}</p>
+            <p><strong>Parentesco:</strong> {profile.emergencyContactRelationship || 'Não informado'}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-red-700">Nenhum contato de emergência cadastrado.</p>
+        )}
+
+        <a
+          href="/profile"
+          className="block mt-3 text-center py-2 rounded-xl bg-red-600 text-white text-sm font-medium"
+        >
+          Atualizar contato
+        </a>
+      </section>
+
+      {mainPlan && (
+        <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <CreditCard className="w-5 h-5 text-blue-600" />
+            <h2 className="font-bold text-blue-900">Plano/SUS</h2>
+          </div>
+
+          <div className="text-sm text-blue-900 space-y-1">
+            <p><strong>{mainPlan.plan_type === 'sus' ? 'SUS' : 'Plano'}:</strong> {mainPlan.plan_name}</p>
+            {mainPlan.operator_name && <p><strong>Operadora:</strong> {mainPlan.operator_name}</p>}
+            <p><strong>Número:</strong> {mainPlan.card_number}</p>
+            <p><strong>Titular:</strong> {mainPlan.beneficiary_name}</p>
+          </div>
+        </section>
+      )}
+
       {missingFields.length > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+        <section className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-yellow-700 mt-0.5" />
+
             <div className="flex-1">
               <h2 className="font-bold text-yellow-900 mb-2">
-                Complete seu prontuário
+                Informações faltantes
               </h2>
 
               <div className="flex flex-wrap gap-2 mb-3">
                 {missingFields.map((item: any) => (
-                  <span key={item} className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                  <span
+                    key={item}
+                    className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full"
+                  >
                     {item}
                   </span>
                 ))}
@@ -160,44 +217,56 @@ export default function Passport() {
               </a>
             </div>
           </div>
-        </div>
+        </section>
       )}
 
-      <Section icon={User} title="Identificação">
+      <section className="rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <ClipboardList className="w-7 h-7" />
+          <div>
+            <h2 className="text-xl font-bold">Prontuário Digital</h2>
+            <p className="text-white/80 text-sm">
+              Resumo clínico, exames, prescrições e histórico.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <MiniStat label="Exames" value={exams.length} />
+          <MiniStat label="Remédios" value={activeMedications.length} />
+          <MiniStat label="Planos" value={plans.length} />
+        </div>
+      </section>
+
+      <Section icon={User} title="Identificação resumida">
         <Info label="Nome" value={profile.fullName || user?.email} />
         <Info label="Nascimento" value={profile.birthDate} />
         <Info label="Telefone" value={profile.phone} />
         <Info label="Peso" value={profile.weight ? `${profile.weight} kg` : ''} />
         <Info label="Altura" value={profile.height ? `${profile.height} cm` : ''} />
-        <Info label="Tipo sanguíneo" value={profile.bloodType} />
         <Info label="MedScore" value={profile.medScore ? `${profile.medScore}/100` : 'Não calculado'} />
       </Section>
 
-      <Section icon={Phone} title="Contato de Emergência" danger>
-        {profile.emergencyContactName ? (
-          <>
-            <Info label="Nome" value={profile.emergencyContactName} />
-            <Info label="Telefone" value={profile.emergencyContactPhone} />
-            <Info label="Parentesco" value={profile.emergencyContactRelationship} />
-          </>
-        ) : (
-          <Empty text="Nenhum contato de emergência cadastrado." />
-        )}
-
-        <a href="/profile" className="block mt-3 text-center py-2 rounded-xl bg-red-600 text-white text-sm font-medium">
-          Editar contato de emergência
-        </a>
-      </Section>
-
-      <Section icon={HeartPulse} title="Resumo Clínico">
-        <Info label="Alergias" value={allergies.length > 0 ? allergies.join(', ') : ''} />
+      <Section icon={HeartPulse} title="Resumo clínico">
         <Info label="Condições" value={profile.chronicConditions} />
-        <Info label="Medicamentos" value={profile.currentMedications} />
         <Info label="Histórico familiar" value={profile.familyHistory} />
         <Info label="Cirurgias / internações" value={profile.surgeries} />
       </Section>
 
-      <Section icon={FileText} title="Exames recentes">
+      <Section icon={Pill} title="Medicamentos críticos / em uso">
+        {criticalMeds.length > 0 ? (
+          criticalMeds.map((med: any) => (
+            <p key={med.id || med.name} className="text-sm border-b py-2">
+              {med.name || med.medication_name || 'Medicamento'} {med.dosage || ''}
+              {med.frequency ? ` · ${med.frequency}` : ''}
+            </p>
+          ))
+        ) : (
+          <Empty text="Nenhum medicamento cadastrado." />
+        )}
+      </Section>
+
+      <Section icon={FileText} title="Últimos exames">
         {exams.length > 0 ? (
           exams.map((exam) => (
             <div key={exam.id} className="border-b py-2 text-sm">
@@ -217,26 +286,15 @@ export default function Passport() {
           <Empty text="Nenhum exame cadastrado." />
         )}
 
-        <a href="/upload" className="block mt-3 text-center py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium">
+        <a
+          href="/upload"
+          className="block mt-3 text-center py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+        >
           Enviar exame
         </a>
       </Section>
 
-      <Section icon={Pill} title="Prescrições / Medicamentos">
-        {medications.length > 0 ? (
-          medications.map((med) => (
-            <p key={med.id} className="text-sm border-b py-2">
-              {med.name || med.medication_name || 'Medicamento'} {med.dosage || ''}
-            </p>
-          ))
-        ) : profile.currentMedications ? (
-          <p className="text-sm text-gray-700">{profile.currentMedications}</p>
-        ) : (
-          <Empty text="Nenhum medicamento cadastrado." />
-        )}
-      </Section>
-
-      <Section icon={Stethoscope} title="Condições / Consultas">
+      <Section icon={Stethoscope} title="Condições cadastradas">
         {conditions.length > 0 ? (
           conditions.map((item) => (
             <p key={item.id} className="text-sm border-b py-2">
@@ -250,11 +308,11 @@ export default function Passport() {
         )}
       </Section>
 
-      <Section icon={CreditCard} title="Carteirinhas / Plano">
+      <Section icon={CreditCard} title="Carteiras Plano/SUS">
         {plans.length > 0 ? (
           plans.map((plan) => (
             <div key={plan.id} className="border-b py-2 text-sm">
-              <p><strong>Plano:</strong> {plan.plan_name}</p>
+              <p><strong>{plan.plan_type === 'sus' ? 'SUS' : 'Plano'}:</strong> {plan.plan_name}</p>
               {plan.operator_name && <p><strong>Operadora:</strong> {plan.operator_name}</p>}
               <p><strong>Número:</strong> {plan.card_number}</p>
               <p><strong>Titular:</strong> {plan.beneficiary_name}</p>
@@ -262,8 +320,15 @@ export default function Passport() {
             </div>
           ))
         ) : (
-          <Empty text="Nenhuma carteirinha cadastrada." />
+          <Empty text="Nenhuma carteira cadastrada." />
         )}
+
+        <a
+          href="/wallet"
+          className="block mt-3 text-center py-2 rounded-xl bg-blue-600 text-white text-sm font-medium"
+        >
+          Adicionar Plano/SUS
+        </a>
       </Section>
 
       <Section icon={QrCode} title="Compartilhamento médico">
@@ -293,19 +358,19 @@ export default function Passport() {
       <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex gap-3">
         <AlertTriangle className="w-5 h-5 text-yellow-700" />
         <p className="text-xs text-yellow-800">
-          Em emergência real, ligue para o serviço de emergência local. Este prontuário é apoio informativo e não substitui avaliação médica.
+          Em emergência real, ligue para o serviço de emergência local. Este passaporte é apoio informativo e não substitui avaliação médica.
         </p>
       </div>
     </div>
   )
 }
 
-function Section({ icon: Icon, title, children, danger }: any) {
+function Section({ icon: Icon, title, children }: any) {
   return (
-    <div className={`rounded-xl border p-4 bg-white ${danger ? 'border-red-200' : ''}`}>
+    <div className="rounded-xl border p-4 bg-white">
       <div className="flex items-center gap-2 mb-3">
-        <Icon className={`w-5 h-5 ${danger ? 'text-red-600' : 'text-emerald-600'}`} />
-        <h2 className={`font-bold ${danger ? 'text-red-700' : ''}`}>{title}</h2>
+        <Icon className="w-5 h-5 text-emerald-600" />
+        <h2 className="font-bold">{title}</h2>
       </div>
       {children}
     </div>
@@ -331,4 +396,13 @@ function MiniStat({ label, value }: any) {
       <p className="text-xs text-white/80">{label}</p>
     </div>
   )
+}
+
+function formatMedsShort(meds: any[]) {
+  if (!meds.length) return 'Não informado'
+
+  return meds
+    .slice(0, 3)
+    .map((med) => `${med.name || med.medication_name || 'Medicamento'} ${med.dosage || ''}`.trim())
+    .join(', ')
 }
