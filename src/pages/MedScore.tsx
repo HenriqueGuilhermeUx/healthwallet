@@ -76,6 +76,7 @@ export default function MedScore() {
   const improveActions = buildImproveActions(medScore)
   const recommendedExams = buildRecommendedExams(medScore, metrics)
   const factors = buildMainFactors(medScore, metrics)
+  const missingPoints = Math.max(0, 85 - Number(medScore.score || 0))
 
   const areas = [
     {
@@ -155,6 +156,32 @@ export default function MedScore() {
         </div>
       </div>
 
+      <section className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+        <h2 className="font-bold text-emerald-900 mb-3 flex items-center gap-2">
+          <Target className="w-5 h-5" />
+          Sua Meta de Saúde
+        </h2>
+
+        <p className="text-sm text-emerald-800">
+          Meta atual: atingir MedScore 85
+        </p>
+
+        <div className="mt-3">
+          <div className="h-3 bg-emerald-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-emerald-600"
+              style={{ width: `${Math.min(100, (medScore.score / 85) * 100)}%` }}
+            />
+          </div>
+
+          <p className="text-xs text-emerald-700 mt-2">
+            {missingPoints > 0
+              ? `Faltam ${missingPoints} pontos para a próxima meta.`
+              : 'Você já atingiu a meta inicial. Agora é manter e evoluir.'}
+          </p>
+        </div>
+      </section>
+
       <section className="bg-white rounded-xl border p-4">
         <h2 className="font-bold mb-3 flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-emerald-600" />
@@ -209,6 +236,36 @@ export default function MedScore() {
           {insights.map((item, idx) => (
             <p key={idx}>• {item}</p>
           ))}
+        </div>
+      </section>
+
+      <section className="bg-white rounded-xl border p-4">
+        <h2 className="font-bold mb-3">
+          Próxima Conquista
+        </h2>
+
+        <div className="space-y-2 text-sm text-gray-700">
+          <p>🎯 Objetivo: MedScore 85</p>
+          <p>Você está a {missingPoints} ponto(s) da meta.</p>
+          <p>As ações mais rápidas são:</p>
+
+          <ul className="list-disc pl-5 space-y-1">
+            {cockpit?.missingInfo?.includes('Histórico familiar') && (
+              <li>Adicionar histórico familiar</li>
+            )}
+
+            {cockpit?.missingInfo?.includes('Contato de emergência') && (
+              <li>Cadastrar contato de emergência</li>
+            )}
+
+            {medScore.missingExams?.some((item: string) => item.toLowerCase().includes('glic')) && (
+              <li>Enviar HbA1c ou glicemia de jejum</li>
+            )}
+
+            {(!cockpit?.missingInfo?.length && !medScore.missingExams?.length) && (
+              <li>Manter exames atualizados e acompanhar evolução</li>
+            )}
+          </ul>
         </div>
       </section>
 
@@ -321,10 +378,11 @@ export default function MedScore() {
         </h2>
 
         <div className="grid grid-cols-1 gap-2">
-          <CoachButton text="Como reduzir meu LDL?" />
-          <CoachButton text="Como melhorar meu MedScore?" />
-          <CoachButton text="Quais exames faltam?" />
-          <CoachButton text="Como está meu risco cardiovascular?" />
+          <CoachButton text="Como reduzir meu LDL naturalmente?" />
+          <CoachButton text="Monte um plano para eu atingir MedScore 85" />
+          <CoachButton text="Quais exames estão faltando?" />
+          <CoachButton text="Explique meu risco cardiovascular" />
+          <CoachButton text="O que fazer nos próximos 90 dias?" />
         </div>
       </section>
 
