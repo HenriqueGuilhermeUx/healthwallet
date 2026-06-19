@@ -1,46 +1,294 @@
 import { useEffect, useState } from 'react'
+import {
+  Calendar,
+  Plus,
+  Stethoscope,
+  FileText,
+  Pill,
+  CheckCircle,
+  Clock,
+  Bell,
+} from 'lucide-react'
+import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import { createMedicalEvent } from '@/services/medicalTimeline'
+
+const EVENT_TYPES = [
+  { value: 'consultation', label: 'Consulta', icon: Stethoscope },
+  { value: 'exam', label: 'Exame realizado', icon: FileText },
+  { value: 'future_exam', label: 'Exame futuro', icon: Calendar },
+  { value: 'return', label: 'Retorno médico', icon: Clock },
+  { value: 'medication', label: 'Medicamento', icon: Pill },
+  { value: 'checklist', label: 'Checklist diário', icon: CheckCircle },
+]
 
 export default function Timeline() {
+  const { user } = useAuth()
   const [events, setEvents] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+
+  const [form, setForm] = useState({
+    type: 'consultation',
+    title: '',
+    description: '',
+    event_date: '',
+  })
 
   useEffect(() => {
     load()
-  }, [])
+  }, [user])
 
   async function load() {
+    if (!user) return
+
+    setLoading(true)
+
     const { data } = await supabase
       .from('medical_events')
       .select('*')
+      .eq('user_id', user.id)
       .order('event_date', { ascending: false })
 
     setEvents(data || [])
+    setLoading(false)
   }
 
+  async function saveEvent() {
+    if (!user || !form.title.trim()) {
+      alert('Informe um título')
+      return
+    }
+
+    await createMedicalEvent({
+      userId: user.id,
+      type: form.type,
+      title: form.title,
+      description: form.description,
+      eventDate: form.event_date || new Date().toISOString().slice(0, 10),
+    })
+
+    setForm({
+      type: 'consultation',
+      title: '',
+      description: '',
+      event_date: '',
+    })
+
+    setShowForm(false)
+    load()
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  const upcoming = events.filter((event) => event.event_date >= today)
+  const past = events.filter((event) => event.event_date < today)
+
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-6">
-        Timeline Clínica
-      </h1>
-
-      {events.map((event) => (
-        <div
-          key={event.id}
-          className="border-l-4 border-emerald-500 pl-4 mb-6"
-        >
-          <h3 className="font-bold">
-            {event.title}
-          </h3>
-
-          <p className="text-sm text-gray-600">
-            {event.description}
-          </p>
-
-          <small>
-            {event.event_date}
-          </small>
+    <div className="space-y-5 pb-20">
+      <div className="rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-700 text-white p-5">
+        <div className="flex items-center gap-3">
+          <Calendar className="w-8 h-8" />
+          <div>
+            <h1 className="text-2xl font-bold">Agenda de Saúde</h1>
+            <p className="text-white/80 text-sm">
+              Consultas, exames, retornos, medicamentos e histórico clínico.
+            </p>
+          </div>
         </div>
-      ))}
+      </div>
+
+      <button
+        onClick={() => setShowForm(true)}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-semibold"
+      >
+        <Plus className="w-5 h-5" />
+        Adicionar evento
+      </button>
+
+      {showForm && (
+        <div className="bg-white rounded-xl border p-4 space-y-4">
+          <h2 className="font-bold">Novo evento de saúde</h2>
+
+          <div>
+            <label className="text-sm font-medium mb-1 block">Tipo</label>
+            <select
+              value={form.type}
+              onChange={(e) => setForm({ ...form, type: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+            >
+              {EVENT_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-1 block">Título</label>
+            <input
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              placeholder="Ex: Consulta cardiologista"
+              className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-1 block">Data</label>
+            <input
+              type="date"
+              value={form.event_date}
+              onChange={(e) => setForm({ ...form, event_date: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-1 block">Observação</label>
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Ex: levar exames, retorno em 30 dias, tomar medicação..."
+              className="w-full px-3 py-2 rounded-lg border border-border bg-background min-h-[90px]"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowForm(false)}
+              className="flex-1 py-3 rounded-xl border border-border font-medium"
+            >
+              Cancelar
+            </button>
+
+            <button
+              onClick={saveEvent}
+              className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-semibold"
+            >
+              Salvar
+            </button>
+          </div>
+        </div>
+      )}
+
+      <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Bell className="w-5 h-5 text-blue-600" />
+          <h2 className="font-bold text-blue-900">Próximos avisos</h2>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-blue-700">Carregando...</p>
+        ) : upcoming.length > 0 ? (
+          <div className="space-y-3">
+            {upcoming.slice(0, 5).map((event) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-blue-700">
+            Nenhum compromisso futuro cadastrado.
+          </p>
+        )}
+      </section>
+
+      <section className="bg-white rounded-xl border p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Clock className="w-5 h-5 text-emerald-600" />
+          <h2 className="font-bold">Histórico clínico</h2>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-gray-500">Carregando...</p>
+        ) : past.length > 0 ? (
+          <div className="space-y-4">
+            {past.map((event) => (
+              <TimelineItem key={event.id} event={event} />
+            ))}
+          </div>
+        ) : events.length > 0 ? (
+          <div className="space-y-4">
+            {events.map((event) => (
+              <TimelineItem key={event.id} event={event} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">
+            Nenhum evento registrado ainda.
+          </p>
+        )}
+      </section>
     </div>
   )
+}
+
+function EventCard({ event }: any) {
+  const meta = getEventMeta(event.type)
+
+  return (
+    <div className="bg-white border border-blue-100 rounded-xl p-3">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center">
+          <meta.icon className="w-5 h-5 text-blue-600" />
+        </div>
+
+        <div className="flex-1">
+          <p className="font-semibold text-sm">{event.title}</p>
+          <p className="text-xs text-gray-500">
+            {meta.label} · {formatDate(event.event_date)}
+          </p>
+
+          {event.description && (
+            <p className="text-xs text-gray-600 mt-1">
+              {event.description}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TimelineItem({ event }: any) {
+  const meta = getEventMeta(event.type)
+
+  return (
+    <div className="border-l-4 border-emerald-500 pl-4">
+      <div className="flex items-center gap-2 mb-1">
+        <meta.icon className="w-4 h-4 text-emerald-600" />
+        <span className="text-xs text-emerald-700 font-medium">
+          {meta.label}
+        </span>
+      </div>
+
+      <h3 className="font-bold text-sm">{event.title}</h3>
+
+      {event.description && (
+        <p className="text-sm text-gray-600 mt-1">
+          {event.description}
+        </p>
+      )}
+
+      <p className="text-xs text-gray-400 mt-1">
+        {formatDate(event.event_date)}
+      </p>
+    </div>
+  )
+}
+
+function getEventMeta(type: string) {
+  const found = EVENT_TYPES.find((item) => item.value === type)
+
+  return found || {
+    value: 'event',
+    label: 'Evento',
+    icon: Calendar,
+  }
+}
+
+function formatDate(date: string) {
+  if (!date) return 'Data não informada'
+  return new Date(date).toLocaleDateString('pt-BR')
 }
