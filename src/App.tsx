@@ -87,7 +87,14 @@ export default function App() {
           <Route path="/privacy" element={<Privacy />} />
 
           {/* Protected routes */}
-          <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
+          <Route
+  path="/consent"
+  element={
+    <ProtectedPage>
+      <Consent />
+    </ProtectedPage>
+  }
+/>
           <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
           <Route path="/exams" element={<ProtectedPage><Exams /></ProtectedPage>} />
           <Route path="/upload" element={<ProtectedPage><UploadExam /></ProtectedPage>} />
