@@ -24,6 +24,7 @@ import AccessCode from '@/pages/AccessCode'
 import Passport from '@/pages/Passport'
 import Summary from '@/pages/Summary'
 import Timeline from '@/pages/Timeline'
+import WomensHealth from '@/pages/WomensHealth'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="/summary" element={<ProtectedPage><Summary /></ProtectedPage>} />
           <Route path="/timeline" element={<ProtectedPage><Timeline /></ProtectedPage>} />
           <Route path="/documents" element={<ProtectedPage><ReceivedDocuments /></ProtectedPage>} />
+          <Route path="/womens-health" element={<ProtectedPage><WomensHealth /></ProtectedPage>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
