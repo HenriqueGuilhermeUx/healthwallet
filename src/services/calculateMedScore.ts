@@ -1,163 +1,292 @@
 export function calculateMedScore(profile: any, exams: any[] = [], conditions: any[] = []) {
-  let score = 70
-  let confidence = 30
-  const missingExams: string[] = []
-  const alerts: string[] = []
-
   const items = exams.flatMap((exam) => exam.ai_result?.items || [])
 
-  const findItem = (names: string[]) =>
-    items.find((item: any) =>
-      names.some((name) =>
-        String(item.name || '').toLowerCase().includes(name)
-      )
-    )
-
-  const glicose = findItem(['glicose', 'glicemia'])
-  const colesterolTotal = findItem(['colesterol total'])
-  const ldl = findItem(['ldl'])
-  const hdl = findItem(['hdl'])
-  const triglicerides = findItem(['triglic'])
-  const creatinina = findItem(['creatinina'])
-  const tfg = findItem(['filtração', 'tfg'])
-  const tsh = findItem(['tsh'])
-  const hemoglobina = findItem(['hemoglobina'])
-
-  if (profile?.weight && profile?.height) {
-    confidence += 10
-    const bmi = Number(profile.weight) / Math.pow(Number(profile.height) / 100, 2)
-
-    if (bmi >= 18.5 && bmi < 25) score += 6
-    else if (bmi >= 25 && bmi < 30) score -= 3
-    else if (bmi >= 30) score -= 8
+  const metrics = {
+    fastingGlucose: getValue(items, ['glicose', 'glicemia']),
+    ldl: getValue(items, ['ldl']),
+    hdl: getValue(items, ['hdl']),
+    totalCholesterol: getValue(items, ['colesterol total']),
+    triglycerides: getValue(items, ['triglic']),
+    creatinine: getValue(items, ['creatinina']),
+    tfg: getValue(items, ['tfg', 'filtra']),
+    tsh: getValue(items, ['tsh']),
+    hemoglobin: getValue(items, ['hemoglobina']),
   }
 
-  if (profile?.physicalActivity === 'active') score += 6
-  if (profile?.physicalActivity === 'moderate') score += 4
-  if (profile?.physicalActivity === 'sedentary') score -= 6
+  const lab = calculateLabScore(metrics)
+  const risk = calculateRiskScore(profile, conditions)
+  const completeness = calculateCompletenessScore(profile, exams, metrics)
 
-  if (profile?.smokingStatus === 'never') score += 5
-  if (profile?.smokingStatus === 'current') score -= 12
+  const score = Math.max(0, Math.min(100, Math.round(lab.score + risk.score + completeness.score)))
+  const confidence = Math.max(0, Math.min(100, Math.round(completeness.confidence)))
 
-  if (profile?.sleepHours >= 6 && profile?.sleepHours <= 9) score += 4
-  if (profile?.sleepHours && profile.sleepHours < 6) score -= 4
-
-  if (conditions.length > 0) score -= Math.min(12, conditions.length * 4)
-
-  if (items.length > 0) confidence += 35
-  else {
-    missingExams.push('Hemograma Completo')
-    missingExams.push('Perfil Lipídico')
-    missingExams.push('Glicemia de Jejum')
-  }
-
-  if (!profile?.bloodType) missingExams.push('Tipagem Sanguínea')
-
-  if (glicose) {
-    const value = toNumber(glicose.value)
-    confidence += 5
-    if (value >= 100 && value < 126) {
-      score -= 5
-      alerts.push('Glicemia limítrofe')
-    }
-    if (value >= 126) {
-      score -= 10
-      alerts.push('Glicemia elevada')
-    }
-  } else {
-    missingExams.push('Glicemia de Jejum')
-  }
-
-  if (ldl) {
-    const value = toNumber(ldl.value)
-    confidence += 8
-    if (value >= 130 && value < 160) {
-      score -= 8
-      alerts.push('LDL acima do recomendado')
-    }
-    if (value >= 160) {
-      score -= 14
-      alerts.push('LDL muito elevado')
-    }
-  }
-
-  if (colesterolTotal) {
-    const value = toNumber(colesterolTotal.value)
-    confidence += 5
-    if (value >= 190 && value < 240) {
-      score -= 5
-      alerts.push('Colesterol total elevado')
-    }
-    if (value >= 240) {
-      score -= 10
-      alerts.push('Colesterol total muito elevado')
-    }
-  }
-
-  if (hdl) {
-    const value = toNumber(hdl.value)
-    confidence += 4
-    if (value >= 40) score += 3
-    else {
-      score -= 5
-      alerts.push('HDL baixo')
-    }
-  }
-
-  if (triglicerides) {
-    const value = toNumber(triglicerides.value)
-    confidence += 4
-    if (value >= 150) {
-      score -= 6
-      alerts.push('Triglicérides elevados')
-    }
-  }
-
-  if (creatinina) confidence += 4
-
-  if (tfg) {
-    const value = toNumber(tfg.value)
-    confidence += 4
-    if (value < 90) {
-      score -= 4
-      alerts.push('TFG abaixo do ideal')
-    }
-  }
-
-  if (tsh) confidence += 3
-  if (hemoglobina) confidence += 3
-
-  const finalScore = Math.max(0, Math.min(100, Math.round(score)))
-  const finalConfidence = Math.max(0, Math.min(100, Math.round(confidence)))
+  const alerts = [...lab.alerts, ...risk.alerts]
+  const missingExams = [...new Set([...lab.missingExams, ...completeness.missingExams])]
+  const recommendations = [...lab.recommendations, ...risk.recommendations, ...completeness.recommendations]
 
   let level = 'Regular'
   let levelColor = 'yellow'
 
-  if (finalScore >= 85) {
+  if (score >= 85) {
     level = 'Excelente'
     levelColor = 'emerald'
-  } else if (finalScore >= 70) {
+  } else if (score >= 70) {
     level = 'Bom'
     levelColor = 'teal'
-  } else if (finalScore < 50) {
+  } else if (score < 50) {
     level = 'Atenção'
     levelColor = 'red'
   }
 
   return {
-    score: finalScore,
+    score,
     level,
     levelColor,
-    confidence: finalConfidence,
-    missingExams: [...new Set(missingExams)],
+    confidence,
     alerts,
+    missingExams,
+    recommendations,
+    metrics,
     breakdown: [
-      { category: 'Perfil', score: profile?.weight && profile?.height ? 80 : 50, icon: '👤' },
-      { category: 'Hábitos', score: profile?.physicalActivity ? 75 : 50, icon: '🏃' },
-      { category: 'Exames', score: items.length > 0 ? 85 : 30, icon: '🔬' },
-      { category: 'Risco', score: alerts.length === 0 ? 90 : 60, icon: '❤️' },
+      { category: 'Laboratório', score: Math.round(lab.score), max: 40, icon: '🔬' },
+      { category: 'Fatores de risco', score: Math.round(risk.score), max: 30, icon: '❤️' },
+      { category: 'Completude', score: Math.round(completeness.score), max: 30, icon: '📋' },
     ],
+    cockpit: {
+      strengths: lab.strengths,
+      needsAttention: alerts,
+      missingInfo: completeness.missingInfo,
+      nextActions: recommendations,
+    },
   }
+}
+
+function calculateLabScore(metrics: any) {
+  let score = 0
+  const alerts: string[] = []
+  const strengths: string[] = []
+  const recommendations: string[] = []
+  const missingExams: string[] = []
+
+  if (metrics.fastingGlucose !== null) {
+    if (metrics.fastingGlucose < 100) {
+      score += 8
+      strengths.push('Glicemia em jejum dentro da faixa normal')
+    } else if (metrics.fastingGlucose < 126) {
+      score += 4
+      alerts.push('Glicemia limítrofe')
+      recommendations.push('Avaliar hemoglobina glicada')
+    } else {
+      alerts.push('Glicemia elevada')
+      recommendations.push('Conversar com médico sobre investigação metabólica')
+    }
+  } else {
+    missingExams.push('Glicemia de jejum')
+  }
+
+  if (metrics.ldl !== null) {
+    if (metrics.ldl < 100) {
+      score += 10
+      strengths.push('LDL em faixa favorável')
+    } else if (metrics.ldl < 130) {
+      score += 7
+    } else if (metrics.ldl < 160) {
+      score += 4
+      alerts.push('LDL acima do recomendado')
+      recommendations.push('Avaliar ApoB e Lipoproteína(a)')
+    } else {
+      score += 2
+      alerts.push('LDL muito elevado')
+      recommendations.push('Discutir risco cardiovascular com médico')
+    }
+  } else {
+    missingExams.push('LDL colesterol')
+  }
+
+  if (metrics.hdl !== null) {
+    if (metrics.hdl >= 60) {
+      score += 5
+      strengths.push('HDL em nível protetor')
+    } else if (metrics.hdl >= 40) {
+      score += 3
+      strengths.push('HDL adequado')
+    } else {
+      alerts.push('HDL baixo')
+    }
+  }
+
+  if (metrics.triglycerides !== null) {
+    if (metrics.triglycerides < 150) {
+      score += 5
+      strengths.push('Triglicerídeos normais')
+    } else {
+      alerts.push('Triglicerídeos elevados')
+      recommendations.push('Revisar açúcar, álcool e carboidratos refinados')
+    }
+  }
+
+  if (metrics.totalCholesterol !== null && metrics.totalCholesterol >= 190) {
+    alerts.push('Colesterol total elevado')
+  }
+
+  if (metrics.tfg !== null) {
+    if (metrics.tfg >= 90) {
+      score += 4
+      strengths.push('TFG dentro da faixa esperada')
+    } else {
+      score += 2
+      alerts.push('TFG discretamente abaixo do ideal')
+      recommendations.push('Considerar urina tipo 1 e relação albumina/creatinina')
+    }
+  }
+
+  if (metrics.creatinine !== null) {
+    score += 3
+    strengths.push('Creatinina avaliada')
+  }
+
+  if (metrics.tsh !== null) {
+    score += 3
+    strengths.push('Tireoide rastreada por TSH')
+  }
+
+  if (metrics.hemoglobin !== null) {
+    score += 2
+    strengths.push('Hemoglobina avaliada')
+  } else {
+    missingExams.push('Hemograma completo')
+  }
+
+  return {
+    score: Math.min(40, score),
+    alerts,
+    strengths,
+    recommendations,
+    missingExams,
+  }
+}
+
+function calculateRiskScore(profile: any, conditions: any[]) {
+  let score = 30
+  const alerts: string[] = []
+  const recommendations: string[] = []
+
+  const weight = Number(profile?.weight || profile?.peso)
+  const height = Number(profile?.height || profile?.altura)
+
+  if (weight && height) {
+    const bmi = weight / Math.pow(height / 100, 2)
+
+    if (bmi >= 25 && bmi < 30) {
+      score -= 3
+      alerts.push('IMC em faixa de sobrepeso')
+      recommendations.push('Acompanhar peso, cintura e composição corporal')
+    }
+
+    if (bmi >= 30) {
+      score -= 8
+      alerts.push('IMC em faixa de obesidade')
+      recommendations.push('Considerar plano de redução de peso com profissional')
+    }
+  } else {
+    score -= 3
+  }
+
+  const smoking = profile?.smokingStatus || profile?.smoking_status
+  if (smoking === 'current') {
+    score -= 10
+    alerts.push('Tabagismo ativo')
+    recommendations.push('Considerar programa de cessação do tabagismo')
+  } else if (smoking === 'former') {
+    score -= 3
+  }
+
+  const alcohol = profile?.alcoholConsumption || profile?.alcohol_consumption
+  if (alcohol === 'frequent') {
+    score -= 5
+    alerts.push('Consumo frequente de álcool')
+  }
+
+  const activity = profile?.physicalActivity || profile?.physical_activity
+  if (activity === 'sedentary') {
+    score -= 5
+    alerts.push('Sedentarismo')
+    recommendations.push('Buscar pelo menos 150 minutos/semana de atividade física')
+  }
+
+  if (conditions.length > 0) {
+    score -= Math.min(6, conditions.length * 2)
+  }
+
+  return {
+    score: Math.max(0, score),
+    alerts,
+    recommendations,
+  }
+}
+
+function calculateCompletenessScore(profile: any, exams: any[], metrics: any) {
+  let score = 0
+  let confidence = 20
+  const missingExams: string[] = []
+  const missingInfo: string[] = []
+  const recommendations: string[] = []
+
+  if (profile?.birthDate || profile?.birth_date) score += 3
+  else missingInfo.push('Data de nascimento')
+
+  if (profile?.weight && profile?.height) score += 7
+  else missingInfo.push('Peso e altura')
+
+  if (profile?.bloodType || profile?.blood_type) score += 3
+  else missingExams.push('Tipagem sanguínea')
+
+  if (profile?.familyHistory || profile?.family_history) score += 3
+  else missingInfo.push('Histórico familiar')
+
+  if (profile?.currentMedications || profile?.current_medications) score += 3
+  else missingInfo.push('Medicamentos atuais')
+
+  if (profile?.allergies?.length) score += 2
+
+  if (exams.length > 0) {
+    score += 7
+    confidence += 45
+  } else {
+    missingExams.push('Hemograma completo')
+    missingExams.push('Perfil lipídico')
+    missingExams.push('Glicemia de jejum')
+  }
+
+  if (metrics.ldl !== null && metrics.fastingGlucose !== null) confidence += 20
+
+  if (missingInfo.length > 0) {
+    recommendations.push('Completar informações pendentes no perfil')
+  }
+
+  if (missingExams.length > 0) {
+    recommendations.push('Enviar ou realizar exames pendentes para aumentar precisão do MedScore')
+  }
+
+  return {
+    score: Math.min(30, score),
+    confidence,
+    missingExams,
+    missingInfo,
+    recommendations,
+  }
+}
+
+function getValue(items: any[], names: string[]) {
+  const found = items.find((item: any) =>
+    names.some((name) =>
+      String(item.name || '').toLowerCase().includes(name)
+    )
+  )
+
+  if (!found) return null
+
+  return toNumber(found.value)
 }
 
 function toNumber(value: any) {
