@@ -25,6 +25,7 @@ const EVENT_TYPES = [
 export default function Timeline() {
   const { user } = useAuth()
   const [events, setEvents] = useState<any[]>([])
+  const [medications, setMedications] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
 
@@ -44,13 +45,23 @@ export default function Timeline() {
 
     setLoading(true)
 
-    const { data } = await supabase
-      .from('medical_events')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('event_date', { ascending: false })
+    const [eventsRes, medsRes] = await Promise.all([
+      supabase
+        .from('medical_events')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('event_date', { ascending: false }),
 
-    setEvents(data || [])
+      supabase
+        .from('medications')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false }),
+    ])
+
+    setEvents(eventsRes.data || [])
+    setMedications(medsRes.data || [])
     setLoading(false)
   }
 
@@ -194,6 +205,27 @@ export default function Timeline() {
         )}
       </section>
 
+      <section className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Pill className="w-5 h-5 text-orange-600" />
+          <h2 className="font-bold text-orange-900">Tratamentos ativos</h2>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-orange-700">Carregando...</p>
+        ) : medications.length > 0 ? (
+          <div className="space-y-3">
+            {medications.map((med) => (
+              <MedicationReminder key={med.id} med={med} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-orange-700">
+            Nenhum medicamento ativo cadastrado.
+          </p>
+        )}
+      </section>
+
       <section className="bg-white rounded-xl border p-4">
         <div className="flex items-center gap-2 mb-3">
           <Clock className="w-5 h-5 text-emerald-600" />
@@ -220,6 +252,42 @@ export default function Timeline() {
           </p>
         )}
       </section>
+    </div>
+  )
+}
+
+function MedicationReminder({ med }: any) {
+  return (
+    <div className="bg-white border border-orange-100 rounded-xl p-3">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center">
+          <Pill className="w-5 h-5 text-orange-600" />
+        </div>
+
+        <div className="flex-1">
+          <p className="font-semibold text-sm">
+            {med.name || med.medication_name || 'Medicamento'}
+          </p>
+
+          <p className="text-xs text-gray-500">
+            {[med.dosage, med.frequency].filter(Boolean).join(' · ') || 'Sem detalhes'}
+          </p>
+
+          {med.reminder_time && (
+            <p className="text-xs text-orange-700 mt-1 flex items-center gap-1">
+              <Bell className="w-3 h-3" />
+              Lembrete às {med.reminder_time}
+            </p>
+          )}
+
+          {(med.start_date || med.end_date) && (
+            <p className="text-xs text-gray-500 mt-1">
+              {med.start_date ? `Início: ${formatDate(med.start_date)}` : ''}
+              {med.end_date ? ` · até ${formatDate(med.end_date)}` : ''}
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
