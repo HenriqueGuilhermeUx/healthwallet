@@ -1,6 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import { Toaster } from 'sonner'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 
 // Pages
 import Landing from '@/pages/Landing'
@@ -33,8 +35,31 @@ import AppHeader from '@/components/AppHeader'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
+  const location = useLocation()
+  const [checkingConsent, setCheckingConsent] = useState(true)
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
 
-  if (loading) {
+  useEffect(() => {
+    async function checkConsent() {
+      if (!user) {
+        setCheckingConsent(false)
+        return
+      }
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('accepted_terms')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      setAcceptedTerms(Boolean(data?.accepted_terms))
+      setCheckingConsent(false)
+    }
+
+    checkConsent()
+  }, [user])
+
+  if (loading || checkingConsent) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -47,6 +72,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  if (!acceptedTerms && location.pathname !== '/consent') {
+    return <Navigate to="/consent" replace />
   }
 
   return <>{children}</>
@@ -87,14 +116,8 @@ export default function App() {
           <Route path="/privacy" element={<Privacy />} />
 
           {/* Protected routes */}
-          <Route
-  path="/consent"
-  element={
-    <ProtectedPage>
-      <Consent />
-    </ProtectedPage>
-  }
-/>
+          <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
+          <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
           <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
           <Route path="/exams" element={<ProtectedPage><Exams /></ProtectedPage>} />
           <Route path="/upload" element={<ProtectedPage><UploadExam /></ProtectedPage>} />
@@ -102,7 +125,6 @@ export default function App() {
           <Route path="/medications" element={<ProtectedPage><Medications /></ProtectedPage>} />
           <Route path="/family" element={<ProtectedPage><Family /></ProtectedPage>} />
           <Route path="/profile" element={<ProtectedPage><Profile /></ProtectedPage>} />
-          <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
           <Route path="/chat" element={<ProtectedPage><Chat /></ProtectedPage>} />
           <Route path="/passport" element={<ProtectedPage><Passport /></ProtectedPage>} />
           <Route path="/summary" element={<ProtectedPage><Summary /></ProtectedPage>} />
