@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  Shield,
   Pill,
   AlertTriangle,
   Phone,
@@ -10,11 +9,12 @@ import {
   Check,
   HeartPulse,
   FileText,
-  ClipboardList,
   Stethoscope,
-  User,
   Siren,
-  Upload,
+  Droplets,
+  Shield,
+  User,
+  Calendar,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -27,6 +27,7 @@ export default function Passport() {
   const [conditions, setConditions] = useState<any[]>([])
   const [plans, setPlans] = useState<any[]>([])
   const [exams, setExams] = useState<any[]>([])
+  const [events, setEvents] = useState<any[]>([])
   const [shareCode, setShareCode] = useState('')
   const [copied, setCopied] = useState(false)
 
@@ -68,7 +69,7 @@ export default function Passport() {
       })
     }
 
-    const [medsRes, conditionsRes, plansRes, examsRes] = await Promise.all([
+    const [medsRes, conditionsRes, plansRes, examsRes, eventsRes] = await Promise.all([
       supabase.from('medications').select('*').eq('user_id', user.id),
       supabase.from('patient_conditions').select('*').eq('user_id', user.id),
       supabase.from('health_plans').select('*').eq('user_id', user.id),
@@ -78,12 +79,19 @@ export default function Passport() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(5),
+      supabase
+        .from('medical_events')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('event_date', { ascending: false })
+        .limit(5),
     ])
 
     setMedications(medsRes.data || [])
     setConditions(conditionsRes.data || [])
     setPlans(plansRes.data || [])
     setExams(examsRes.data || [])
+    setEvents(eventsRes.data || [])
   }
 
   async function generateEmergencyCode() {
@@ -113,55 +121,76 @@ export default function Passport() {
       ? [{ id: 'profile-med', name: profile.currentMedications, dosage: '' }]
       : []
 
-  const mainPlan = plans[0]
+  const lastConsultation = events.find((event) =>
+    ['consultation', 'return'].includes(event.type)
+  )
 
   const missingFields = [
     !profile.bloodType && 'Tipo sanguíneo',
     !profile.emergencyContactName && 'Contato de emergência',
     allergies.length === 0 && 'Alergias',
     criticalMeds.length === 0 && 'Medicamentos',
-    !mainPlan && 'Plano/SUS',
+    plans.length === 0 && 'Plano/SUS',
     !profile.phone && 'Telefone',
-    !profile.weight && 'Peso',
-    !profile.height && 'Altura',
-    !profile.surgeries && 'Cirurgias / internações',
   ].filter(Boolean)
 
   return (
-    <div className="p-4 pb-20 space-y-4">
-      <div className="rounded-2xl bg-gradient-to-br from-red-600 to-rose-700 text-white p-6">
+    <div className="space-y-5 pb-20">
+      <div className="rounded-2xl bg-gradient-to-br from-red-600 to-rose-700 text-white p-5">
         <div className="flex items-center gap-3 mb-4">
           <Siren className="w-8 h-8" />
           <div>
-            <h1 className="text-2xl font-bold">Passaporte de Emergência</h1>
+            <h1 className="text-2xl font-bold">Passaporte 3.0</h1>
             <p className="text-white/80 text-sm">
-              Informações essenciais para atendimento rápido.
+              Emergência, prontuário resumido e Plano/SUS em cards.
             </p>
           </div>
         </div>
 
-        <div className="space-y-2 text-sm">
-          <p><strong>Nome:</strong> {profile.fullName || user?.email || 'Não informado'}</p>
-          <p><strong>Tipo sanguíneo:</strong> {profile.bloodType || 'Não informado'}</p>
-          <p><strong>Alergias:</strong> {allergies.length ? allergies.join(', ') : 'Não informado'}</p>
-          <p><strong>Medicamentos:</strong> {formatMedsShort(criticalMeds)}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <EmergencyMiniCard
+            icon={User}
+            label="Nome"
+            value={profile.fullName || user?.email || 'Não informado'}
+          />
+          <EmergencyMiniCard
+            icon={Droplets}
+            label="Tipo sanguíneo"
+            value={profile.bloodType || 'Não informado'}
+          />
+          <EmergencyMiniCard
+            icon={AlertTriangle}
+            label="Alergias"
+            value={allergies.length ? allergies.join(', ') : 'Não informado'}
+          />
+          <EmergencyMiniCard
+            icon={Pill}
+            label="Medicamentos"
+            value={formatMedsShort(criticalMeds)}
+          />
         </div>
       </div>
 
-      <section className="bg-red-50 border border-red-200 rounded-xl p-4">
+      <section className="bg-red-50 border border-red-200 rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-3">
           <Phone className="w-5 h-5 text-red-600" />
-          <h2 className="font-bold text-red-800">Contato de emergência</h2>
+          <h2 className="font-bold text-red-900">Contato de emergência</h2>
         </div>
 
         {profile.emergencyContactName ? (
-          <div className="space-y-1 text-sm text-red-900">
-            <p className="font-bold text-lg">{profile.emergencyContactName}</p>
-            <p><strong>Telefone:</strong> {profile.emergencyContactPhone || 'Não informado'}</p>
-            <p><strong>Parentesco:</strong> {profile.emergencyContactRelationship || 'Não informado'}</p>
+          <div className="bg-white rounded-xl border border-red-100 p-4">
+            <p className="text-lg font-bold text-red-900">
+              {profile.emergencyContactName}
+            </p>
+            <p className="text-sm text-red-800">
+              {profile.emergencyContactRelationship || 'Parentesco não informado'}
+            </p>
+            <p className="text-sm text-red-800 mt-1">
+              {profile.emergencyContactPhone || 'Telefone não informado'}
+            </p>
           </div>
         ) : (
-          <p className="text-sm text-red-700">Nenhum contato de emergência cadastrado.</p>
+          <Empty text="Nenhum contato de emergência cadastrado." />
         )}
 
         <a
@@ -172,24 +201,8 @@ export default function Passport() {
         </a>
       </section>
 
-      {mainPlan && (
-        <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <CreditCard className="w-5 h-5 text-blue-600" />
-            <h2 className="font-bold text-blue-900">Plano/SUS</h2>
-          </div>
-
-          <div className="text-sm text-blue-900 space-y-1">
-            <p><strong>{mainPlan.plan_type === 'sus' ? 'SUS' : 'Plano'}:</strong> {mainPlan.plan_name}</p>
-            {mainPlan.operator_name && <p><strong>Operadora:</strong> {mainPlan.operator_name}</p>}
-            <p><strong>Número:</strong> {mainPlan.card_number}</p>
-            <p><strong>Titular:</strong> {mainPlan.beneficiary_name}</p>
-          </div>
-        </section>
-      )}
-
       {missingFields.length > 0 && (
-        <section className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+        <section className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-yellow-700 mt-0.5" />
 
@@ -220,68 +233,112 @@ export default function Passport() {
         </section>
       )}
 
-      <section className="rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white p-5">
-        <div className="flex items-center gap-3 mb-4">
-          <ClipboardList className="w-7 h-7" />
-          <div>
-            <h2 className="text-xl font-bold">Prontuário Digital</h2>
-            <p className="text-white/80 text-sm">
-              Resumo clínico, exames, prescrições e histórico.
-            </p>
-          </div>
+      <section className="bg-white rounded-2xl border p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <HeartPulse className="w-5 h-5 text-emerald-600" />
+          <h2 className="font-bold">Prontuário resumido</h2>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <MiniStat label="Exames" value={exams.length} />
-          <MiniStat label="Remédios" value={activeMedications.length} />
-          <MiniStat label="Planos" value={plans.length} />
+        <div className="grid grid-cols-2 gap-3">
+          <InfoCard
+            icon={Shield}
+            label="MedScore"
+            value={profile.medScore ? `${profile.medScore}/100` : 'Não calculado'}
+          />
+          <InfoCard
+            icon={Stethoscope}
+            label="Condições"
+            value={
+              conditions.length
+                ? `${conditions.length} cadastrada(s)`
+                : profile.chronicConditions || 'Não informado'
+            }
+          />
+          <InfoCard
+            icon={FileText}
+            label="Últimos exames"
+            value={exams.length ? `${exams.length} recente(s)` : 'Nenhum exame'}
+          />
+          <InfoCard
+            icon={Calendar}
+            label="Última consulta"
+            value={lastConsultation ? formatDate(lastConsultation.event_date) : 'Não informado'}
+          />
         </div>
       </section>
 
-      <Section icon={User} title="Identificação resumida">
-        <Info label="Nome" value={profile.fullName || user?.email} />
-        <Info label="Nascimento" value={profile.birthDate} />
-        <Info label="Telefone" value={profile.phone} />
-        <Info label="Peso" value={profile.weight ? `${profile.weight} kg` : ''} />
-        <Info label="Altura" value={profile.height ? `${profile.height} cm` : ''} />
-        <Info label="MedScore" value={profile.medScore ? `${profile.medScore}/100` : 'Não calculado'} />
-      </Section>
+      <section className="bg-white rounded-2xl border p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <CreditCard className="w-5 h-5 text-blue-600" />
+          <h2 className="font-bold">Plano/SUS</h2>
+        </div>
 
-      <Section icon={HeartPulse} title="Resumo clínico">
-        <Info label="Condições" value={profile.chronicConditions} />
-        <Info label="Histórico familiar" value={profile.familyHistory} />
-        <Info label="Cirurgias / internações" value={profile.surgeries} />
-      </Section>
+        {plans.length > 0 ? (
+          <div className="space-y-3">
+            {plans.map((plan) => (
+              <div key={plan.id} className="rounded-xl border bg-blue-50 border-blue-100 p-4 text-sm text-blue-900">
+                <p className="font-bold">
+                  {plan.plan_type === 'sus' ? 'SUS' : plan.operator_name || 'Plano de saúde'}
+                </p>
+                <p>{plan.plan_name || 'Carteira cadastrada'}</p>
+                <p className="mt-1"><strong>Número:</strong> {plan.card_number || 'Não informado'}</p>
+                <p><strong>Titular:</strong> {plan.beneficiary_name || 'Não informado'}</p>
+                {plan.validity && <p><strong>Validade:</strong> {plan.validity}</p>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty text="Nenhuma carteira Plano/SUS cadastrada." />
+        )}
 
-      <Section icon={Pill} title="Medicamentos críticos / em uso">
+        <a
+          href="/wallet"
+          className="block mt-3 text-center py-2 rounded-xl bg-blue-600 text-white text-sm font-medium"
+        >
+          Adicionar Plano/SUS
+        </a>
+      </section>
+
+      <section className="bg-white rounded-2xl border p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Pill className="w-5 h-5 text-orange-600" />
+          <h2 className="font-bold">Medicamentos críticos / em uso</h2>
+        </div>
+
         {criticalMeds.length > 0 ? (
-          criticalMeds.map((med: any) => (
-            <p key={med.id || med.name} className="text-sm border-b py-2">
-              {med.name || med.medication_name || 'Medicamento'} {med.dosage || ''}
-              {med.frequency ? ` · ${med.frequency}` : ''}
-            </p>
-          ))
+          <div className="space-y-2">
+            {criticalMeds.slice(0, 5).map((med: any) => (
+              <div key={med.id || med.name} className="rounded-xl border bg-orange-50 border-orange-100 p-3 text-sm">
+                <p className="font-semibold">{med.name || med.medication_name || 'Medicamento'}</p>
+                <p className="text-gray-600">
+                  {[med.dosage, med.frequency].filter(Boolean).join(' · ') || 'Sem detalhes'}
+                </p>
+              </div>
+            ))}
+          </div>
         ) : (
           <Empty text="Nenhum medicamento cadastrado." />
         )}
-      </Section>
+      </section>
 
-      <Section icon={FileText} title="Últimos exames">
+      <section className="bg-white rounded-2xl border p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <FileText className="w-5 h-5 text-emerald-600" />
+          <h2 className="font-bold">Últimos exames</h2>
+        </div>
+
         {exams.length > 0 ? (
-          exams.map((exam) => (
-            <div key={exam.id} className="border-b py-2 text-sm">
-              <p className="font-medium">{exam.file_name || exam.exam_type || 'Exame'}</p>
-              <p className="text-xs text-gray-500">
-                {exam.status === 'processed' ? 'Analisado' : 'Pendente'} ·{' '}
-                {new Date(exam.created_at).toLocaleDateString('pt-BR')}
-              </p>
-              {exam.ai_analysis && (
-                <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-                  {exam.ai_analysis}
+          <div className="space-y-2">
+            {exams.slice(0, 5).map((exam) => (
+              <div key={exam.id} className="rounded-xl border p-3 text-sm">
+                <p className="font-semibold">{exam.file_name || exam.exam_type || 'Exame'}</p>
+                <p className="text-xs text-gray-500">
+                  {exam.status === 'processed' ? 'Analisado' : 'Pendente'} ·{' '}
+                  {formatDate(exam.created_at)}
                 </p>
-              )}
-            </div>
-          ))
+              </div>
+            ))}
+          </div>
         ) : (
           <Empty text="Nenhum exame cadastrado." />
         )}
@@ -292,46 +349,14 @@ export default function Passport() {
         >
           Enviar exame
         </a>
-      </Section>
+      </section>
 
-      <Section icon={Stethoscope} title="Condições cadastradas">
-        {conditions.length > 0 ? (
-          conditions.map((item) => (
-            <p key={item.id} className="text-sm border-b py-2">
-              {item.name || item.condition || item.title || 'Condição'}
-            </p>
-          ))
-        ) : profile.chronicConditions ? (
-          <p className="text-sm text-gray-700">{profile.chronicConditions}</p>
-        ) : (
-          <Empty text="Nenhuma condição cadastrada." />
-        )}
-      </Section>
+      <section className="bg-white rounded-2xl border p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <QrCode className="w-5 h-5 text-emerald-600" />
+          <h2 className="font-bold">Compartilhamento médico</h2>
+        </div>
 
-      <Section icon={CreditCard} title="Carteiras Plano/SUS">
-        {plans.length > 0 ? (
-          plans.map((plan) => (
-            <div key={plan.id} className="border-b py-2 text-sm">
-              <p><strong>{plan.plan_type === 'sus' ? 'SUS' : 'Plano'}:</strong> {plan.plan_name}</p>
-              {plan.operator_name && <p><strong>Operadora:</strong> {plan.operator_name}</p>}
-              <p><strong>Número:</strong> {plan.card_number}</p>
-              <p><strong>Titular:</strong> {plan.beneficiary_name}</p>
-              {plan.validity && <p><strong>Validade:</strong> {plan.validity}</p>}
-            </div>
-          ))
-        ) : (
-          <Empty text="Nenhuma carteira cadastrada." />
-        )}
-
-        <a
-          href="/wallet"
-          className="block mt-3 text-center py-2 rounded-xl bg-blue-600 text-white text-sm font-medium"
-        >
-          Adicionar Plano/SUS
-        </a>
-      </Section>
-
-      <Section icon={QrCode} title="Compartilhamento médico">
         <button
           onClick={generateEmergencyCode}
           className="w-full bg-emerald-600 text-white py-3 rounded-xl font-medium"
@@ -353,7 +378,7 @@ export default function Passport() {
             </button>
           </div>
         )}
-      </Section>
+      </section>
 
       <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex gap-3">
         <AlertTriangle className="w-5 h-5 text-yellow-700" />
@@ -365,37 +390,28 @@ export default function Passport() {
   )
 }
 
-function Section({ icon: Icon, title, children }: any) {
+function EmergencyMiniCard({ icon: Icon, label, value }: any) {
   return (
-    <div className="rounded-xl border p-4 bg-white">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className="w-5 h-5 text-emerald-600" />
-        <h2 className="font-bold">{title}</h2>
-      </div>
-      {children}
+    <div className="bg-white/15 rounded-xl p-3">
+      <Icon className="w-4 h-4 text-white/90 mb-1" />
+      <p className="text-[11px] text-white/70">{label}</p>
+      <p className="text-sm font-semibold line-clamp-2">{value}</p>
     </div>
   )
 }
 
-function Info({ label, value }: any) {
+function InfoCard({ icon: Icon, label, value }: any) {
   return (
-    <p className="text-sm py-1">
-      <strong>{label}:</strong> {value || 'Não informado'}
-    </p>
+    <div className="rounded-xl border bg-gray-50 p-3">
+      <Icon className="w-5 h-5 text-emerald-600 mb-2" />
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-sm font-semibold line-clamp-2">{value || 'Não informado'}</p>
+    </div>
   )
 }
 
 function Empty({ text }: any) {
   return <p className="text-sm text-gray-500">{text}</p>
-}
-
-function MiniStat({ label, value }: any) {
-  return (
-    <div className="bg-white/20 rounded-xl p-3 text-center">
-      <p className="text-xl font-bold">{value}</p>
-      <p className="text-xs text-white/80">{label}</p>
-    </div>
-  )
 }
 
 function formatMedsShort(meds: any[]) {
@@ -405,4 +421,9 @@ function formatMedsShort(meds: any[]) {
     .slice(0, 3)
     .map((med) => `${med.name || med.medication_name || 'Medicamento'} ${med.dosage || ''}`.trim())
     .join(', ')
+}
+
+function formatDate(date: string) {
+  if (!date) return 'Não informado'
+  return new Date(date).toLocaleDateString('pt-BR')
 }
