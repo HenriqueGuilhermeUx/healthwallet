@@ -1,5 +1,4 @@
 import {
-  Heart,
   Loader2,
   Activity,
   QrCode,
@@ -9,15 +8,9 @@ import {
   ChevronRight,
   FileText,
   Users,
-  Stethoscope,
-  Camera,
   MessageCircle,
   Sparkles,
-  AlertCircle,
   TrendingUp,
-  Upload,
-  ClipboardList,
-  CheckCircle,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -104,21 +97,21 @@ export default function Dashboard() {
     )
   }
 
-  const cockpit = medScore.cockpit || {}
-
   return (
     <div className="space-y-5 pb-20">
-      <div className="rounded-2xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 p-5 text-white relative overflow-hidden">
+      <Link
+        to="/medscore"
+        className="block rounded-2xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 p-5 text-white relative overflow-hidden"
+      >
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2" />
 
         <div className="relative">
           <p className="text-white/80 text-sm mb-1">Olá, {userName}</p>
-          <h1 className="text-2xl font-bold mb-4">Cockpit MedScore</h1>
 
           <div className="flex items-center gap-4">
             <div className="relative">
-              <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
+              <svg className="w-24 h-24 -rotate-90" viewBox="0 0 100 100">
                 <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="10" />
                 <circle
                   cx="50"
@@ -133,7 +126,7 @@ export default function Dashboard() {
               </svg>
 
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-3xl font-bold">{medScore.score}</span>
+                <span className="text-2xl font-bold">{medScore.score}</span>
                 <span className="text-xs opacity-80">/100</span>
               </div>
             </div>
@@ -141,12 +134,20 @@ export default function Dashboard() {
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
                 <Sparkles className="w-4 h-4" />
-                <p className="text-white/70 text-xs font-medium uppercase tracking-wider">MedScore</p>
+                <p className="text-white/70 text-xs font-medium uppercase tracking-wider">
+                  MedScore
+                </p>
               </div>
 
-              <p className="text-xl font-bold">{medScore.level}</p>
+              <h1 className="text-2xl font-bold">
+                Acesse seu MedScore
+              </h1>
 
-              <div className="flex items-center gap-2 mt-2">
+              <p className="text-white/80 text-sm mt-1">
+                Veja áreas analisadas, melhorias possíveis e exames recomendados.
+              </p>
+
+              <div className="flex items-center gap-2 mt-3">
                 <TrendingUp className="w-4 h-4 text-emerald-300" />
                 <span className="text-xs text-white/80">
                   {medScore.confidence}% de confiança dos dados
@@ -154,132 +155,13 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-
-          <div className="grid grid-cols-2 gap-2 mt-5">
-            <Link to="/profile" className="bg-white/20 py-3 rounded-xl text-center text-sm font-medium">
-              Atualizar dados
-            </Link>
-            <Link to="/upload" className="bg-white/20 py-3 rounded-xl text-center text-sm font-medium">
-              Subir exames
-            </Link>
-          </div>
         </div>
-      </div>
-
-      <section className="bg-card rounded-xl border border-border p-4">
-        <h2 className="font-bold mb-3 flex items-center gap-2">
-          <ClipboardList className="w-5 h-5 text-emerald-600" />
-          Áreas analisadas
-        </h2>
-
-        <div className="space-y-3">
-          {medScore.breakdown.map((item: any) => (
-            <div key={item.category}>
-              <div className="flex justify-between text-sm mb-1">
-                <span>{item.icon} {item.category}</span>
-                <span className="font-medium">{item.score}/{item.max}</span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-emerald-600 rounded-full"
-                  style={{ width: `${Math.min(100, (item.score / item.max) * 100)}%` }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {cockpit.strengths?.length > 0 && (
-        <section className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-          <h2 className="font-bold text-emerald-900 mb-3 flex items-center gap-2">
-            <CheckCircle className="w-5 h-5" />
-            Pontos fortes
-          </h2>
-
-          <ul className="space-y-2 text-sm text-emerald-800">
-            {cockpit.strengths.map((item: string, idx: number) => (
-              <li key={idx}>• {item}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {medScore.alerts?.length > 0 && (
-        <section className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <h2 className="font-bold text-red-900 mb-3 flex items-center gap-2">
-            <AlertCircle className="w-5 h-5" />
-            Pontos de atenção
-          </h2>
-
-          <ul className="space-y-2 text-sm text-red-800">
-            {medScore.alerts.map((item: string, idx: number) => (
-              <li key={idx}>• {item}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {medScore.missingExams?.length > 0 && (
-        <section className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-          <h2 className="font-bold text-yellow-900 mb-3 flex items-center gap-2">
-            <FileText className="w-5 h-5" />
-            Exames faltantes
-          </h2>
-
-          <div className="flex flex-wrap gap-2 mb-3">
-            {medScore.missingExams.map((exam: string) => (
-              <span key={exam} className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
-                {exam}
-              </span>
-            ))}
-          </div>
-
-          <Link to="/upload" className="inline-flex items-center gap-2 text-sm font-medium text-yellow-800">
-            <Upload className="w-4 h-4" />
-            Enviar exame agora
-          </Link>
-        </section>
-      )}
-
-      {cockpit.missingInfo?.length > 0 && (
-        <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-          <h2 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
-            <Stethoscope className="w-5 h-5" />
-            Informações necessárias
-          </h2>
-
-          <ul className="space-y-2 text-sm text-blue-800 mb-3">
-            {cockpit.missingInfo.map((item: string, idx: number) => (
-              <li key={idx}>• {item}</li>
-            ))}
-          </ul>
-
-          <Link to="/profile" className="inline-flex items-center gap-2 text-sm font-medium text-blue-800">
-            Atualizar perfil
-          </Link>
-        </section>
-      )}
-
-      {medScore.recommendations?.length > 0 && (
-        <section className="bg-purple-50 border border-purple-200 rounded-xl p-4">
-          <h2 className="font-bold text-purple-900 mb-3 flex items-center gap-2">
-            <Sparkles className="w-5 h-5" />
-            Próximas ações sugeridas
-          </h2>
-
-          <ul className="space-y-2 text-sm text-purple-800">
-            {medScore.recommendations.map((item: string, idx: number) => (
-              <li key={idx}>• {item}</li>
-            ))}
-          </ul>
-        </section>
-      )}
+      </Link>
 
       <div className="grid grid-cols-2 gap-3">
         <ActionCard icon={Activity} label="Exames" value={stats.exams} href="/exams" />
         <ActionCard icon={Pill} label="Remédios" value={stats.medications} href="/medications" />
-        <ActionCard icon={FileText} label="Carteirinhas" value={stats.cards} href="/wallet" />
+        <ActionCard icon={FileText} label="Carteiras Plano/SUS" value={stats.cards} href="/wallet" />
         <ActionCard icon={Users} label="Família" value={stats.family} href="/family" />
       </div>
 
@@ -293,7 +175,7 @@ export default function Dashboard() {
         <Link to="/summary" className="p-4 rounded-xl bg-blue-600 text-white font-semibold text-center">
           Resumo
         </Link>
-        <Link to="/chat?context=score" className="p-4 rounded-xl bg-purple-600 text-white font-semibold text-center">
+        <Link to="/chat" className="p-4 rounded-xl bg-purple-600 text-white font-semibold text-center">
           Conversar com IA
         </Link>
       </div>
