@@ -4,17 +4,27 @@ import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { createMedicalEvent } from '@/services/medicalTimeline'
 
+type ExamChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+const OCR_API_URL = 'https://healthwallet-ocr-api.onrender.com'
+
 export default function UploadExam() {
   const { user } = useAuth()
   const fileInputRef = useRef<HTMLInputElement>(null)
+
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [uploadedFile, setUploadedFile] = useState<{ name: string; id: string } | null>(null)
   const [processing, setProcessing] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+
   const [examQuestion, setExamQuestion] = useState('')
-  const [examAnswer, setExamAnswer] = useState('')
+  const [examChat, setExamChat] = useState<ExamChatMessage[]>([])
+  const [chatLoading, setChatLoading] = useState(false)
 
   const handleFileSelect = async (file: File) => {
     if (!user) return
@@ -30,6 +40,8 @@ export default function UploadExam() {
     setUploading(true)
     setError(null)
     setResult(null)
+    setExamQuestion('')
+    setExamChat([])
 
     try {
       const fileExt = file.name.split('.').pop()
@@ -44,6 +56,12 @@ export default function UploadExam() {
       const { data: { publicUrl } } = supabase.storage
         .from('exams')
         .getPublicUrl(fileName)
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle()
 
       const { data: record, error: dbError } = await supabase
         .from('medical_records')
@@ -69,7 +87,7 @@ export default function UploadExam() {
       setUploadedFile({ name: file.name, id: record.id })
       setProcessing(true)
 
-      const response = await fetch('https://healthwallet-ocr-api.onrender.com/analyze-exam', {
+      const response = await fetch(`${OCR_API_URL}/analyze-exam`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -79,6 +97,7 @@ export default function UploadExam() {
           fileName: file.name,
           profile: {
             email: user.email,
+            ...profile,
           },
         }),
       })
@@ -100,6 +119,8 @@ export default function UploadExam() {
             'Tente enviar uma foto mais nítida ou PDF com texto selecionável.',
             'Leve o exame para avaliação de um profissional de saúde.',
           ],
+          mainAlerts: [],
+          goodNews: [],
           extractedText:
             analysis?.error ||
             analysis?.extractedText ||
@@ -125,12 +146,19 @@ export default function UploadExam() {
         })
         .eq('id', record.id)
 
-      setProcessing(false)
       setResult(analysis)
+
+      setExamChat([
+        {
+          role: 'assistant',
+          content:
+            'Pronto. Analisei seu exame. Agora você pode me perguntar sobre qualquer marcador, risco, próximos passos ou cuidados específicos.',
+        },
+      ])
     } catch (err: any) {
-      setProcessing(false)
       setError(err.message || 'Erro ao enviar arquivo')
     } finally {
+      setProcessing(false)
       setUploading(false)
     }
   }
@@ -147,110 +175,66 @@ export default function UploadExam() {
     setDragOver(true)
   }
 
-  function askAboutExam() {
-  if (!examQuestion.trim() || !result) return
+  async function askAboutExam() {
+    if (!examQuestion.trim() || !result || chatLoading) return
 
-  const q = examQuestion.toLowerCase()
-  const items = result.items || []
+    const question = examQuestion.trim()
 
-  const altered = items.filter(
-    (item: any) => item.status !== 'normal'
-  )
-
-  const hasLDL = items.some(
-    (item: any) =>
-      String(item.name).toLowerCase().includes('ldl')
-  )
-
-  const hasCholesterol = items.some(
-    (item: any) =>
-      String(item.name).toLowerCase().includes('colesterol')
-  )
-
-  const hasGlicose = items.some(
-    (item: any) =>
-      String(item.name).toLowerCase().includes('glicose') ||
-      String(item.name).toLowerCase().includes('glicemia')
-  )
-
-  const hasTFG = items.some(
-    (item: any) =>
-      String(item.name).toLowerCase().includes('tfg') ||
-      String(item.name).toLowerCase().includes('filtra')
-  )
-
-  if (
-    q.includes('adicional') ||
-    q.includes('complementar') ||
-    q.includes('outro exame')
-  ) {
-    const suggestions: string[] = []
-
-    if (hasLDL || hasCholesterol) {
-      suggestions.push(
-        'ApoB (avalia risco cardiovascular com mais precisão)'
-      )
-
-      suggestions.push(
-        'Lipoproteína(a)'
-      )
-
-      suggestions.push(
-        'PCR ultrassensível'
-      )
+    const userMessage: ExamChatMessage = {
+      role: 'user',
+      content: question,
     }
 
-    if (hasGlicose) {
-      suggestions.push(
-        'Hemoglobina glicada'
-      )
+    const newHistory = [...examChat, userMessage]
 
-      suggestions.push(
-        'Insulina de jejum'
-      )
+    setExamChat(newHistory)
+    setExamQuestion('')
+    setChatLoading(true)
+
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user?.id)
+        .maybeSingle()
+
+      const response = await fetch(`${OCR_API_URL}/ask-exam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          exam: result,
+          profile: {
+            email: user?.email,
+            ...profile,
+          },
+          history: newHistory,
+        }),
+      })
+
+      const data = await response.json()
+
+      setExamChat((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.answer || 'Não consegui responder agora.',
+        },
+      ])
+    } catch (err: any) {
+      setExamChat((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content:
+            'Não consegui conectar com a IA agora. Tente novamente em alguns instantes.',
+        },
+      ])
+    } finally {
+      setChatLoading(false)
     }
-
-    if (hasTFG) {
-      suggestions.push(
-        'Urina tipo 1'
-      )
-
-      suggestions.push(
-        'Relação albumina/creatinina urinária'
-      )
-    }
-
-    setExamAnswer(
-      `Sim.
-
-Os exames complementares mais úteis para este resultado seriam:
-
-${suggestions.map(item => `• ${item}`).join('\n')}
-
-Esses exames ajudam a aprofundar a avaliação dos pontos encontrados neste laudo.`
-    )
-
-    return
   }
 
-  setExamAnswer(
-    `Com base neste exame:
-
-${
-  altered.length
-    ? altered
-        .map(
-          (item: any) =>
-            `• ${item.name}: ${item.value}`
-        )
-        .join('\n')
-    : '• Nenhuma alteração relevante identificada.'
-}
-
-Minha orientação é acompanhar os marcadores alterados e discutir os resultados com seu médico.`
-  )
-}
-  
   return (
     <div className="space-y-5">
       <div>
@@ -383,32 +367,30 @@ Minha orientação é acompanhar os marcadores alterados e discutir os resultado
           </div>
 
           {result.goodNews?.length > 0 && (
-  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
-    <p className="font-semibold text-emerald-900 mb-2">
-      Pontos positivos
-    </p>
+            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+              <p className="font-semibold text-emerald-900 mb-2">
+                Pontos positivos
+              </p>
+              <ul className="text-sm text-emerald-800 space-y-1">
+                {result.goodNews.map((item: string, idx: number) => (
+                  <li key={idx}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-    <ul className="text-sm text-emerald-800 space-y-1">
-      {result.goodNews.map((item: string, idx: number) => (
-        <li key={idx}>• {item}</li>
-      ))}
-    </ul>
-  </div>
-)}
-
-{result.mainAlerts?.length > 0 && (
-  <div className="p-4 rounded-xl bg-red-50 border border-red-200">
-    <p className="font-semibold text-red-900 mb-2">
-      Pontos de atenção
-    </p>
-
-    <ul className="text-sm text-red-800 space-y-1">
-      {result.mainAlerts.map((item: string, idx: number) => (
-        <li key={idx}>• {item}</li>
-      ))}
-    </ul>
-  </div>
-)}
+          {result.mainAlerts?.length > 0 && (
+            <div className="p-4 rounded-xl bg-red-50 border border-red-200">
+              <p className="font-semibold text-red-900 mb-2">
+                Pontos de atenção
+              </p>
+              <ul className="text-sm text-red-800 space-y-1">
+                {result.mainAlerts.map((item: string, idx: number) => (
+                  <li key={idx}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {result.summary && (
             <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
@@ -429,32 +411,54 @@ Minha orientação é acompanhar os marcadores alterados e discutir os resultado
           )}
 
           <div className="p-4 rounded-xl bg-purple-50 border border-purple-200 space-y-3">
-  <p className="font-semibold text-purple-900">
-    Pergunte sobre este exame
-  </p>
+            <p className="font-semibold text-purple-900">
+              Converse sobre este exame
+            </p>
 
-  <textarea
-    value={examQuestion}
-    onChange={(e) => setExamQuestion(e.target.value)}
-    placeholder="Ex: Meu colesterol está alto? Preciso me preocupar?"
-    className="w-full min-h-[100px] rounded-xl border border-purple-200 p-3 text-sm"
-  />
+            <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+              {examChat.map((message, idx) => (
+                <div
+                  key={idx}
+                  className={`p-3 rounded-xl text-sm whitespace-pre-wrap ${
+                    message.role === 'user'
+                      ? 'bg-purple-600 text-white ml-8'
+                      : 'bg-white border border-purple-100 text-gray-900 mr-8'
+                  }`}
+                >
+                  {message.content}
+                </div>
+              ))}
 
-  <button
-    onClick={askAboutExam}
-    className="w-full py-3 rounded-xl bg-purple-600 text-white font-semibold"
-  >
-    Perguntar sobre este exame
-  </button>
+              {chatLoading && (
+                <div className="bg-white border border-purple-100 text-gray-900 mr-8 p-3 rounded-xl text-sm flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+                  Pensando...
+                </div>
+              )}
+            </div>
 
-  {examAnswer && (
-    <div className="bg-white border rounded-xl p-3">
-      <p className="text-sm whitespace-pre-wrap">
-        {examAnswer}
-      </p>
-    </div>
-  )}
-</div>
+            <div className="flex gap-2">
+              <textarea
+                value={examQuestion}
+                onChange={(e) => setExamQuestion(e.target.value)}
+                placeholder="Ex: Como posso cuidar do colesterol?"
+                className="flex-1 min-h-[70px] rounded-xl border border-purple-200 p-3 text-sm"
+              />
+
+              <button
+                onClick={askAboutExam}
+                disabled={!examQuestion.trim() || chatLoading}
+                className="w-12 rounded-xl bg-purple-600 text-white flex items-center justify-center disabled:opacity-50"
+              >
+                {chatLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5" />
+                )}
+              </button>
+            </div>
+          </div>
+
           <a
             href="/exams"
             className="block w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold text-center hover:bg-emerald-700 transition-colors"
