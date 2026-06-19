@@ -299,9 +299,9 @@ export default function Dashboard() {
       </div>
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <MenuItem icon={QrCode} label="Carteirinha de Saúde" href="/wallet" />
-        <MenuItem icon={Calendar} label="Calendário de Exames" href="/exams" />
-        <MenuItem icon={Shield} label="Perfil de Emergência" href="/profile" />
+        <MenuItem icon={QrCode} label="Carteiras Plano/SUS" href="/wallet" />
+        <MenuItem icon={Calendar} label="Agenda de Saúde" href="/timeline" />
+        <MenuItem icon={Shield} label="Prontuário Digital" href="/passport" />
         <MenuItem icon={Users} label="Membros da Família" href="/family" />
         <MenuItem icon={MessageCircle} label="Assistente de IA" href="/chat" last />
       </div>
