@@ -16,6 +16,9 @@ import {
   LineChart,
   Stethoscope,
   Target,
+  CalendarDays,
+  Gauge,
+  Trophy,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
@@ -72,10 +75,12 @@ export default function MedScore() {
   const cockpit = medScore.cockpit || {}
   const delta = getScoreDelta(history, medScore.score)
   const lastUpdate = getLastUpdate(history)
+  const lastExamDate = getLastExamDate(records)
   const insights = buildInsights(records, history, medScore, metrics)
   const improveActions = buildImproveActions(medScore)
   const recommendedExams = buildRecommendedExams(medScore, metrics)
   const factors = buildMainFactors(medScore, metrics)
+  const potential = buildPotentialScore(medScore, metrics)
   const missingPoints = Math.max(0, 85 - Number(medScore.score || 0))
 
   const areas = [
@@ -113,7 +118,7 @@ export default function MedScore() {
 
   return (
     <div className="space-y-5 pb-20">
-      <div className="rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 p-5 text-white">
+      <div className="rounded-2xl bg-gradient-to-br from-emerald-700 to-teal-800 p-5 text-white">
         <p className="text-white/80 text-sm mb-1">Seu MedScore</p>
 
         <div className="flex items-center gap-4">
@@ -142,19 +147,38 @@ export default function MedScore() {
             <h1 className="text-2xl font-bold">{medScore.level}</h1>
 
             <p className="text-white/80 text-sm mt-1">
-              {medScore.confidence}% de confiança dos dados
-            </p>
-
-            <p className="text-white/80 text-sm mt-2">
               {delta >= 0 ? '↑' : '↓'} {Math.abs(delta)} pontos desde a última atualização
             </p>
 
             <p className="text-white/70 text-xs mt-1">
               Última atualização: {lastUpdate}
             </p>
+
+            <p className="text-white/70 text-xs mt-1">
+              Último exame: {lastExamDate}
+            </p>
           </div>
         </div>
       </div>
+
+      <section className="bg-white rounded-xl border p-4">
+        <h2 className="font-bold mb-3 flex items-center gap-2">
+          <Gauge className="w-5 h-5 text-emerald-600" />
+          Confiabilidade do MedScore
+        </h2>
+
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm text-gray-600">Baseado na qualidade e completude dos dados</p>
+          <p className="font-bold text-emerald-700">{medScore.confidence || 0}%</p>
+        </div>
+
+        <div className="h-3 bg-emerald-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-emerald-600"
+            style={{ width: `${Math.min(100, medScore.confidence || 0)}%` }}
+          />
+        </div>
+      </section>
 
       <section className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
         <h2 className="font-bold text-emerald-900 mb-3 flex items-center gap-2">
@@ -162,9 +186,7 @@ export default function MedScore() {
           Sua Meta de Saúde
         </h2>
 
-        <p className="text-sm text-emerald-800">
-          Meta atual: atingir MedScore 85
-        </p>
+        <p className="text-sm text-emerald-800">Meta atual: atingir MedScore 85</p>
 
         <div className="mt-3">
           <div className="h-3 bg-emerald-100 rounded-full overflow-hidden">
@@ -179,6 +201,31 @@ export default function MedScore() {
               ? `Faltam ${missingPoints} pontos para a próxima meta.`
               : 'Você já atingiu a meta inicial. Agora é manter e evoluir.'}
           </p>
+        </div>
+      </section>
+
+      <section className="bg-white rounded-xl border p-4">
+        <h2 className="font-bold mb-3 flex items-center gap-2">
+          <Trophy className="w-5 h-5 text-yellow-600" />
+          Score potencial
+        </h2>
+
+        <div className="flex items-center justify-between bg-yellow-50 border border-yellow-100 rounded-xl p-3 mb-3">
+          <div>
+            <p className="text-xs text-yellow-700">MedScore atual</p>
+            <p className="text-2xl font-bold text-yellow-900">{medScore.score}</p>
+          </div>
+
+          <div className="text-right">
+            <p className="text-xs text-yellow-700">Potencial estimado</p>
+            <p className="text-2xl font-bold text-yellow-900">{potential.score}</p>
+          </div>
+        </div>
+
+        <div className="space-y-2 text-sm text-gray-700">
+          {potential.actions.map((item, idx) => (
+            <p key={idx}>+{item.points} {item.label}</p>
+          ))}
         </div>
       </section>
 
@@ -220,10 +267,6 @@ export default function MedScore() {
             </div>
           ))}
         </div>
-
-        <p className="text-xs text-muted-foreground mt-3">
-          Conforme você adiciona exames e informações, o MedScore se torna mais preciso.
-        </p>
       </section>
 
       <section className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
@@ -240,9 +283,7 @@ export default function MedScore() {
       </section>
 
       <section className="bg-white rounded-xl border p-4">
-        <h2 className="font-bold mb-3">
-          Próxima Conquista
-        </h2>
+        <h2 className="font-bold mb-3">Próxima Conquista</h2>
 
         <div className="space-y-2 text-sm text-gray-700">
           <p>🎯 Objetivo: MedScore 85</p>
@@ -250,21 +291,9 @@ export default function MedScore() {
           <p>As ações mais rápidas são:</p>
 
           <ul className="list-disc pl-5 space-y-1">
-            {cockpit?.missingInfo?.includes('Histórico familiar') && (
-              <li>Adicionar histórico familiar</li>
-            )}
-
-            {cockpit?.missingInfo?.includes('Contato de emergência') && (
-              <li>Cadastrar contato de emergência</li>
-            )}
-
-            {medScore.missingExams?.some((item: string) => item.toLowerCase().includes('glic')) && (
-              <li>Enviar HbA1c ou glicemia de jejum</li>
-            )}
-
-            {(!cockpit?.missingInfo?.length && !medScore.missingExams?.length) && (
-              <li>Manter exames atualizados e acompanhar evolução</li>
-            )}
+            {potential.actions.slice(0, 4).map((item, idx) => (
+              <li key={idx}>{item.label}</li>
+            ))}
           </ul>
         </div>
       </section>
@@ -378,11 +407,12 @@ export default function MedScore() {
         </h2>
 
         <div className="grid grid-cols-1 gap-2">
+          <CoachButton text="Explique meus exames" />
+          <CoachButton text="O que mais reduz meu MedScore?" />
+          <CoachButton text="Crie um plano de 30 dias" />
+          <CoachButton text="Quais exames devo fazer primeiro?" />
           <CoachButton text="Como reduzir meu LDL naturalmente?" />
           <CoachButton text="Monte um plano para eu atingir MedScore 85" />
-          <CoachButton text="Quais exames estão faltando?" />
-          <CoachButton text="Explique meu risco cardiovascular" />
-          <CoachButton text="O que fazer nos próximos 90 dias?" />
         </div>
       </section>
 
@@ -423,6 +453,47 @@ function CoachButton({ text }: { text: string }) {
       {text}
     </Link>
   )
+}
+
+function buildPotentialScore(medScore: any, metrics: any) {
+  const actions: { label: string; points: number }[] = []
+  const missingInfo = medScore.cockpit?.missingInfo || []
+  const missingExams = medScore.missingExams || []
+
+  if (missingInfo.includes('Histórico familiar')) {
+    actions.push({ label: 'Histórico familiar', points: 4 })
+  }
+
+  if (missingInfo.includes('Contato de emergência')) {
+    actions.push({ label: 'Contato de emergência', points: 2 })
+  }
+
+  if (!metrics.hba1c && missingExams.some((m: string) => m.toLowerCase().includes('glic'))) {
+    actions.push({ label: 'HbA1c ou glicemia de jejum', points: 5 })
+  }
+
+  if (!metrics.apoB) {
+    actions.push({ label: 'ApoB', points: 4 })
+  }
+
+  if (!metrics.pcrUltrasensitive) {
+    actions.push({ label: 'PCR ultrassensível', points: 3 })
+  }
+
+  if (!metrics.tfg) {
+    actions.push({ label: 'Creatinina e TFG', points: 2 })
+  }
+
+  if (!actions.length) {
+    actions.push({ label: 'Manter exames atualizados', points: 2 })
+  }
+
+  const score = Math.min(
+    100,
+    Number(medScore.score || 0) + actions.reduce((sum, item) => sum + item.points, 0)
+  )
+
+  return { score, actions }
 }
 
 function buildMainFactors(medScore: any, metrics: any) {
@@ -597,6 +668,13 @@ function getLastUpdate(history: any[]) {
   const last = history?.[history.length - 1]
   const date = last?.calculated_at || new Date().toISOString()
   return new Date(date).toLocaleDateString('pt-BR')
+}
+
+function getLastExamDate(records: any[]) {
+  if (!records.length) return 'Nenhum exame enviado'
+  const last = records[records.length - 1]
+  const date = last?.created_at || last?.exam_date
+  return date ? new Date(date).toLocaleDateString('pt-BR') : 'Não informado'
 }
 
 function toNumber(value: any) {
