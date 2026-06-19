@@ -253,24 +253,30 @@ Posso te ajudar a entender seus exames, melhorar seu score, revisar hábitos e m
 
 function buildScoreOpening(ctx: any) {
   const p = ctx?.profile || {}
-  const score = ctx?.score?.score || p.med_score || 'não calculado'
-  const exams = ctx?.exams || []
-  const examsText = JSON.stringify(exams).toLowerCase()
-  const missing = buildMissingExams(p, examsText)
+  const scoreData = ctx?.score || {}
+  const score = scoreData.score || p.med_score || 'não calculado'
+  const factors = scoreData.factors || {}
+  const alerts = factors.alerts || []
+  const missing = factors.missingExams || buildMissingExams(p, JSON.stringify(ctx?.exams || []).toLowerCase())
+  const breakdown = factors.breakdown || []
 
   return `Vamos analisar seu HealthScore.
 
 Score atual: ${score}/100.
+Nível: ${scoreData.status || 'não informado'}.
+Confiança dos dados: ${factors.confidence || 'não calculada'}%.
 
-Dados encontrados:
-- Peso: ${p.weight ? `${p.weight} kg` : 'não informado'}
-- Altura: ${p.height ? `${p.height} cm` : 'não informado'}
-- Atividade física: ${translate(p.physical_activity)}
-- Tabagismo: ${translate(p.smoking_status)}
-- Sono: ${p.sleep_hours ? `${p.sleep_hours}h/noite` : 'não informado'}
-- Exames enviados: ${exams.length}
+Principais fatores avaliados:
+${breakdown.length ? breakdown.map((b: any) => `- ${b.icon || '•'} ${b.category}: ${b.score}/100`).join('\n') : '- Perfil, hábitos, exames reais e condições cadastradas.'}
 
-${missing.length ? `Exames/dados que ainda faltam:\n${missing.map((m) => `- ${m}`).join('\n')}` : 'Você já tem os principais dados básicos cadastrados.'}
+Pontos de atenção encontrados:
+${alerts.length ? alerts.map((a: string) => `- ${a}`).join('\n') : '- Nenhum alerta importante identificado no momento.'}
+
+Exames/dados pendentes:
+${missing.length ? missing.map((m: string) => `- ${m}`).join('\n') : '- Nenhum exame básico pendente identificado.'}
+
+Resumo prático:
+${buildScoreAdvice(score, alerts)}
 
 Quer que eu monte um plano de melhoria para os próximos 30 dias?`
 }
@@ -280,28 +286,35 @@ function generateContextualResponse(question: string, ctx: any) {
   const p = ctx?.profile || {}
   const exams = ctx?.exams || []
   const meds = ctx?.medications || []
-  const score = ctx?.score?.score || p.med_score || 'não calculado'
+  const scoreData = ctx?.score || {}
+  const score = scoreData.score || p.med_score || 'não calculado'
+  const factors = scoreData.factors || {}
+  const alerts = factors.alerts || []
   const examsText = JSON.stringify(exams).toLowerCase()
   const examSummaries = buildExamSummaries(exams)
 
   if (q.includes('plano') || q.includes('30 dias')) {
-    return `Plano inicial de 30 dias:
+    return `Plano inicial de 30 dias para melhorar seu HealthScore:
 
-1. Movimento
-- Caminhada 30 minutos, 5x por semana.
-- Se já treina, manter consistência.
+1. Prioridade clínica
+${alerts.length ? alerts.map((a: string) => `- Trabalhar: ${a}`).join('\n') : '- Manter prevenção e acompanhar exames regularmente.'}
 
-2. Alimentação
-- Reduzir ultraprocessados, açúcar e frituras.
-- Priorizar proteínas magras, legumes, fibras, frutas e água.
+2. Movimento
+- Caminhada ou cardio leve/moderado 30 minutos, 5x por semana.
+- Se já treina, manter consistência e incluir exercícios de força.
 
-3. Exames/dados faltantes
+3. Alimentação
+- Reduzir ultraprocessados, frituras, açúcar e excesso de álcool.
+- Aumentar fibras: legumes, verduras, aveia, feijão, frutas.
+- Priorizar proteínas magras e gorduras boas.
+
+4. Exames/dados faltantes
 ${formatMissingExams(p, examsText)}
 
-4. Acompanhamento
-- Atualize peso, sono e atividade física no Perfil.
-- Suba novos exames em Exames.
-- Recalcule seu HealthScore depois.
+5. Acompanhamento
+- Atualize peso, sono, atividade física e medicamentos.
+- Suba novos exames quando fizer.
+- Recalcule seu HealthScore após mudanças.
 
 Seu score atual é ${score}/100.`
   }
@@ -309,35 +322,39 @@ Seu score atual é ${score}/100.`
   if (q.includes('score') || q.includes('healthscore') || q.includes('medscore')) {
     return `Seu HealthScore atual é ${score}/100.
 
-Ele considera perfil, hábitos, exames, medicamentos e dados preventivos.
+O cálculo agora considera:
+- Perfil: peso, altura, idade, hábitos e dados básicos
+- Estilo de vida: sono, atividade física, tabagismo
+- Exames reais analisados por IA/OCR
+- Condições cadastradas
 
-Pontos encontrados:
-- Peso: ${p.weight || 'não informado'}
-- Altura: ${p.height || 'não informado'}
-- Atividade física: ${translate(p.physical_activity)}
-- Sono: ${p.sleep_hours || 'não informado'}
-- Tabagismo: ${translate(p.smoking_status)}
-- Exames enviados: ${exams.length}
+Alertas atuais:
+${alerts.length ? alerts.map((a: string) => `- ${a}`).join('\n') : '- Nenhum alerta importante identificado.'}
+
+Exames/dados pendentes:
+${formatMissingExams(p, examsText)}
 
 Para melhorar:
-${formatMissingExams(p, examsText)}
-- Manter rotina de exercício.
-- Atualizar medicamentos e condições no Perfil.
-- Revisar alterações dos exames com profissional.`
+- Atacar primeiro os pontos alterados nos exames.
+- Atualizar perfil e contato de emergência.
+- Manter exames preventivos em dia.
+- Revisar marcadores alterados com profissional.`
   }
 
-  if (q.includes('exame') || q.includes('colesterol') || q.includes('glicemia')) {
+  if (q.includes('exame') || q.includes('colesterol') || q.includes('ldl') || q.includes('glicemia')) {
     return `Você tem ${exams.length} exame(s) cadastrado(s).
 
-Resumo do que encontrei:
+Resumo dos exames:
 ${examSummaries || 'Ainda não há análise IA salva nos exames.'}
 
-Sugestão:
-- Abra Exames e revise os arquivos enviados.
-- Se colesterol apareceu alto, converse com médico sobre perfil lipídico completo: LDL, HDL e triglicerídeos.
-- Combine isso com atividade física, sono e alimentação.
+Pontos de atenção:
+${alerts.length ? alerts.map((a: string) => `- ${a}`).join('\n') : '- Nenhum alerta estruturado identificado.'}
 
-Posso montar um plano específico para colesterol.`
+Se o LDL ou colesterol estiverem altos:
+- converse com seu médico sobre risco cardiovascular;
+- avalie alimentação, atividade física, peso e histórico familiar;
+- repita perfil lipídico conforme orientação;
+- não inicie medicação sem avaliação profissional.`
   }
 
   if (q.includes('medicamento') || q.includes('remédio')) {
@@ -345,10 +362,13 @@ Posso montar um plano específico para colesterol.`
 
 ${meds.length ? meds.map((m: any) => `- ${m.name || m.medication_name || 'Medicamento'} ${m.dosage || ''}`).join('\n') : 'Nenhum medicamento estruturado cadastrado.'}
 
-Mantenha essa lista atualizada. Isso ajuda em consulta, emergência e compartilhamento com profissional.`
+Também consta no perfil:
+${p.current_medications || 'Nenhum medicamento informado no perfil.'}
+
+Mantenha essa lista atualizada para consultas, emergências e compartilhamento profissional.`
   }
 
-  return `Com base no seu perfil atual:
+  return `Com base no seu contexto atual:
 
 - HealthScore: ${score}/100
 - Exames cadastrados: ${exams.length}
@@ -356,9 +376,12 @@ Mantenha essa lista atualizada. Isso ajuda em consulta, emergência e compartilh
 - Atividade física: ${translate(p.physical_activity)}
 - Tabagismo: ${translate(p.smoking_status)}
 
+Alertas:
+${alerts.length ? alerts.map((a: string) => `- ${a}`).join('\n') : '- Nenhum alerta importante identificado.'}
+
 Posso ajudar com:
-- melhorar score
 - entender exames
+- melhorar HealthScore
 - plano de 30 dias
 - lista de exames faltantes
 - preparação para consulta médica`
@@ -369,22 +392,43 @@ function buildExamSummaries(exams: any[]) {
     .map((e: any) => {
       const result = e.ai_result || {}
       const items = Array.isArray(result.items) ? result.items : []
-      const itemText = items
-        .map((item: any) => `${item.name}: ${item.value} (${item.status})`)
-        .join(', ')
+      const altered = items.filter((item: any) => item.status && item.status !== 'normal')
 
-      return `${e.file_name || 'Exame'}: ${e.ai_analysis || result.summary || itemText || 'sem análise estruturada'}`
+      const alteredText = altered.length
+        ? altered.map((item: any) => `${item.name}: ${item.value} (${item.status})`).join(', ')
+        : ''
+
+      return `${e.file_name || 'Exame'}:
+${e.ai_analysis || result.summary || 'Sem resumo.'}
+${alteredText ? `Alterações: ${alteredText}` : 'Sem alterações estruturadas relevantes.'}`
     })
-    .join('\n')
+    .join('\n\n')
 }
 
+function buildScoreAdvice(score: any, alerts: string[]) {
+  const n = Number(score)
+
+  if (alerts.length > 0) {
+    return `Seu foco deve ser corrigir ou acompanhar os pontos de atenção: ${alerts.join(', ')}.`
+  }
+
+  if (!Number.isNaN(n) && n >= 85) {
+    return 'Seu score está muito bom. O foco agora é manutenção, prevenção e exames periódicos.'
+  }
+
+  if (!Number.isNaN(n) && n >= 70) {
+    return 'Seu score está bom, mas ainda pode melhorar com rotina, exames completos e controle de fatores de risco.'
+  }
+
+  return 'Seu score indica espaço importante para melhoria. O ideal é atualizar perfil, enviar exames e revisar hábitos.'
+}
 function buildMissingExams(profile: any, examsText: string) {
   const missing: string[] = []
 
   if (!examsText.includes('hemograma')) missing.push('Hemograma completo')
   if (!examsText.includes('colesterol') && !examsText.includes('ldl') && !examsText.includes('lipid')) missing.push('Perfil lipídico')
   if (!examsText.includes('glicemia') && !examsText.includes('glucose')) missing.push('Glicemia de jejum')
-  if (!profile?.blood_type) missing.push('Tipagem sanguínea')
+  if (!profile?.blood_type && !profile?.bloodType) missing.push('Tipagem sanguínea')
 
   return missing
 }
