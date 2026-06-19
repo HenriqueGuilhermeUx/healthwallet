@@ -150,23 +150,104 @@ export default function UploadExam() {
   function askAboutExam() {
   if (!examQuestion.trim() || !result) return
 
-  const altered = (result.items || [])
-    .filter((item: any) => item.status !== 'normal')
-    .map((item: any) => `${item.name}: ${item.value} (${item.status})`)
-    .join(', ')
+  const q = examQuestion.toLowerCase()
+  const items = result.items || []
+
+  const altered = items.filter(
+    (item: any) => item.status !== 'normal'
+  )
+
+  const hasLDL = items.some(
+    (item: any) =>
+      String(item.name).toLowerCase().includes('ldl')
+  )
+
+  const hasCholesterol = items.some(
+    (item: any) =>
+      String(item.name).toLowerCase().includes('colesterol')
+  )
+
+  const hasGlicose = items.some(
+    (item: any) =>
+      String(item.name).toLowerCase().includes('glicose') ||
+      String(item.name).toLowerCase().includes('glicemia')
+  )
+
+  const hasTFG = items.some(
+    (item: any) =>
+      String(item.name).toLowerCase().includes('tfg') ||
+      String(item.name).toLowerCase().includes('filtra')
+  )
+
+  if (
+    q.includes('adicional') ||
+    q.includes('complementar') ||
+    q.includes('outro exame')
+  ) {
+    const suggestions: string[] = []
+
+    if (hasLDL || hasCholesterol) {
+      suggestions.push(
+        'ApoB (avalia risco cardiovascular com mais precisão)'
+      )
+
+      suggestions.push(
+        'Lipoproteína(a)'
+      )
+
+      suggestions.push(
+        'PCR ultrassensível'
+      )
+    }
+
+    if (hasGlicose) {
+      suggestions.push(
+        'Hemoglobina glicada'
+      )
+
+      suggestions.push(
+        'Insulina de jejum'
+      )
+    }
+
+    if (hasTFG) {
+      suggestions.push(
+        'Urina tipo 1'
+      )
+
+      suggestions.push(
+        'Relação albumina/creatinina urinária'
+      )
+    }
+
+    setExamAnswer(
+      `Sim.
+
+Os exames complementares mais úteis para este resultado seriam:
+
+${suggestions.map(item => `• ${item}`).join('\n')}
+
+Esses exames ajudam a aprofundar a avaliação dos pontos encontrados neste laudo.`
+    )
+
+    return
+  }
 
   setExamAnswer(
     `Com base neste exame:
 
-${altered || 'Nenhuma alteração importante encontrada.'}
+${
+  altered.length
+    ? altered
+        .map(
+          (item: any) =>
+            `• ${item.name}: ${item.value}`
+        )
+        .join('\n')
+    : '• Nenhuma alteração relevante identificada.'
+}
 
-Resumo da IA:
-${result.summary || ''}
-
-Pergunta:
-${examQuestion}
-
-Esta resposta serve apenas como apoio educacional e não substitui avaliação médica.`
+Minha orientação é acompanhar os marcadores alterados e discutir os resultados com seu médico.`
   )
 }
   
@@ -300,6 +381,34 @@ Esta resposta serve apenas como apoio educacional e não substitui avaliação m
               ))}
             </div>
           </div>
+
+          {result.goodNews?.length > 0 && (
+  <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+    <p className="font-semibold text-emerald-900 mb-2">
+      Pontos positivos
+    </p>
+
+    <ul className="text-sm text-emerald-800 space-y-1">
+      {result.goodNews.map((item: string, idx: number) => (
+        <li key={idx}>• {item}</li>
+      ))}
+    </ul>
+  </div>
+)}
+
+{result.mainAlerts?.length > 0 && (
+  <div className="p-4 rounded-xl bg-red-50 border border-red-200">
+    <p className="font-semibold text-red-900 mb-2">
+      Pontos de atenção
+    </p>
+
+    <ul className="text-sm text-red-800 space-y-1">
+      {result.mainAlerts.map((item: string, idx: number) => (
+        <li key={idx}>• {item}</li>
+      ))}
+    </ul>
+  </div>
+)}
 
           {result.summary && (
             <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
