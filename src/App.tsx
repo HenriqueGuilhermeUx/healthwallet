@@ -25,6 +25,7 @@ import Passport from '@/pages/Passport'
 import Summary from '@/pages/Summary'
 import Timeline from '@/pages/Timeline'
 import WomensHealth from '@/pages/WomensHealth'
+import MedScore from '@/pages/MedScore'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -101,6 +102,7 @@ export default function App() {
           <Route path="/timeline" element={<ProtectedPage><Timeline /></ProtectedPage>} />
           <Route path="/documents" element={<ProtectedPage><ReceivedDocuments /></ProtectedPage>} />
           <Route path="/womens-health" element={<ProtectedPage><WomensHealth /></ProtectedPage>} />
+          <Route path="/medscore" element={<ProtectedPage><MedScore /></ProtectedPage>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
