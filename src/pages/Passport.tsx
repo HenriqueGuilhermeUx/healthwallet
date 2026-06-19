@@ -8,8 +8,11 @@ import {
   CreditCard,
   Copy,
   Check,
-  Siren,
   HeartPulse,
+  FileText,
+  ClipboardList,
+  Stethoscope,
+  User,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -21,6 +24,7 @@ export default function Passport() {
   const [medications, setMedications] = useState<any[]>([])
   const [conditions, setConditions] = useState<any[]>([])
   const [plans, setPlans] = useState<any[]>([])
+  const [exams, setExams] = useState<any[]>([])
   const [shareCode, setShareCode] = useState('')
   const [copied, setCopied] = useState(false)
 
@@ -62,15 +66,22 @@ export default function Passport() {
       })
     }
 
-    const [medsRes, conditionsRes, plansRes] = await Promise.all([
+    const [medsRes, conditionsRes, plansRes, examsRes] = await Promise.all([
       supabase.from('medications').select('*').eq('user_id', user.id),
       supabase.from('patient_conditions').select('*').eq('user_id', user.id),
       supabase.from('health_plans').select('*').eq('user_id', user.id),
+      supabase
+        .from('medical_records')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10),
     ])
 
     setMedications(medsRes.data || [])
     setConditions(conditionsRes.data || [])
     setPlans(plansRes.data || [])
+    setExams(examsRes.data || [])
   }
 
   async function generateEmergencyCode() {
@@ -92,82 +103,126 @@ export default function Passport() {
       ? String(profile.allergies).split(',').map((item) => item.trim()).filter(Boolean)
       : []
 
+  const missingFields = [
+    !profile.birthDate && 'Data de nascimento',
+    !profile.bloodType && 'Tipo sanguíneo',
+    !profile.weight && 'Peso',
+    !profile.height && 'Altura',
+    !profile.phone && 'Telefone',
+    !profile.emergencyContactName && 'Contato de emergência',
+    allergies.length === 0 && 'Alergias',
+    !profile.currentMedications && medications.length === 0 && 'Medicamentos atuais',
+    !profile.surgeries && 'Cirurgias / internações',
+  ].filter(Boolean)
+
   return (
-    <div className="p-4 pb-20">
-      <div className="rounded-2xl bg-gradient-to-br from-red-600 to-rose-700 text-white p-6">
+    <div className="p-4 pb-20 space-y-4">
+      <div className="rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white p-6">
         <div className="flex items-center gap-3 mb-4">
-          <Shield className="w-8 h-8" />
+          <ClipboardList className="w-8 h-8" />
           <div>
-            <h1 className="text-2xl font-bold">Health Passport</h1>
-            <p className="text-white/80 text-sm">Perfil rápido de emergência</p>
-          </div>
-        </div>
-
-        <div className="space-y-2 text-sm">
-          <p><strong>Nome:</strong> {profile.fullName || user?.email || 'Não informado'}</p>
-          <p><strong>Tipo sanguíneo:</strong> {profile.bloodType || 'Não informado'}</p>
-          <p><strong>Peso:</strong> {profile.weight ? `${profile.weight} kg` : 'Não informado'}</p>
-          <p><strong>Altura:</strong> {profile.height ? `${profile.height} cm` : 'Não informado'}</p>
-          <p><strong>Telefone:</strong> {profile.phone || 'Não informado'}</p>
-          <p><strong>MedScore:</strong> {profile.medScore ? `${profile.medScore}/100` : 'Não calculado'}</p>
-        </div>
-      </div>
-
-      <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Siren className="w-5 h-5 text-red-600" />
-          <h2 className="font-bold text-red-700">Contato de Emergência</h2>
-        </div>
-
-        {profile.emergencyContactName ? (
-          <div className="space-y-1 text-sm">
-            <p><strong>Nome:</strong> {profile.emergencyContactName}</p>
-            <p><strong>Telefone:</strong> {profile.emergencyContactPhone || 'Não informado'}</p>
-            <p><strong>Parentesco:</strong> {profile.emergencyContactRelationship || 'Não informado'}</p>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">Nenhum contato cadastrado.</p>
-        )}
-      </div>
-
-      <div className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <HeartPulse className="w-5 h-5 text-blue-600" />
-          <h2 className="font-bold text-blue-700">Resumo de Emergência</h2>
-        </div>
-
-        <ul className="space-y-2 text-sm">
-          <li><strong>Tipo sanguíneo:</strong> {profile.bloodType || 'Não informado'}</li>
-          <li><strong>Alergias:</strong> {allergies.length > 0 ? allergies.join(', ') : 'Nenhuma informada'}</li>
-          <li><strong>Condições:</strong> {profile.chronicConditions || 'Nenhuma informada'}</li>
-          <li><strong>Medicamentos:</strong> {profile.currentMedications || 'Nenhum informado'}</li>
-          <li><strong>Cirurgias:</strong> {profile.surgeries || 'Nenhuma informada'}</li>
-        </ul>
-      </div>
-
-      <div className="mt-4 bg-white rounded-xl border p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <AlertTriangle className="w-5 h-5 text-red-600" />
-          <h2 className="font-bold">Alergias</h2>
-        </div>
-
-        {allergies.length > 0 ? (
-          allergies.map((item: string, index: number) => (
-            <p key={index} className="text-sm border-b py-2">
-              {item}
+            <h1 className="text-2xl font-bold">Prontuário Digital</h1>
+            <p className="text-white/80 text-sm">
+              Histórico completo de consultas, exames, prescrições e dados de emergência.
             </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          <MiniStat label="Exames" value={exams.length} />
+          <MiniStat label="Remédios" value={medications.length} />
+          <MiniStat label="Planos" value={plans.length} />
+        </div>
+      </div>
+
+      {missingFields.length > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-yellow-700 mt-0.5" />
+            <div className="flex-1">
+              <h2 className="font-bold text-yellow-900 mb-2">
+                Complete seu prontuário
+              </h2>
+
+              <div className="flex flex-wrap gap-2 mb-3">
+                {missingFields.map((item: any) => (
+                  <span key={item} className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                    {item}
+                  </span>
+                ))}
+              </div>
+
+              <a
+                href="/profile"
+                className="inline-flex px-4 py-2 rounded-xl bg-yellow-600 text-white text-sm font-medium"
+              >
+                Atualizar agora
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Section icon={User} title="Identificação">
+        <Info label="Nome" value={profile.fullName || user?.email} />
+        <Info label="Nascimento" value={profile.birthDate} />
+        <Info label="Telefone" value={profile.phone} />
+        <Info label="Peso" value={profile.weight ? `${profile.weight} kg` : ''} />
+        <Info label="Altura" value={profile.height ? `${profile.height} cm` : ''} />
+        <Info label="Tipo sanguíneo" value={profile.bloodType} />
+        <Info label="MedScore" value={profile.medScore ? `${profile.medScore}/100` : 'Não calculado'} />
+      </Section>
+
+      <Section icon={Phone} title="Contato de Emergência" danger>
+        {profile.emergencyContactName ? (
+          <>
+            <Info label="Nome" value={profile.emergencyContactName} />
+            <Info label="Telefone" value={profile.emergencyContactPhone} />
+            <Info label="Parentesco" value={profile.emergencyContactRelationship} />
+          </>
+        ) : (
+          <Empty text="Nenhum contato de emergência cadastrado." />
+        )}
+
+        <a href="/profile" className="block mt-3 text-center py-2 rounded-xl bg-red-600 text-white text-sm font-medium">
+          Editar contato de emergência
+        </a>
+      </Section>
+
+      <Section icon={HeartPulse} title="Resumo Clínico">
+        <Info label="Alergias" value={allergies.length > 0 ? allergies.join(', ') : ''} />
+        <Info label="Condições" value={profile.chronicConditions} />
+        <Info label="Medicamentos" value={profile.currentMedications} />
+        <Info label="Histórico familiar" value={profile.familyHistory} />
+        <Info label="Cirurgias / internações" value={profile.surgeries} />
+      </Section>
+
+      <Section icon={FileText} title="Exames recentes">
+        {exams.length > 0 ? (
+          exams.map((exam) => (
+            <div key={exam.id} className="border-b py-2 text-sm">
+              <p className="font-medium">{exam.file_name || exam.exam_type || 'Exame'}</p>
+              <p className="text-xs text-gray-500">
+                {exam.status === 'processed' ? 'Analisado' : 'Pendente'} ·{' '}
+                {new Date(exam.created_at).toLocaleDateString('pt-BR')}
+              </p>
+              {exam.ai_analysis && (
+                <p className="text-xs text-gray-600 mt-1 line-clamp-2">
+                  {exam.ai_analysis}
+                </p>
+              )}
+            </div>
           ))
         ) : (
-          <p className="text-sm text-gray-500">Nenhuma alergia cadastrada.</p>
+          <Empty text="Nenhum exame cadastrado." />
         )}
-      </div>
 
-      <div className="mt-4 bg-white rounded-xl border p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Pill className="w-5 h-5 text-orange-600" />
-          <h2 className="font-bold">Medicamentos</h2>
-        </div>
+        <a href="/upload" className="block mt-3 text-center py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium">
+          Enviar exame
+        </a>
+      </Section>
 
+      <Section icon={Pill} title="Prescrições / Medicamentos">
         {medications.length > 0 ? (
           medications.map((med) => (
             <p key={med.id} className="text-sm border-b py-2">
@@ -177,16 +232,11 @@ export default function Passport() {
         ) : profile.currentMedications ? (
           <p className="text-sm text-gray-700">{profile.currentMedications}</p>
         ) : (
-          <p className="text-sm text-gray-500">Nenhum medicamento cadastrado.</p>
+          <Empty text="Nenhum medicamento cadastrado." />
         )}
-      </div>
+      </Section>
 
-      <div className="mt-4 bg-white rounded-xl border p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <AlertTriangle className="w-5 h-5 text-yellow-600" />
-          <h2 className="font-bold">Condições / Alertas</h2>
-        </div>
-
+      <Section icon={Stethoscope} title="Condições / Consultas">
         {conditions.length > 0 ? (
           conditions.map((item) => (
             <p key={item.id} className="text-sm border-b py-2">
@@ -196,29 +246,11 @@ export default function Passport() {
         ) : profile.chronicConditions ? (
           <p className="text-sm text-gray-700">{profile.chronicConditions}</p>
         ) : (
-          <p className="text-sm text-gray-500">Nenhuma condição cadastrada.</p>
+          <Empty text="Nenhuma condição cadastrada." />
         )}
-      </div>
+      </Section>
 
-      <div className="mt-4 bg-white rounded-xl border p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Shield className="w-5 h-5 text-indigo-600" />
-          <h2 className="font-bold">Cirurgias e Internações</h2>
-        </div>
-
-        {profile.surgeries ? (
-          <p className="text-sm text-gray-700">{profile.surgeries}</p>
-        ) : (
-          <p className="text-sm text-gray-500">Nenhuma cirurgia cadastrada.</p>
-        )}
-      </div>
-
-      <div className="mt-4 bg-white rounded-xl border p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <CreditCard className="w-5 h-5 text-blue-600" />
-          <h2 className="font-bold">Carteirinhas / Plano</h2>
-        </div>
-
+      <Section icon={CreditCard} title="Carteirinhas / Plano">
         {plans.length > 0 ? (
           plans.map((plan) => (
             <div key={plan.id} className="border-b py-2 text-sm">
@@ -230,21 +262,16 @@ export default function Passport() {
             </div>
           ))
         ) : (
-          <p className="text-sm text-gray-500">Nenhuma carteirinha cadastrada.</p>
+          <Empty text="Nenhuma carteirinha cadastrada." />
         )}
-      </div>
+      </Section>
 
-      <div className="mt-4 bg-white rounded-xl border p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <QrCode className="w-5 h-5 text-emerald-600" />
-          <h2 className="font-bold">Compartilhamento de emergência</h2>
-        </div>
-
+      <Section icon={QrCode} title="Compartilhamento médico">
         <button
           onClick={generateEmergencyCode}
           className="w-full bg-emerald-600 text-white py-3 rounded-xl font-medium"
         >
-          Gerar código de emergência
+          Gerar código de acesso
         </button>
 
         {shareCode && (
@@ -259,20 +286,49 @@ export default function Passport() {
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copied ? 'Copiado!' : 'Copiar código'}
             </button>
-
-            <p className="text-xs text-emerald-700 mt-2">
-              O profissional acessa pelo MyDataMed usando este código.
-            </p>
           </div>
         )}
-      </div>
+      </Section>
 
-      <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex gap-3">
-        <Phone className="w-5 h-5 text-yellow-700" />
+      <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex gap-3">
+        <AlertTriangle className="w-5 h-5 text-yellow-700" />
         <p className="text-xs text-yellow-800">
-          Em emergência real, ligue para o serviço de emergência local. Este passaporte é apenas um apoio informativo.
+          Em emergência real, ligue para o serviço de emergência local. Este prontuário é apoio informativo e não substitui avaliação médica.
         </p>
       </div>
+    </div>
+  )
+}
+
+function Section({ icon: Icon, title, children, danger }: any) {
+  return (
+    <div className={`rounded-xl border p-4 bg-white ${danger ? 'border-red-200' : ''}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <Icon className={`w-5 h-5 ${danger ? 'text-red-600' : 'text-emerald-600'}`} />
+        <h2 className={`font-bold ${danger ? 'text-red-700' : ''}`}>{title}</h2>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Info({ label, value }: any) {
+  return (
+    <p className="text-sm py-1">
+      <strong>{label}:</strong> {value || 'Não informado'}
+    </p>
+  )
+}
+
+function Empty({ text }: any) {
+  return <p className="text-sm text-gray-500">{text}</p>
+}
+
+function MiniStat({ label, value }: any) {
+  return (
+    <div className="bg-white/20 rounded-xl p-3 text-center">
+      <p className="text-xl font-bold">{value}</p>
+      <p className="text-xs text-white/80">{label}</p>
     </div>
   )
 }
