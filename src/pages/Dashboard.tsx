@@ -11,6 +11,8 @@ import {
   MessageCircle,
   Sparkles,
   TrendingUp,
+  Clock,
+  HeartPulse,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -22,7 +24,17 @@ export default function Dashboard() {
   const { user, signOut } = useAuth()
   const [loading, setLoading] = useState(true)
   const [medScore, setMedScore] = useState<any>(null)
-  const [stats, setStats] = useState({ exams: 0, medications: 0, cards: 0, family: 0 })
+  const [stats, setStats] = useState({
+    exams: 0,
+    medications: 0,
+    cards: 0,
+    family: 0,
+  })
+
+  const [nextEvent, setNextEvent] = useState<any>(null)
+  const [nextMedication, setNextMedication] = useState<any>(null)
+  const [lastExam, setLastExam] = useState<any>(null)
+  const [scoreChange, setScoreChange] = useState(0)
 
   useEffect(() => {
     loadDashboardData()
@@ -32,19 +44,81 @@ export default function Dashboard() {
     if (!user) return
 
     try {
-      const [profileRes, examsCount, medsCount, cardsCount, familyCount, conditionsRes, recordsRes] =
-        await Promise.all([
-          supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-          supabase.from('medical_records').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-          supabase.from('medications').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_active', true),
-          supabase.from('health_plans').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-          supabase.from('family_members').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-          supabase.from('patient_conditions').select('*').eq('user_id', user.id),
-          supabase.from('medical_records').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
-        ])
+      const [
+        profileRes,
+        examsCount,
+        medsCount,
+        cardsCount,
+        familyCount,
+        conditionsRes,
+        recordsRes,
+        timelineRes,
+        activeMedsRes,
+        lastScoreRes,
+      ] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+
+        supabase
+          .from('medical_records')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+
+        supabase
+          .from('medications')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_active', true),
+
+        supabase
+          .from('health_plans')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+
+        supabase
+          .from('family_members')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+
+        supabase
+          .from('patient_conditions')
+          .select('*')
+          .eq('user_id', user.id),
+
+        supabase
+          .from('medical_records')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10),
+
+        supabase
+          .from('medical_events')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('event_date', { ascending: true }),
+
+        supabase
+          .from('medications')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(5),
+
+        supabase
+          .from('health_scores')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('calculated_at', { ascending: false })
+          .limit(2),
+      ])
 
       const profile = profileRes.data || {}
-      const calculated = calculateMedScore(profile, recordsRes.data || [], conditionsRes.data || [])
+      const calculated = calculateMedScore(
+        profile,
+        recordsRes.data || [],
+        conditionsRes.data || []
+      )
 
       await supabase.from('health_scores').insert({
         user_id: user.id,
@@ -69,6 +143,25 @@ export default function Dashboard() {
         cards: cardsCount.count || 0,
         family: familyCount.count || 0,
       })
+
+      const today = new Date().toISOString().slice(0, 10)
+
+      const futureEvents = (timelineRes.data || []).filter(
+        (event: any) => event.event_date >= today
+      )
+
+      setNextEvent(futureEvents[0] || null)
+      setNextMedication(activeMedsRes.data?.[0] || null)
+      setLastExam(recordsRes.data?.[0] || null)
+
+      if (lastScoreRes.data && lastScoreRes.data.length >= 2) {
+        setScoreChange(
+          Number(lastScoreRes.data[0].score || 0) -
+            Number(lastScoreRes.data[1].score || 0)
+        )
+      } else {
+        setScoreChange(0)
+      }
 
       setMedScore(calculated)
     } catch (error) {
@@ -112,7 +205,14 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <div className="relative">
               <svg className="w-24 h-24 -rotate-90" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="10" />
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="40"
+                  fill="none"
+                  stroke="rgba(255,255,255,0.2)"
+                  strokeWidth="10"
+                />
                 <circle
                   cx="50"
                   cy="50"
@@ -158,6 +258,53 @@ export default function Dashboard() {
         </div>
       </Link>
 
+      <section className="bg-white rounded-xl border border-border p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <HeartPulse className="w-5 h-5 text-emerald-600" />
+          <h2 className="font-bold">Dashboard de Saúde</h2>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <DailyCard
+            title="Próximo compromisso"
+            value={nextEvent ? nextEvent.title : 'Nenhum agendado'}
+            subtitle={nextEvent ? formatDate(nextEvent.event_date) : 'Adicione na Agenda'}
+          />
+
+          <DailyCard
+            title="Próximo medicamento"
+            value={
+              nextMedication?.name ||
+              nextMedication?.medication_name ||
+              'Nenhum ativo'
+            }
+            subtitle={
+              nextMedication?.reminder_time
+                ? `Lembrete às ${nextMedication.reminder_time}`
+                : nextMedication?.frequency || 'Cadastre medicamentos'
+            }
+          />
+
+          <DailyCard
+            title="Último exame"
+            value={lastExam?.file_name || lastExam?.exam_type || 'Nenhum exame'}
+            subtitle={lastExam ? formatDate(lastExam.created_at) : 'Envie seu primeiro exame'}
+          />
+
+          <DailyCard
+            title="Mudança MedScore"
+            value={
+              scoreChange > 0
+                ? `+${scoreChange}`
+                : scoreChange < 0
+                  ? `${scoreChange}`
+                  : '0'
+            }
+            subtitle="desde a última atualização"
+          />
+        </div>
+      </section>
+
       <div className="grid grid-cols-2 gap-3">
         <ActionCard icon={Activity} label="Exames" value={stats.exams} href="/exams" />
         <ActionCard icon={Pill} label="Remédios" value={stats.medications} href="/medications" />
@@ -198,6 +345,16 @@ export default function Dashboard() {
   )
 }
 
+function DailyCard({ title, value, subtitle }: any) {
+  return (
+    <div className="bg-muted/40 rounded-xl border border-border p-3">
+      <p className="text-xs text-muted-foreground">{title}</p>
+      <p className="font-bold mt-1 line-clamp-2">{value}</p>
+      <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+    </div>
+  )
+}
+
 function ActionCard({ icon: Icon, label, value, href }: any) {
   return (
     <Link to={href} className="bg-card rounded-xl border border-border p-4">
@@ -221,4 +378,9 @@ function MenuItem({ icon: Icon, label, href, last }: any) {
       <ChevronRight className="w-4 h-4 text-muted-foreground" />
     </Link>
   )
+}
+
+function formatDate(date: string) {
+  if (!date) return ''
+  return new Date(date).toLocaleDateString('pt-BR')
 }
