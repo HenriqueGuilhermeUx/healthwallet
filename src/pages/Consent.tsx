@@ -3,6 +3,7 @@ import { ShieldCheck, CheckCircle, Loader2 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
+import { useNavigate } from 'react-router-dom'
 
 async function sha256(text: string) {
   const encoder = new TextEncoder()
@@ -15,18 +16,30 @@ async function sha256(text: string) {
 
 export default function Consent() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [accepted, setAccepted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [savedHash, setSavedHash] = useState('')
 
-  const consentText = `
-Autorizo o HealthWallet a compartilhar, de forma temporária e controlada, meus dados de saúde selecionados por mim com profissionais de saúde.
+ const consentText = `
+TERMOS DE USO E PRIVACIDADE
 
-Entendo que posso escolher quais informações compartilhar, por quanto tempo o acesso ficará disponível e posso revogar/excluir códigos de acesso a qualquer momento.
+Proteção de Dados:
+Seus dados são criptografados e armazenados de forma segura, em conformidade com a LGPD.
 
-Esta autorização não substitui consulta médica, não autoriza uso comercial dos meus dados e serve apenas para facilitar atendimento, análise clínica e continuidade do cuidado.
+Controle Total:
+Você decide quem acessa seus dados e pode revogar o acesso a qualquer momento.
+
+Uso dos Dados:
+Utilizamos inteligência artificial para análise de exames, geração de relatórios personalizados e cálculo do MedScore.
+
+Nenhuma informação é compartilhada sem sua autorização.
+
+Você pode solicitar a exclusão dos seus dados a qualquer momento.
+
+Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do HealthWallet.
 `.trim()
-
+  
   async function saveConsent() {
     if (!user) return
 
@@ -57,10 +70,23 @@ Esta autorização não substitui consulta médica, não autoriza uso comercial 
         },
       })
 
+      await supabase
+  .from('profiles')
+  .update({
+    accepted_terms: true,
+    accepted_terms_at: new Date().toISOString(),
+  })
+  .eq('id', user.id)
+      
       if (error) throw error
 
       setSavedHash(hash)
-      toast.success('Consentimento registrado com sucesso')
+
+toast.success('Termos aceitos com sucesso')
+
+setTimeout(() => {
+  navigate('/dashboard')
+}, 1000)
     } catch (err) {
       console.error(err)
       toast.error('Erro ao registrar consentimento')
