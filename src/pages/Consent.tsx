@@ -5,23 +5,13 @@ import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 
-async function sha256(text: string) {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(text)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 export default function Consent() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [accepted, setAccepted] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [savedHash, setSavedHash] = useState('')
 
- const consentText = `
+  const consentText = `
 TERMOS DE USO E PRIVACIDADE
 
 Proteção de Dados:
@@ -33,18 +23,18 @@ Você decide quem acessa seus dados e pode revogar o acesso a qualquer momento.
 Uso dos Dados:
 Utilizamos inteligência artificial para análise de exames, geração de relatórios personalizados e cálculo do MedScore.
 
-Nenhuma informação é compartilhada sem sua autorização.
+Seus dados nunca são compartilhados sem sua autorização.
 
 Você pode solicitar a exclusão dos seus dados a qualquer momento.
 
 Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do HealthWallet.
 `.trim()
-  
+
   async function saveConsent() {
     if (!user) return
 
     if (!accepted) {
-      toast.error('Você precisa aceitar o termo para continuar')
+      toast.error('Você precisa aceitar os termos para continuar')
       return
     }
 
@@ -52,14 +42,24 @@ Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do 
 
     try {
       const now = new Date().toISOString()
-      const fullText = `${consentText}\n\nPaciente: ${user.id}\nData: ${now}`
-      const hash = await sha256(fullText)
 
-      const { error } = await supabase.from('health_consents').insert({
+      const { error } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            id: user.id,
+            accepted_terms: true,
+            accepted_terms_at: now,
+          },
+          { onConflict: 'id' }
+        )
+
+      if (error) throw error
+
+      await supabase.from('health_consents').insert({
         patient_id: user.id,
-        consent_type: 'share_health_data',
+        consent_type: 'terms_privacy_lgpd',
         consent_text: consentText,
-        consent_hash: hash,
         permissions: {
           profile: true,
           exams: true,
@@ -70,26 +70,14 @@ Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do 
         },
       })
 
-      await supabase
-  .from('profiles')
-  .update({
-    accepted_terms: true,
-    accepted_terms_at: new Date().toISOString(),
-  })
-  .eq('id', user.id)
-      
-      if (error) throw error
+      toast.success('Termos aceitos com sucesso')
 
-      setSavedHash(hash)
-
-toast.success('Termos aceitos com sucesso')
-
-setTimeout(() => {
-  navigate('/dashboard')
-}, 1000)
+      setTimeout(() => {
+        navigate('/dashboard', { replace: true })
+      }, 500)
     } catch (err) {
       console.error(err)
-      toast.error('Erro ao registrar consentimento')
+      toast.error('Erro ao salvar aceite. Verifique a tabela profiles.')
     } finally {
       setLoading(false)
     }
@@ -98,9 +86,9 @@ setTimeout(() => {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-bold">Consentimento Digital</h1>
+        <h1 className="text-xl font-bold">Termos de Uso e Privacidade</h1>
         <p className="text-sm text-muted-foreground">
-          Autorize o compartilhamento controlado dos seus dados de saúde.
+          Para continuar, aceite os termos de uso, privacidade e proteção de dados.
         </p>
       </div>
 
@@ -111,9 +99,9 @@ setTimeout(() => {
           </div>
 
           <div>
-            <p className="font-semibold">TCLE / Consentimento de Compartilhamento</p>
+            <p className="font-semibold">LGPD e proteção dos seus dados</p>
             <p className="text-xs text-gray-500">
-              Registro com hash SHA-256 e data de aceite.
+              Você controla seus dados e compartilhamentos.
             </p>
           </div>
         </div>
@@ -131,44 +119,27 @@ setTimeout(() => {
           />
 
           <span className="text-sm text-gray-700">
-            Li, entendi e autorizo o compartilhamento temporário dos dados que eu selecionar.
+            Li e aceito os Termos de Uso e a Política de Privacidade.
           </span>
         </label>
 
         <button
           onClick={saveConsent}
           disabled={loading || !accepted}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-semibold disabled:opacity-50"
         >
           {loading ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              Registrando...
+              Salvando...
             </>
           ) : (
             <>
               <CheckCircle className="w-5 h-5" />
-              Assinar Consentimento
+              Aceitar e Continuar
             </>
           )}
         </button>
-      </div>
-
-      {savedHash ? (
-        <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
-          <p className="text-sm font-semibold text-emerald-800 mb-2">
-            Consentimento registrado
-          </p>
-
-          <p className="text-xs text-emerald-700 mb-1">Hash SHA-256:</p>
-          <p className="text-xs font-mono break-all text-emerald-900">
-            {savedHash}
-          </p>
-        </div>
-      ) : null}
-
-      <div className="bg-blue-50 rounded-xl border border-blue-200 p-4 text-xs text-blue-700">
-        Você continua no controle: o compartilhamento só ocorre quando você gera um código/QR e escolhe os dados autorizados.
       </div>
     </div>
   )
