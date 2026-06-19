@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react'
 import {
   User,
-  Mail,
-  Phone,
-  Calendar,
   Heart,
   Shield,
-  ChevronRight
+  Phone,
+  Activity,
+  Calendar,
+  ChevronRight,
+  AlertTriangle
 } from 'lucide-react'
-
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -285,7 +285,7 @@ export default function Profile() {
 
             <div className="rounded-xl border border-red-100 bg-red-50 p-4 space-y-4">
               <div className="flex items-center gap-2">
-                <Siren className="w-5 h-5 text-red-600" />
+                <AlertTriangle className="w-5 h-5 text-red-600" />
                 <p className="font-semibold text-red-900">Contato de emergência</p>
               </div>
 
@@ -304,7 +304,7 @@ export default function Profile() {
             <Info icon={Heart} label="Tipo Sanguíneo" value={profile?.blood_type} />
             <Info icon={Activity} label="Peso / Altura" value={`${profile?.weight || '—'} kg / ${profile?.height || '—'} cm`} />
             <Info icon={Phone} label="Telefone" value={profile?.phone} />
-            <Info icon={Siren} label="Emergência" value={profile?.emergency_contact_name ? `${profile.emergency_contact_name} - ${profile.emergency_contact_phone || ''}` : ''} />
+            <Info icon={AlertTriangle} label="Emergência" value={profile?.emergency_contact_name ? `${profile.emergency_contact_name} - ${profile.emergency_contact_phone || ''}` : ''} />
           </div>
         )}
       </div>
