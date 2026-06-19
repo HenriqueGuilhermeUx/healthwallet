@@ -3,10 +3,12 @@
   "short_name": "HealthWallet",
   "description": "Sua saúde, seus dados, seu controle. Wallet de saúde digital.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#ffffff",
   "theme_color": "#10b981",
-  "orientation": "portrait-primary",
+
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -21,6 +23,14 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["medical", "health", "fitness"],
-  "lang": "pt-BR"
+
+  "categories": [
+    "medical",
+    "health",
+    "fitness"
+  ],
+
+  "lang": "pt-BR",
+
+  "prefer_related_applications": false
 }
