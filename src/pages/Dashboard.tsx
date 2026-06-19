@@ -1,11 +1,6 @@
 import {
   Loader2,
-  Activity,
-  QrCode,
-  Pill,
   Calendar,
-  Shield,
-  ChevronRight,
   FileText,
   Users,
   MessageCircle,
@@ -13,7 +8,13 @@ import {
   TrendingUp,
   HeartPulse,
   Target,
-  AlertCircle,
+  Upload,
+  User,
+  Shield,
+  Share2,
+  CreditCard,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -25,18 +26,13 @@ export default function Dashboard() {
   const { user, signOut } = useAuth()
   const [loading, setLoading] = useState(true)
   const [medScore, setMedScore] = useState<any>(null)
-  const [stats, setStats] = useState({
-    exams: 0,
-    medications: 0,
-    cards: 0,
-    family: 0,
-  })
-
   const [nextEvent, setNextEvent] = useState<any>(null)
   const [nextMedication, setNextMedication] = useState<any>(null)
   const [lastExam, setLastExam] = useState<any>(null)
   const [scoreChange, setScoreChange] = useState(0)
   const [insights, setInsights] = useState<string[]>([])
+  const [showHealthDashboard, setShowHealthDashboard] = useState(false)
+  const [profileGender, setProfileGender] = useState('')
 
   useEffect(() => {
     loadDashboardData()
@@ -48,10 +44,6 @@ export default function Dashboard() {
     try {
       const [
         profileRes,
-        examsCount,
-        medsCount,
-        cardsCount,
-        familyCount,
         conditionsRes,
         recordsRes,
         timelineRes,
@@ -59,27 +51,6 @@ export default function Dashboard() {
         lastScoreRes,
       ] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-
-        supabase
-          .from('medical_records')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id),
-
-        supabase
-          .from('medications')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .eq('is_active', true),
-
-        supabase
-          .from('health_plans')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id),
-
-        supabase
-          .from('family_members')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id),
 
         supabase
           .from('patient_conditions')
@@ -117,6 +88,9 @@ export default function Dashboard() {
 
       const records = recordsRes.data || []
       const profile = profileRes.data || {}
+
+      setProfileGender(profile.gender || '')
+
       const calculated = calculateMedScore(
         profile,
         records,
@@ -138,13 +112,6 @@ export default function Dashboard() {
           cockpit: calculated.cockpit,
         },
         calculated_at: new Date().toISOString(),
-      })
-
-      setStats({
-        exams: examsCount.count || 0,
-        medications: medsCount.count || 0,
-        cards: cardsCount.count || 0,
-        family: familyCount.count || 0,
       })
 
       const today = new Date().toISOString().slice(0, 10)
@@ -198,7 +165,7 @@ export default function Dashboard() {
     <div className="space-y-5 pb-20">
       <Link
         to="/medscore"
-        className="block rounded-2xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 p-5 text-white relative overflow-hidden"
+        className="block rounded-2xl bg-gradient-to-br from-emerald-700 via-teal-700 to-cyan-800 p-5 text-white relative overflow-hidden"
       >
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2" />
@@ -262,94 +229,95 @@ export default function Dashboard() {
         </div>
       </Link>
 
-      <section className="bg-white rounded-xl border border-border p-4">
-        <div className="flex items-center gap-2 mb-3">
+      <button
+        onClick={() => setShowHealthDashboard(!showHealthDashboard)}
+        className="w-full bg-white rounded-xl border border-border p-4 flex items-center justify-between"
+      >
+        <div className="flex items-center gap-2">
           <HeartPulse className="w-5 h-5 text-emerald-600" />
-          <h2 className="font-bold">Dashboard de Saúde</h2>
+          <span className="font-bold">Dashboard de Saúde</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <DailyCard
-            title="Próximo compromisso"
-            value={nextEvent ? nextEvent.title : 'Nenhum agendado'}
-            subtitle={nextEvent ? formatDate(nextEvent.event_date) : 'Adicione na Agenda'}
-          />
+        {showHealthDashboard ? (
+          <ChevronUp className="w-5 h-5 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="w-5 h-5 text-muted-foreground" />
+        )}
+      </button>
 
-          <DailyCard
-            title="Próximo medicamento"
-            value={
-              nextMedication?.name ||
-              nextMedication?.medication_name ||
-              'Nenhum ativo'
-            }
-            subtitle={
-              nextMedication?.reminder_time
-                ? `Lembrete às ${nextMedication.reminder_time}`
-                : nextMedication?.frequency || 'Cadastre medicamentos'
-            }
-          />
+      {showHealthDashboard && (
+        <>
+          <section className="bg-white rounded-xl border border-border p-4">
+            <div className="grid grid-cols-2 gap-3">
+              <DailyCard
+                title="Próximo compromisso"
+                value={nextEvent ? nextEvent.title : 'Nenhum agendado'}
+                subtitle={nextEvent ? formatDate(nextEvent.event_date) : 'Adicione na Agenda'}
+              />
 
-          <DailyCard
-            title="Último exame"
-            value={lastExam?.file_name || lastExam?.exam_type || 'Nenhum exame'}
-            subtitle={lastExam ? formatDate(lastExam.created_at) : 'Envie seu primeiro exame'}
-          />
+              <DailyCard
+                title="Próximo medicamento"
+                value={
+                  nextMedication?.name ||
+                  nextMedication?.medication_name ||
+                  'Nenhum ativo'
+                }
+                subtitle={
+                  nextMedication?.reminder_time
+                    ? `Lembrete às ${nextMedication.reminder_time}`
+                    : nextMedication?.frequency || 'Cadastre medicamentos'
+                }
+              />
 
-          <DailyCard
-            title="Mudança MedScore"
-            value={
-              scoreChange > 0
-                ? `+${scoreChange}`
-                : scoreChange < 0
-                  ? `${scoreChange}`
-                  : '0'
-            }
-            subtitle="desde a última atualização"
-          />
-        </div>
-      </section>
+              <DailyCard
+                title="Último exame"
+                value={lastExam?.file_name || lastExam?.exam_type || 'Nenhum exame'}
+                subtitle={lastExam ? formatDate(lastExam.created_at) : 'Envie seu primeiro exame'}
+              />
 
-      <section className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Target className="w-5 h-5 text-indigo-600" />
-          <h2 className="font-bold text-indigo-900">Insights de Saúde</h2>
-        </div>
+              <DailyCard
+                title="Mudança MedScore"
+                value={
+                  scoreChange > 0
+                    ? `+${scoreChange}`
+                    : scoreChange < 0
+                      ? `${scoreChange}`
+                      : '0'
+                }
+                subtitle="desde a última atualização"
+              />
+            </div>
+          </section>
 
-        <div className="space-y-2 text-sm text-indigo-800">
-          {insights.map((insight, index) => (
-            <p key={index}>• {insight}</p>
-          ))}
-        </div>
-      </section>
+          <section className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Target className="w-5 h-5 text-indigo-600" />
+              <h2 className="font-bold text-indigo-900">Insights de Saúde</h2>
+            </div>
+
+            <div className="space-y-2 text-sm text-indigo-800">
+              {insights.map((insight, index) => (
+                <p key={index}>• {insight}</p>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
-        <ActionCard icon={Activity} label="Exames" value={stats.exams} href="/exams" />
-        <ActionCard icon={Pill} label="Remédios" value={stats.medications} href="/medications" />
-        <ActionCard icon={FileText} label="Carteiras Plano/SUS" value={stats.cards} href="/wallet" />
-        <ActionCard icon={Users} label="Família" value={stats.family} href="/family" />
-      </div>
+        <AppButton to="/upload" icon={Upload} label="Upload de Exame" color="bg-violet-600" />
+        <AppButton to="/profile" icon={User} label="Meu Perfil" color="bg-emerald-600" />
+        <AppButton to="/summary" icon={FileText} label="Resumo" color="bg-blue-600" />
+        <AppButton to="/chat" icon={MessageCircle} label="Health Coach" color="bg-purple-600" />
+        <AppButton to="/passport" icon={Shield} label="Passport" color="bg-orange-600" />
+        <AppButton to="/share" icon={Share2} label="Compartilhar Dados" color="bg-cyan-600" />
+        <AppButton to="/wallet" icon={CreditCard} label="Carteiras Plano/SUS" color="bg-indigo-600" />
+        <AppButton to="/timeline" icon={Calendar} label="Agenda de Saúde" color="bg-pink-600" />
+        <AppButton to="/family" icon={Users} label="Família" color="bg-teal-600" />
 
-      <div className="grid grid-cols-2 gap-3">
-        <Link to="/upload" className="p-4 rounded-xl bg-violet-600 text-white font-semibold text-center">
-          Subir exames
-        </Link>
-        <Link to="/profile" className="p-4 rounded-xl bg-emerald-600 text-white font-semibold text-center">
-          Atualizar dados
-        </Link>
-        <Link to="/summary" className="p-4 rounded-xl bg-blue-600 text-white font-semibold text-center">
-          Resumo
-        </Link>
-        <Link to="/chat" className="p-4 rounded-xl bg-purple-600 text-white font-semibold text-center">
-          Conversar com IA
-        </Link>
-      </div>
-
-      <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <MenuItem icon={QrCode} label="Carteiras Plano/SUS" href="/wallet" />
-        <MenuItem icon={Calendar} label="Agenda de Saúde" href="/timeline" />
-        <MenuItem icon={Shield} label="Prontuário Digital" href="/passport" />
-        <MenuItem icon={Users} label="Membros da Família" href="/family" />
-        <MenuItem icon={MessageCircle} label="Assistente de IA" href="/chat" last />
+        {profileGender === 'female' && (
+          <AppButton to="/womens-health" icon={HeartPulse} label="Saúde da Mulher" color="bg-rose-600" />
+        )}
       </div>
 
       <button
@@ -438,27 +406,14 @@ function DailyCard({ title, value, subtitle }: any) {
   )
 }
 
-function ActionCard({ icon: Icon, label, value, href }: any) {
-  return (
-    <Link to={href} className="bg-card rounded-xl border border-border p-4">
-      <Icon className="w-5 h-5 text-emerald-600 mb-2" />
-      <p className="text-2xl font-bold">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </Link>
-  )
-}
-
-function MenuItem({ icon: Icon, label, href, last }: any) {
+function AppButton({ to, icon: Icon, label, color }: any) {
   return (
     <Link
-      to={href}
-      className={`flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors ${
-        !last ? 'border-b border-border' : ''
-      }`}
+      to={to}
+      className={`p-4 rounded-xl ${color} text-white font-semibold text-center flex flex-col items-center justify-center gap-2 min-h-[92px]`}
     >
-      <Icon className="w-5 h-5 text-muted-foreground" />
-      <span className="flex-1 text-sm font-medium">{label}</span>
-      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+      <Icon className="w-5 h-5" />
+      <span className="text-sm leading-tight">{label}</span>
     </Link>
   )
 }
