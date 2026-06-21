@@ -34,7 +34,7 @@ export default function Medications() {
     loadMedications()
   }, [user])
 
-  const loadMedications = async () => {
+  async function loadMedications() {
     if (!user) return
 
     try {
@@ -52,14 +52,14 @@ export default function Medications() {
     }
   }
 
-  const handleAddMedication = async () => {
+  async function handleAddMedication() {
     if (!user || !formData.name) {
       alert('Informe o nome do medicamento')
       return
     }
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('medications')
         .insert({
           user_id: user.id,
@@ -71,6 +71,8 @@ export default function Medications() {
           end_date: formData.end_date || null,
           is_active: true,
         })
+        .select()
+        .single()
 
       if (error) throw error
 
@@ -87,6 +89,23 @@ export default function Medications() {
         ].filter(Boolean).join(' · '),
         eventDate: formData.start_date || new Date().toISOString().slice(0, 10),
       })
+
+      if (formData.reminder_time) {
+        await supabase.from('health_reminders').insert({
+          user_id: user.id,
+          type: 'medication',
+          title: `Tomar ${formData.name}`,
+          description: [
+            formData.dosage ? `Dosagem: ${formData.dosage}` : '',
+            formData.frequency ? `Frequência: ${formData.frequency}` : '',
+          ].filter(Boolean).join(' · '),
+          reminder_date: formData.start_date || new Date().toISOString().slice(0, 10),
+          reminder_time: formData.reminder_time,
+          frequency: normalizeFrequency(formData.frequency),
+          is_done: false,
+          is_active: true,
+        })
+      }
 
       setShowAddForm(false)
 
@@ -106,7 +125,7 @@ export default function Medications() {
     }
   }
 
-  const handleToggleActive = async (id: string, currentStatus: boolean) => {
+  async function handleToggleActive(id: string, currentStatus: boolean) {
     await supabase
       .from('medications')
       .update({ is_active: !currentStatus })
@@ -115,7 +134,7 @@ export default function Medications() {
     loadMedications()
   }
 
-  const handleDelete = async (id: string) => {
+  async function handleDelete(id: string) {
     if (!confirm('Deseja excluir este medicamento?')) return
 
     await supabase.from('medications').delete().eq('id', id)
@@ -241,7 +260,7 @@ export default function Medications() {
                 label="Frequência"
                 value={formData.frequency}
                 onChange={(v: string) => setFormData({ ...formData, frequency: v })}
-                placeholder="Ex: 1x ao dia, de 8 em 8h..."
+                placeholder="Ex: 1x ao dia, 2x ao dia, de 8 em 8h..."
               />
 
               <div>
@@ -254,6 +273,9 @@ export default function Medications() {
                   onChange={(e) => setFormData({ ...formData, reminder_time: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border border-border bg-background"
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Se preencher horário, será criado um lembrete automático.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -323,7 +345,7 @@ function MedicationCard({ med, active, onToggle, onDelete }: any) {
           {med.reminder_time && (
             <p className="text-xs text-emerald-700 mt-1 flex items-center gap-1">
               <Bell className="w-3 h-3" />
-              Lembrete às {med.reminder_time}
+              Lembrete às {String(med.reminder_time).slice(0, 5)}
             </p>
           )}
 
@@ -366,6 +388,16 @@ function Input({ label, value, onChange, placeholder }: any) {
       />
     </div>
   )
+}
+
+function normalizeFrequency(value: string) {
+  const text = String(value || '').toLowerCase()
+
+  if (text.includes('dia') || text.includes('diário') || text.includes('diaria')) return 'daily'
+  if (text.includes('semana')) return 'weekly'
+  if (text.includes('mês') || text.includes('mes')) return 'monthly'
+
+  return 'once'
 }
 
 function formatDate(date: string) {
