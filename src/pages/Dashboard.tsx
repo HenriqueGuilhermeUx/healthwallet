@@ -16,6 +16,9 @@ import {
   ChevronDown,
   ChevronUp,
   ShoppingBag,
+  Pill,
+  Bell,
+  Lock,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -28,11 +31,13 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [medScore, setMedScore] = useState<any>(null)
   const [nextEvent, setNextEvent] = useState<any>(null)
+  const [nextReminder, setNextReminder] = useState<any>(null)
   const [nextMedication, setNextMedication] = useState<any>(null)
   const [lastExam, setLastExam] = useState<any>(null)
   const [scoreChange, setScoreChange] = useState(0)
   const [insights, setInsights] = useState<string[]>([])
-  const [showHealthDashboard, setShowHealthDashboard] = useState(false)
+  const [activeShares, setActiveShares] = useState(0)
+  const [showHealthDashboard, setShowHealthDashboard] = useState(true)
   const [profileGender, setProfileGender] = useState('')
 
   useEffect(() => {
@@ -43,6 +48,9 @@ export default function Dashboard() {
     if (!user) return
 
     try {
+      const today = new Date().toISOString().slice(0, 10)
+      const now = new Date().toISOString()
+
       const [
         profileRes,
         conditionsRes,
@@ -50,6 +58,8 @@ export default function Dashboard() {
         timelineRes,
         activeMedsRes,
         lastScoreRes,
+        remindersRes,
+        sharesRes,
       ] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
 
@@ -69,7 +79,9 @@ export default function Dashboard() {
           .from('medical_events')
           .select('*')
           .eq('user_id', user.id)
-          .order('event_date', { ascending: true }),
+          .gte('event_date', today)
+          .order('event_date', { ascending: true })
+          .limit(5),
 
         supabase
           .from('medications')
@@ -85,6 +97,23 @@ export default function Dashboard() {
           .eq('user_id', user.id)
           .order('calculated_at', { ascending: false })
           .limit(2),
+
+        supabase
+          .from('health_reminders')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .gte('reminder_date', today)
+          .order('reminder_date', { ascending: true })
+          .order('reminder_time', { ascending: true })
+          .limit(5),
+
+        supabase
+          .from('access_codes')
+          .select('*')
+          .eq('patient_id', user.id)
+          .eq('revoked', false)
+          .gt('expires_at', now),
       ])
 
       const records = recordsRes.data || []
@@ -115,15 +144,11 @@ export default function Dashboard() {
         calculated_at: new Date().toISOString(),
       })
 
-      const today = new Date().toISOString().slice(0, 10)
-
-      const futureEvents = (timelineRes.data || []).filter(
-        (event: any) => event.event_date >= today
-      )
-
-      setNextEvent(futureEvents[0] || null)
+      setNextEvent(timelineRes.data?.[0] || null)
+      setNextReminder(remindersRes.data?.[0] || null)
       setNextMedication(activeMedsRes.data?.[0] || null)
       setLastExam(records[0] || null)
+      setActiveShares(sharesRes.data?.length || 0)
 
       let delta = 0
 
@@ -134,7 +159,7 @@ export default function Dashboard() {
       }
 
       setScoreChange(delta)
-      setInsights(buildDashboardInsights(records, calculated, delta))
+      setInsights(buildDashboardInsights(records, calculated, delta, activeMedsRes.data || [], sharesRes.data || []))
       setMedScore(calculated)
     } catch (error) {
       console.error('Error loading dashboard:', error)
@@ -177,14 +202,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <div className="relative">
               <svg className="w-24 h-24 -rotate-90" viewBox="0 0 100 100">
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="40"
-                  fill="none"
-                  stroke="rgba(255,255,255,0.2)"
-                  strokeWidth="10"
-                />
+                <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="10" />
                 <circle
                   cx="50"
                   cy="50"
@@ -211,9 +229,7 @@ export default function Dashboard() {
                 </p>
               </div>
 
-              <h1 className="text-2xl font-bold">
-                Acesse seu MedScore
-              </h1>
+              <h1 className="text-2xl font-bold">Acesse seu MedScore</h1>
 
               <p className="text-white/80 text-sm mt-1">
                 Veja áreas analisadas, melhorias possíveis e exames recomendados.
@@ -249,43 +265,57 @@ export default function Dashboard() {
       {showHealthDashboard && (
         <>
           <section className="bg-white rounded-xl border border-border p-4">
+            <h2 className="font-bold mb-3">Resumo do seu dia</h2>
+
             <div className="grid grid-cols-2 gap-3">
               <DailyCard
+                icon={Calendar}
                 title="Próximo compromisso"
                 value={nextEvent ? nextEvent.title : 'Nenhum agendado'}
-                subtitle={nextEvent ? formatDate(nextEvent.event_date) : 'Adicione na Agenda'}
+                subtitle={nextEvent ? formatDate(nextEvent.event_date) : 'Adicionar na Agenda'}
               />
 
               <DailyCard
-                title="Próximo medicamento"
-                value={
-                  nextMedication?.name ||
-                  nextMedication?.medication_name ||
-                  'Nenhum ativo'
+                icon={Bell}
+                title="Próximo lembrete"
+                value={nextReminder ? nextReminder.title : 'Nenhum lembrete'}
+                subtitle={
+                  nextReminder
+                    ? `${formatDate(nextReminder.reminder_date)} ${nextReminder.reminder_time ? `às ${String(nextReminder.reminder_time).slice(0, 5)}` : ''}`
+                    : 'Criar lembrete'
                 }
+              />
+
+              <DailyCard
+                icon={Pill}
+                title="Próximo medicamento"
+                value={nextMedication?.name || nextMedication?.medication_name || 'Nenhum ativo'}
                 subtitle={
                   nextMedication?.reminder_time
-                    ? `Lembrete às ${nextMedication.reminder_time}`
+                    ? `Lembrete às ${String(nextMedication.reminder_time).slice(0, 5)}`
                     : nextMedication?.frequency || 'Cadastre medicamentos'
                 }
               />
 
               <DailyCard
+                icon={FileText}
                 title="Último exame"
                 value={lastExam?.file_name || lastExam?.exam_type || 'Nenhum exame'}
                 subtitle={lastExam ? formatDate(lastExam.created_at) : 'Envie seu primeiro exame'}
               />
 
               <DailyCard
+                icon={TrendingUp}
                 title="Mudança MedScore"
-                value={
-                  scoreChange > 0
-                    ? `+${scoreChange}`
-                    : scoreChange < 0
-                      ? `${scoreChange}`
-                      : '0'
-                }
+                value={scoreChange > 0 ? `+${scoreChange}` : scoreChange < 0 ? `${scoreChange}` : '0'}
                 subtitle="desde a última atualização"
+              />
+
+              <DailyCard
+                icon={Lock}
+                title="Compartilhamentos"
+                value={`${activeShares} ativo(s)`}
+                subtitle="com profissionais"
               />
             </div>
           </section>
@@ -307,14 +337,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3">
         <AppButton to="/upload" icon={Upload} label="Upload de Exame" color="bg-violet-600" />
-
-        <AppButton
-    to="/marketplace"
-    icon={ShoppingBag}
-    label="Medicamentos e Exames"
-    color="bg-lime-600"
-  />   
-        
+        <AppButton to="/marketplace" icon={ShoppingBag} label="Medicamentos e Exames" color="bg-lime-600" />
         <AppButton to="/profile" icon={User} label="Meu Perfil" color="bg-emerald-600" />
         <AppButton to="/summary" icon={FileText} label="Resumo" color="bg-blue-600" />
         <AppButton to="/chat" icon={MessageCircle} label="Health Coach" color="bg-purple-600" />
@@ -339,7 +362,13 @@ export default function Dashboard() {
   )
 }
 
-function buildDashboardInsights(records: any[], medScore: any, scoreChange: number) {
+function buildDashboardInsights(
+  records: any[],
+  medScore: any,
+  scoreChange: number,
+  medications: any[],
+  shares: any[]
+) {
   const insights: string[] = []
 
   insights.push(`Você enviou ${records.length} exame(s) até agora.`)
@@ -352,15 +381,12 @@ function buildDashboardInsights(records: any[], medScore: any, scoreChange: numb
     insights.push('Seu MedScore está estável desde a última atualização.')
   }
 
-  const ldlValues = extractMarkerValues(records, ['ldl'])
+  if (medications.length > 0) {
+    insights.push(`Você tem ${medications.length} medicamento(s) ativo(s) cadastrado(s).`)
+  }
 
-  if (ldlValues.length >= 2) {
-    const first = ldlValues[ldlValues.length - 1]
-    const last = ldlValues[0]
-
-    insights.push(`Seu LDL foi de ${first} para ${last}.`)
-  } else if (ldlValues.length === 1) {
-    insights.push(`Seu LDL atual registrado é ${ldlValues[0]}.`)
+  if (shares.length > 0) {
+    insights.push(`Você tem ${shares.length} compartilhamento(s) ativo(s) com profissionais.`)
   }
 
   const missing = medScore.missingExams || []
@@ -372,42 +398,13 @@ function buildDashboardInsights(records: any[], medScore: any, scoreChange: numb
 
   insights.push(`Próximo exame recomendado: ${nextExam}.`)
 
-  if (medScore.score < 85) {
-    insights.push('Meta: chegar ao MedScore 85 mantendo exames atualizados e completando dados importantes.')
-  } else {
-    insights.push('Meta: manter seu MedScore com exames e informações sempre atualizados.')
-  }
-
   return insights
 }
 
-function extractMarkerValues(records: any[], names: string[]) {
-  const values: number[] = []
-
-  records.forEach((record) => {
-    const items = record.ai_result?.items || []
-
-    items.forEach((item: any) => {
-      const itemName = String(item.name || '').toLowerCase()
-
-      if (names.some((name) => itemName.includes(name))) {
-        const value = toNumber(item.value)
-
-        if (value) values.push(value)
-      }
-    })
-  })
-
-  return values
-}
-
-function toNumber(value: any) {
-  return Number(String(value || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
-}
-
-function DailyCard({ title, value, subtitle }: any) {
+function DailyCard({ icon: Icon, title, value, subtitle }: any) {
   return (
     <div className="bg-muted/40 rounded-xl border border-border p-3">
+      <Icon className="w-4 h-4 text-emerald-600 mb-1" />
       <p className="text-xs text-muted-foreground">{title}</p>
       <p className="font-bold mt-1 line-clamp-2">{value}</p>
       <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
