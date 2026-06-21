@@ -8,6 +8,7 @@ import {
   CheckCircle,
   Clock,
   Bell,
+  Trash2,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -22,10 +23,18 @@ const EVENT_TYPES = [
   { value: 'checklist', label: 'Checklist diário', icon: CheckCircle },
 ]
 
+const FREQUENCIES = [
+  { value: 'once', label: 'Uma vez' },
+  { value: 'daily', label: 'Diário' },
+  { value: 'weekly', label: 'Semanal' },
+  { value: 'monthly', label: 'Mensal' },
+]
+
 export default function Timeline() {
   const { user } = useAuth()
   const [events, setEvents] = useState<any[]>([])
   const [medications, setMedications] = useState<any[]>([])
+  const [reminders, setReminders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
 
@@ -34,6 +43,9 @@ export default function Timeline() {
     title: '',
     description: '',
     event_date: '',
+    reminder_time: '',
+    frequency: 'once',
+    create_reminder: true,
   })
 
   useEffect(() => {
@@ -45,7 +57,7 @@ export default function Timeline() {
 
     setLoading(true)
 
-    const [eventsRes, medsRes] = await Promise.all([
+    const [eventsRes, medsRes, remindersRes] = await Promise.all([
       supabase
         .from('medical_events')
         .select('*')
@@ -58,10 +70,19 @@ export default function Timeline() {
         .eq('user_id', user.id)
         .eq('is_active', true)
         .order('created_at', { ascending: false }),
+
+      supabase
+        .from('health_reminders')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .order('reminder_date', { ascending: true })
+        .order('reminder_time', { ascending: true }),
     ])
 
     setEvents(eventsRes.data || [])
     setMedications(medsRes.data || [])
+    setReminders(remindersRes.data || [])
     setLoading(false)
   }
 
@@ -71,22 +92,63 @@ export default function Timeline() {
       return
     }
 
+    const eventDate = form.event_date || new Date().toISOString().slice(0, 10)
+
     await createMedicalEvent({
       userId: user.id,
       type: form.type,
       title: form.title,
       description: form.description,
-      eventDate: form.event_date || new Date().toISOString().slice(0, 10),
+      eventDate,
     })
+
+    if (form.create_reminder) {
+      await supabase.from('health_reminders').insert({
+        user_id: user.id,
+        type: form.type,
+        title: form.title,
+        description: form.description || '',
+        reminder_date: eventDate,
+        reminder_time: form.reminder_time || null,
+        frequency: form.frequency,
+        is_done: false,
+        is_active: true,
+      })
+    }
 
     setForm({
       type: 'consultation',
       title: '',
       description: '',
       event_date: '',
+      reminder_time: '',
+      frequency: 'once',
+      create_reminder: true,
     })
 
     setShowForm(false)
+    load()
+  }
+
+  async function toggleReminderDone(reminder: any) {
+    await supabase
+      .from('health_reminders')
+      .update({ is_done: !reminder.is_done })
+      .eq('id', reminder.id)
+
+    load()
+  }
+
+  async function deleteReminder(id: string) {
+    if (!confirm('Deseja excluir este lembrete?')) return
+
+    await supabase
+      .from('health_reminders')
+      .update({
+        is_active: false,
+      })
+      .eq('id', id)
+
     load()
   }
 
@@ -94,6 +156,16 @@ export default function Timeline() {
 
   const upcoming = events.filter((event) => event.event_date >= today)
   const past = events.filter((event) => event.event_date < today)
+
+  const todayReminders = reminders.filter((reminder) => {
+    if (!reminder.reminder_date) return false
+    return reminder.reminder_date === today
+  })
+
+  const futureReminders = reminders.filter((reminder) => {
+    if (!reminder.reminder_date) return false
+    return reminder.reminder_date > today
+  })
 
   return (
     <div className="space-y-5 pb-20">
@@ -103,7 +175,7 @@ export default function Timeline() {
           <div>
             <h1 className="text-2xl font-bold">Agenda de Saúde</h1>
             <p className="text-white/80 text-sm">
-              Consultas, exames, retornos, medicamentos e histórico clínico.
+              Consultas, exames, retornos, medicamentos e lembretes.
             </p>
           </div>
         </div>
@@ -114,12 +186,12 @@ export default function Timeline() {
         className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-semibold"
       >
         <Plus className="w-5 h-5" />
-        Adicionar evento
+        Adicionar lembrete ou evento
       </button>
 
       {showForm && (
         <div className="bg-white rounded-xl border p-4 space-y-4">
-          <h2 className="font-bold">Novo evento de saúde</h2>
+          <h2 className="font-bold">Novo lembrete de saúde</h2>
 
           <div>
             <label className="text-sm font-medium mb-1 block">Tipo</label>
@@ -146,14 +218,41 @@ export default function Timeline() {
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Data</label>
+              <input
+                type="date"
+                value={form.event_date}
+                onChange={(e) => setForm({ ...form, event_date: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium mb-1 block">Horário</label>
+              <input
+                type="time"
+                value={form.reminder_time}
+                onChange={(e) => setForm({ ...form, reminder_time: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+              />
+            </div>
+          </div>
+
           <div>
-            <label className="text-sm font-medium mb-1 block">Data</label>
-            <input
-              type="date"
-              value={form.event_date}
-              onChange={(e) => setForm({ ...form, event_date: e.target.value })}
+            <label className="text-sm font-medium mb-1 block">Frequência</label>
+            <select
+              value={form.frequency}
+              onChange={(e) => setForm({ ...form, frequency: e.target.value })}
               className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-            />
+            >
+              {FREQUENCIES.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -161,10 +260,19 @@ export default function Timeline() {
             <textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Ex: levar exames, retorno em 30 dias, tomar medicação..."
+              placeholder="Ex: levar exames, tomar em jejum, retorno em 30 dias..."
               className="w-full px-3 py-2 rounded-lg border border-border bg-background min-h-[90px]"
             />
           </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.create_reminder}
+              onChange={(e) => setForm({ ...form, create_reminder: e.target.checked })}
+            />
+            Criar lembrete automático
+          </label>
 
           <div className="flex gap-2">
             <button
@@ -184,6 +292,32 @@ export default function Timeline() {
         </div>
       )}
 
+      <section className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Bell className="w-5 h-5 text-emerald-600" />
+          <h2 className="font-bold text-emerald-900">Lembretes de hoje</h2>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-emerald-700">Carregando...</p>
+        ) : todayReminders.length > 0 ? (
+          <div className="space-y-3">
+            {todayReminders.map((reminder) => (
+              <ReminderCard
+                key={reminder.id}
+                reminder={reminder}
+                onToggle={() => toggleReminderDone(reminder)}
+                onDelete={() => deleteReminder(reminder.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-emerald-700">
+            Nenhum lembrete para hoje.
+          </p>
+        )}
+      </section>
+
       <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
         <div className="flex items-center gap-2 mb-3">
           <Bell className="w-5 h-5 text-blue-600" />
@@ -192,8 +326,17 @@ export default function Timeline() {
 
         {loading ? (
           <p className="text-sm text-blue-700">Carregando...</p>
-        ) : upcoming.length > 0 ? (
+        ) : upcoming.length > 0 || futureReminders.length > 0 ? (
           <div className="space-y-3">
+            {futureReminders.slice(0, 3).map((reminder) => (
+              <ReminderCard
+                key={reminder.id}
+                reminder={reminder}
+                onToggle={() => toggleReminderDone(reminder)}
+                onDelete={() => deleteReminder(reminder.id)}
+              />
+            ))}
+
             {upcoming.slice(0, 5).map((event) => (
               <EventCard key={event.id} event={event} />
             ))}
@@ -256,6 +399,56 @@ export default function Timeline() {
   )
 }
 
+function ReminderCard({ reminder, onToggle, onDelete }: any) {
+  const meta = getEventMeta(reminder.type)
+
+  return (
+    <div className={`bg-white border rounded-xl p-3 ${reminder.is_done ? 'opacity-60' : ''}`}>
+      <div className="flex items-start gap-3">
+        <button
+          onClick={onToggle}
+          className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+            reminder.is_done ? 'bg-emerald-100' : 'bg-gray-100'
+          }`}
+        >
+          <CheckCircle className={`w-5 h-5 ${reminder.is_done ? 'text-emerald-600' : 'text-gray-400'}`} />
+        </button>
+
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <meta.icon className="w-4 h-4 text-emerald-600" />
+            <p className="font-semibold text-sm line-clamp-1">
+              {reminder.title}
+            </p>
+          </div>
+
+          <p className="text-xs text-gray-500">
+            {meta.label} · {formatDate(reminder.reminder_date)}
+            {reminder.reminder_time ? ` às ${String(reminder.reminder_time).slice(0, 5)}` : ''}
+          </p>
+
+          <p className="text-xs text-gray-500">
+            Frequência: {translateFrequency(reminder.frequency)}
+          </p>
+
+          {reminder.description && (
+            <p className="text-xs text-gray-600 mt-1">
+              {reminder.description}
+            </p>
+          )}
+        </div>
+
+        <button
+          onClick={onDelete}
+          className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function MedicationReminder({ med }: any) {
   return (
     <div className="bg-white border border-orange-100 rounded-xl p-3">
@@ -276,7 +469,7 @@ function MedicationReminder({ med }: any) {
           {med.reminder_time && (
             <p className="text-xs text-orange-700 mt-1 flex items-center gap-1">
               <Bell className="w-3 h-3" />
-              Lembrete às {med.reminder_time}
+              Lembrete às {String(med.reminder_time).slice(0, 5)}
             </p>
           )}
 
@@ -354,6 +547,17 @@ function getEventMeta(type: string) {
     label: 'Evento',
     icon: Calendar,
   }
+}
+
+function translateFrequency(value: string) {
+  const map: Record<string, string> = {
+    once: 'Uma vez',
+    daily: 'Diário',
+    weekly: 'Semanal',
+    monthly: 'Mensal',
+  }
+
+  return map[value] || value || 'Uma vez'
 }
 
 function formatDate(date: string) {
