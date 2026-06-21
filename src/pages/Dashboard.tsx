@@ -15,6 +15,7 @@ import {
   CreditCard,
   ChevronDown,
   ChevronUp,
+  ShoppingBag,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -306,6 +307,14 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3">
         <AppButton to="/upload" icon={Upload} label="Upload de Exame" color="bg-violet-600" />
+
+        <AppButton
+    to="/marketplace"
+    icon={ShoppingBag}
+    label="Medicamentos e Exames"
+    color="bg-lime-600"
+  />   
+        
         <AppButton to="/profile" icon={User} label="Meu Perfil" color="bg-emerald-600" />
         <AppButton to="/summary" icon={FileText} label="Resumo" color="bg-blue-600" />
         <AppButton to="/chat" icon={MessageCircle} label="Health Coach" color="bg-purple-600" />
