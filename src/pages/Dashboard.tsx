@@ -32,6 +32,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [medScore, setMedScore] = useState<any>(null)
   const [nextEvent, setNextEvent] = useState<any>(null)
+  const [nextTelemedicine, setNextTelemedicine] = useState<any>(null)
   const [nextReminder, setNextReminder] = useState<any>(null)
   const [nextMedication, setNextMedication] = useState<any>(null)
   const [lastExam, setLastExam] = useState<any>(null)
@@ -61,13 +62,11 @@ export default function Dashboard() {
         lastScoreRes,
         remindersRes,
         sharesRes,
+        telemedicineRes,
       ] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
 
-        supabase
-          .from('patient_conditions')
-          .select('*')
-          .eq('user_id', user.id),
+        supabase.from('patient_conditions').select('*').eq('user_id', user.id),
 
         supabase
           .from('medical_records')
@@ -115,6 +114,16 @@ export default function Dashboard() {
           .eq('patient_id', user.id)
           .eq('revoked', false)
           .gt('expires_at', now),
+
+        supabase
+          .from('telemedicine_appointments')
+          .select('*')
+          .eq('user_id', user.id)
+          .in('status', ['requested', 'confirmed'])
+          .gte('preferred_date', today)
+          .order('preferred_date', { ascending: true })
+          .order('preferred_time', { ascending: true })
+          .limit(1),
       ])
 
       const records = recordsRes.data || []
@@ -146,6 +155,7 @@ export default function Dashboard() {
       })
 
       setNextEvent(timelineRes.data?.[0] || null)
+      setNextTelemedicine(telemedicineRes.data?.[0] || null)
       setNextReminder(remindersRes.data?.[0] || null)
       setNextMedication(activeMedsRes.data?.[0] || null)
       setLastExam(records[0] || null)
@@ -160,7 +170,16 @@ export default function Dashboard() {
       }
 
       setScoreChange(delta)
-      setInsights(buildDashboardInsights(records, calculated, delta, activeMedsRes.data || [], sharesRes.data || []))
+      setInsights(
+        buildDashboardInsights(
+          records,
+          calculated,
+          delta,
+          activeMedsRes.data || [],
+          sharesRes.data || [],
+          telemedicineRes.data || []
+        )
+      )
       setMedScore(calculated)
     } catch (error) {
       console.error('Error loading dashboard:', error)
@@ -277,6 +296,21 @@ export default function Dashboard() {
               />
 
               <DailyCard
+                icon={Video}
+                title="Consulta online"
+                value={nextTelemedicine ? nextTelemedicine.specialty : 'Nenhuma consulta'}
+                subtitle={
+                  nextTelemedicine
+                    ? `${formatDate(nextTelemedicine.preferred_date)} ${
+                        nextTelemedicine.preferred_time
+                          ? `às ${String(nextTelemedicine.preferred_time).slice(0, 5)}`
+                          : ''
+                      }`
+                    : 'Solicitar consulta'
+                }
+              />
+
+              <DailyCard
                 icon={Bell}
                 title="Próximo lembrete"
                 value={nextReminder ? nextReminder.title : 'Nenhum lembrete'}
@@ -369,7 +403,8 @@ function buildDashboardInsights(
   medScore: any,
   scoreChange: number,
   medications: any[],
-  shares: any[]
+  shares: any[],
+  telemedicine: any[]
 ) {
   const insights: string[] = []
 
@@ -389,6 +424,10 @@ function buildDashboardInsights(
 
   if (shares.length > 0) {
     insights.push(`Você tem ${shares.length} compartilhamento(s) ativo(s) com profissionais.`)
+  }
+
+  if (telemedicine.length > 0) {
+    insights.push(`Você tem ${telemedicine.length} consulta online pendente ou confirmada.`)
   }
 
   const missing = medScore.missingExams || []
