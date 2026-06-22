@@ -12,13 +12,17 @@ import {
   CreditCard,
   XCircle,
   Sparkles,
+  HeartPulse,
+  MessageCircle,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import { calculateMedScore } from '@/services/calculateMedScore'
 
 type MarketplaceType = 'medication' | 'exam'
 
-const MEDICATION_OFFERS = [
+const BASE_MEDICATION_OFFERS = [
   {
     title: 'Losartana 50mg',
     description: 'Medicamento comum para controle de pressão arterial.',
@@ -42,7 +46,7 @@ const MEDICATION_OFFERS = [
   },
 ]
 
-const EXAM_OFFERS = [
+const BASE_EXAM_OFFERS = [
   {
     title: 'Perfil Lipídico',
     description: 'Colesterol total, HDL, LDL e triglicerídeos.',
@@ -70,8 +74,11 @@ export default function Marketplace() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [orders, setOrders] = useState<any[]>([])
-  const [mode, setMode] = useState<MarketplaceType>('medication')
+  const [mode, setMode] = useState<MarketplaceType>('exam')
   const [customOpen, setCustomOpen] = useState(false)
+  const [medScore, setMedScore] = useState<any>(null)
+  const [recommendedExams, setRecommendedExams] = useState<any[]>([])
+  const [activeMedications, setActiveMedications] = useState<any[]>([])
 
   const [form, setForm] = useState({
     title: '',
@@ -80,21 +87,57 @@ export default function Marketplace() {
   })
 
   useEffect(() => {
-    loadOrders()
+    load()
   }, [user])
 
-  async function loadOrders() {
+  async function load() {
     if (!user) return
 
     setLoading(true)
 
-    const { data } = await supabase
-      .from('marketplace_orders')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+    const [ordersRes, profileRes, recordsRes, conditionsRes, medsRes] =
+      await Promise.all([
+        supabase
+          .from('marketplace_orders')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
 
-    setOrders(data || [])
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle(),
+
+        supabase
+          .from('medical_records')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
+
+        supabase
+          .from('patient_conditions')
+          .select('*')
+          .eq('user_id', user.id),
+
+        supabase
+          .from('medications')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false }),
+      ])
+
+    const calculated = calculateMedScore(
+      profileRes.data || {},
+      recordsRes.data || [],
+      conditionsRes.data || []
+    )
+
+    setOrders(ordersRes.data || [])
+    setMedScore(calculated)
+    setRecommendedExams(buildRecommendedByMedScore(calculated))
+    setActiveMedications(medsRes.data || [])
     setLoading(false)
   }
 
@@ -113,12 +156,14 @@ export default function Marketplace() {
           name: offer.title,
           quantity: 1,
           price: offer.price,
+          reason: offer.reason || null,
         },
       ],
       offer_data: {
-        source: 'HealthWallet Marketplace MVP',
+        source: offer.source || 'HealthWallet Marketplace MVP',
         provider_label: offer.provider,
         estimated_delivery: offer.benefit,
+        medscore_reason: offer.reason || null,
         integration_ready: type === 'medication' ? 'epharma' : 'dasa',
       },
       payment_data: {
@@ -133,7 +178,21 @@ export default function Marketplace() {
       return
     }
 
-    loadOrders()
+    load()
+  }
+
+  async function createMedicationReorder(med: any) {
+    const offer = {
+      title: med.name || med.medication_name || 'Medicamento em uso',
+      description: [med.dosage, med.frequency].filter(Boolean).join(' · ') || 'Medicamento cadastrado no HealthWallet.',
+      price: 79.9,
+      provider: 'Farmácia parceira',
+      benefit: 'Recompra baseada no seu tratamento ativo',
+      source: 'HealthWallet Medicamentos',
+      reason: 'Medicamento ativo cadastrado no seu perfil.',
+    }
+
+    await createOrderFromOffer('medication', offer)
   }
 
   async function createCustomOrder(type: MarketplaceType) {
@@ -154,12 +213,7 @@ export default function Marketplace() {
       provider: 'mock',
       title,
       description: form.description || '',
-      items: [
-        {
-          name: title,
-          quantity: 1,
-        },
-      ],
+      items: [{ name: title, quantity: 1 }],
       offer_data: {
         source: 'HealthWallet Marketplace MVP',
         provider_label: type === 'medication' ? 'Farmácia parceira' : 'Laboratório parceiro',
@@ -179,13 +233,8 @@ export default function Marketplace() {
     }
 
     setCustomOpen(false)
-    setForm({
-      title: '',
-      description: '',
-      total_amount: '',
-    })
-
-    loadOrders()
+    setForm({ title: '', description: '', total_amount: '' })
+    load()
   }
 
   async function markAsPaid(orderId: string) {
@@ -202,7 +251,7 @@ export default function Marketplace() {
       })
       .eq('id', orderId)
 
-    loadOrders()
+    load()
   }
 
   async function confirmOrder(orderId: string) {
@@ -218,7 +267,7 @@ export default function Marketplace() {
       })
       .eq('id', orderId)
 
-    loadOrders()
+    load()
   }
 
   async function cancelOrder(orderId: string) {
@@ -232,10 +281,10 @@ export default function Marketplace() {
       })
       .eq('id', orderId)
 
-    loadOrders()
+    load()
   }
 
-  const offers = mode === 'medication' ? MEDICATION_OFFERS : EXAM_OFFERS
+  const offers = mode === 'medication' ? BASE_MEDICATION_OFFERS : BASE_EXAM_OFFERS
 
   return (
     <div className="space-y-5 pb-20">
@@ -245,11 +294,69 @@ export default function Marketplace() {
           <div>
             <h1 className="text-2xl font-bold">Medicamentos e Exames</h1>
             <p className="text-white/80 text-sm">
-              Marketplace HealthWallet para compra, agendamento e pagamento.
+              Recomendações ligadas ao seu MedScore.
             </p>
           </div>
         </div>
       </div>
+
+      {medScore && (
+        <section className="bg-white rounded-xl border p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <HeartPulse className="w-5 h-5 text-emerald-600" />
+            <h2 className="font-bold">Recomendado pelo seu MedScore</h2>
+          </div>
+
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 mb-3">
+            <p className="text-sm text-emerald-800">
+              Seu MedScore atual é <strong>{medScore.score}/100</strong>.
+            </p>
+            <p className="text-xs text-emerald-700 mt-1">
+              Essas sugestões ajudam a melhorar a precisão do score e apoiar decisões preventivas.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {recommendedExams.map((offer) => (
+              <OfferCard
+                key={offer.title}
+                type="exam"
+                offer={offer}
+                onCreate={() => createOrderFromOffer('exam', offer)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {activeMedications.length > 0 && (
+        <section className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Pill className="w-5 h-5 text-orange-600" />
+            <h2 className="font-bold text-orange-900">Comprar novamente</h2>
+          </div>
+
+          <div className="space-y-3">
+            {activeMedications.slice(0, 4).map((med) => (
+              <div key={med.id} className="bg-white border border-orange-100 rounded-xl p-3">
+                <p className="font-semibold text-sm">
+                  {med.name || med.medication_name || 'Medicamento'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {[med.dosage, med.frequency].filter(Boolean).join(' · ') || 'Medicamento em uso'}
+                </p>
+
+                <button
+                  onClick={() => createMedicationReorder(med)}
+                  className="mt-3 w-full py-2 rounded-lg bg-orange-600 text-white text-sm font-medium"
+                >
+                  Comprar novamente
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <button
@@ -281,7 +388,7 @@ export default function Marketplace() {
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="w-5 h-5 text-emerald-600" />
           <h2 className="font-bold">
-            {mode === 'medication' ? 'Ofertas de medicamentos' : 'Exames recomendados'}
+            {mode === 'medication' ? 'Ofertas de medicamentos' : 'Exames disponíveis'}
           </h2>
         </div>
 
@@ -347,11 +454,6 @@ export default function Marketplace() {
             />
           </div>
 
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-xs text-yellow-800">
-            MVP inicial: este pedido simula o fluxo. Depois conectamos Efí Pix,
-            ePharma e Dasa.
-          </div>
-
           <button
             onClick={() => createCustomOrder(mode)}
             className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold"
@@ -390,6 +492,74 @@ export default function Marketplace() {
   )
 }
 
+function buildRecommendedByMedScore(medScore: any) {
+  const metrics = medScore.metrics || {}
+  const missing = medScore.missingExams || []
+  const recommendations: any[] = []
+
+  if (!metrics.apoB) {
+    recommendations.push({
+      title: 'ApoB',
+      description: 'Ajuda a refinar o risco cardiovascular além do LDL.',
+      price: 89.9,
+      provider: 'Laboratório parceiro',
+      benefit: 'Recomendado para avaliação cardiovascular',
+      reason: 'Seu MedScore pode ficar mais preciso com ApoB.',
+      source: 'MedScore',
+    })
+  }
+
+  if (!metrics.lpa && !metrics.lipoproteinaA) {
+    recommendations.push({
+      title: 'Lipoproteína(a) - Lp(a)',
+      description: 'Exame importante para risco cardiovascular hereditário.',
+      price: 119.9,
+      provider: 'Laboratório parceiro',
+      benefit: 'Útil para histórico familiar e prevenção',
+      reason: 'Ajuda a avaliar risco cardiovascular familiar.',
+      source: 'MedScore',
+    })
+  }
+
+  if (!metrics.hba1c && missing.some((m: string) => m.toLowerCase().includes('glic'))) {
+    recommendations.push({
+      title: 'Hemoglobina Glicada HbA1c',
+      description: 'Avalia controle glicêmico dos últimos meses.',
+      price: 59.9,
+      provider: 'Laboratório parceiro',
+      benefit: 'Recomendado para risco metabólico',
+      reason: 'Seu MedScore identificou dados metabólicos incompletos.',
+      source: 'MedScore',
+    })
+  }
+
+  if (!metrics.pcrUltrasensitive) {
+    recommendations.push({
+      title: 'PCR ultrassensível',
+      description: 'Marcador inflamatório usado na avaliação cardiovascular.',
+      price: 74.9,
+      provider: 'Laboratório parceiro',
+      benefit: 'Complementa avaliação cardiometabólica',
+      reason: 'Pode ajudar a refinar sua área cardiovascular.',
+      source: 'MedScore',
+    })
+  }
+
+  if (!recommendations.length) {
+    recommendations.push({
+      title: 'Check-up Cardiometabólico',
+      description: 'Pacote preventivo para manter o MedScore atualizado.',
+      price: 249.9,
+      provider: 'Laboratório parceiro',
+      benefit: 'Pacote preventivo',
+      reason: 'Seus dados principais estão bons; mantenha acompanhamento.',
+      source: 'MedScore',
+    })
+  }
+
+  return recommendations.slice(0, 4)
+}
+
 function OfferCard({ type, offer, onCreate }: any) {
   const isMedication = type === 'medication'
 
@@ -410,13 +580,18 @@ function OfferCard({ type, offer, onCreate }: any) {
           <p className="font-semibold">{offer.title}</p>
           <p className="text-sm text-gray-600 mt-1">{offer.description}</p>
 
+          {offer.reason && (
+            <div className="mt-2 bg-emerald-50 border border-emerald-100 rounded-lg p-2 text-xs text-emerald-800">
+              {offer.reason}
+            </div>
+          )}
+
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
             {isMedication ? <Truck className="w-3 h-3" /> : <CalendarDays className="w-3 h-3" />}
             {offer.benefit}
           </div>
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-            <MapPin className="w-3 h-3" />
             {offer.provider}
           </div>
 
@@ -425,14 +600,24 @@ function OfferCard({ type, offer, onCreate }: any) {
               R$ {Number(offer.price || 0).toFixed(2)}
             </p>
 
-            <button
-              onClick={onCreate}
-              className={`px-4 py-2 rounded-lg text-white text-sm font-medium ${
-                isMedication ? 'bg-orange-600' : 'bg-blue-600'
-              }`}
-            >
-              {isMedication ? 'Comprar' : 'Agendar'}
-            </button>
+            <div className="flex gap-2">
+              <Link
+                to={`/chat?context=score&question=${encodeURIComponent(`Explique por que o exame ${offer.title} é recomendado para mim.`)}`}
+                className="px-3 py-2 rounded-lg border text-xs font-medium flex items-center gap-1"
+              >
+                <MessageCircle className="w-3 h-3" />
+                Por quê?
+              </Link>
+
+              <button
+                onClick={onCreate}
+                className={`px-4 py-2 rounded-lg text-white text-sm font-medium ${
+                  isMedication ? 'bg-orange-600' : 'bg-blue-600'
+                }`}
+              >
+                {isMedication ? 'Comprar' : 'Agendar'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -474,6 +659,12 @@ function OrderCard({ order, onPaid, onConfirm, onCancel }: any) {
             <p className="text-xs text-muted-foreground mt-2">
               {order.offer_data.provider_label} · {order.offer_data.estimated_delivery}
             </p>
+          )}
+
+          {order.offer_data?.medscore_reason && (
+            <div className="mt-2 bg-emerald-50 border border-emerald-100 rounded-lg p-2 text-xs text-emerald-800">
+              {order.offer_data.medscore_reason}
+            </div>
           )}
 
           <p className="text-sm font-bold mt-2">
@@ -524,7 +715,6 @@ function OrderCard({ order, onPaid, onConfirm, onCancel }: any) {
 
           {order.status === 'cancelled' && (
             <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2 text-sm text-red-700">
-              <XCircle className="w-4 h-4" />
               Pedido cancelado.
             </div>
           )}
