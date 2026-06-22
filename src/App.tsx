@@ -49,14 +49,28 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
         return
       }
 
-      const { data } = await supabase
-        .from('profiles')
-        .select('accepted_terms')
-        .eq('id', user.id)
-        .maybeSingle()
+      const localAccepted = localStorage.getItem(`healthwallet_terms_${user.id}`)
 
-      setAcceptedTerms(Boolean(data?.accepted_terms))
-      setCheckingConsent(false)
+if (localAccepted === 'true') {
+  setAcceptedTerms(true)
+  setCheckingConsent(false)
+  return
+}
+
+const { data } = await supabase
+  .from('profiles')
+  .select('accepted_terms')
+  .eq('id', user.id)
+  .maybeSingle()
+
+if (data?.accepted_terms) {
+  localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
+  setAcceptedTerms(true)
+} else {
+  setAcceptedTerms(false)
+}
+
+setCheckingConsent(false)
     }
 
     checkConsent()
