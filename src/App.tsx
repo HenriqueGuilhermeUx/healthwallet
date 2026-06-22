@@ -77,9 +77,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
 
-  if (!acceptedTerms && location.pathname !== '/consent') {
-    return <Navigate to="/consent" replace />
-  }
+  if (
+  !acceptedTerms &&
+  location.pathname !== '/consent' &&
+  location.pathname !== '/telemedicine-admin'
+) {
+  return <Navigate to="/consent" replace />
+}
 
   return <>{children}</>
 }
