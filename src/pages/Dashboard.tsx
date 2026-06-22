@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
   ShoppingBag,
+  Video,
   Pill,
   Bell,
   Lock,
@@ -341,6 +342,7 @@ export default function Dashboard() {
         <AppButton to="/profile" icon={User} label="Meu Perfil" color="bg-emerald-600" />
         <AppButton to="/summary" icon={FileText} label="Resumo" color="bg-blue-600" />
         <AppButton to="/chat" icon={MessageCircle} label="Health Coach" color="bg-purple-600" />
+        <AppButton to="/telemedicine" icon={Video} label="Consulta Online" color="bg-sky-600" />
         <AppButton to="/passport" icon={Shield} label="Passport" color="bg-orange-600" />
         <AppButton to="/share" icon={Share2} label="Compartilhar Dados" color="bg-cyan-600" />
         <AppButton to="/wallet" icon={CreditCard} label="Carteiras Plano/SUS" color="bg-indigo-600" />
