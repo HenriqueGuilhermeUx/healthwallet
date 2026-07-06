@@ -31,6 +31,7 @@ import MedScore from '@/pages/MedScore'
 import Marketplace from '@/pages/Marketplace'
 import Telemedicine from '@/pages/Telemedicine'
 import TelemedicineAdmin from '@/pages/TelemedicineAdmin'
+import Emergency from '@/pages/Emergency'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -156,6 +157,7 @@ export default function App() {
           <Route path="/marketplace" element={<ProtectedPage><Marketplace /></ProtectedPage>} />
           <Route path="/telemedicine" element={<ProtectedPage><Telemedicine /></ProtectedPage>} />
           <Route path="/telemedicine-admin" element={<ProtectedPage><TelemedicineAdmin /></ProtectedPage>} />
+          <Route path="/emergency" element={<ProtectedPage><Emergency /></ProtectedPage>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
