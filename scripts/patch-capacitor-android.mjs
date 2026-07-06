@@ -31,7 +31,7 @@ replaceIfExists(manifestPath, (content) => {
 
   for (const permission of permissions) {
     if (!next.includes(permission)) {
-      next = next.replace('<manifest', `${permission}\n<manifest`)
+      next = next.replace(/(<manifest[^>]*>)/, `$1\n    ${permission}`)
     }
   }
 
@@ -53,12 +53,12 @@ replaceIfExists(buildGradlePath, (content) => {
 
   if (hasSigningSecrets && !next.includes('healthwalletRelease')) {
     next = next.replace(
-      /android\s*\{/, 
+      /android\s*\{/,
       `android {\n    signingConfigs {\n        healthwalletRelease {\n            storeFile file("healthwallet-release.jks")\n            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")\n            keyAlias System.getenv("ANDROID_KEY_ALIAS")\n            keyPassword System.getenv("ANDROID_KEY_PASSWORD")\n        }\n    }`
     )
 
     next = next.replace(
-      /release\s*\{/, 
+      /release\s*\{/,
       `release {\n            signingConfig signingConfigs.healthwalletRelease`
     )
   }
