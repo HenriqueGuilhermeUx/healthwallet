@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Capacitor / Android generated files
+android
+*.jks
+*.keystore
+*.aab
+*.apk
+
 # Environment files - NEVER commit these
 .env
 .env.local
