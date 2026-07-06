@@ -20,6 +20,7 @@ import {
   Pill,
   Bell,
   Lock,
+  AlertTriangle,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -262,6 +263,23 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+      </Link>
+
+      <Link
+        to="/emergency"
+        className="block rounded-2xl bg-gradient-to-br from-red-600 to-orange-700 p-4 text-white shadow-sm"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center">
+            <AlertTriangle className="w-7 h-7" />
+          </div>
+          <div className="flex-1">
+            <p className="font-bold text-lg">Ajuda Rápida</p>
+            <p className="text-sm text-white/85">
+              Botão de emergência, contatos, localização e Passport crítico.
+            </p>
           </div>
         </div>
       </Link>
