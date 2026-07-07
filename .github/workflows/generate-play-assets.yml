@@ -1,0 +1,31 @@
+name: Generate Google Play Assets
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-assets:
+    name: Generate HealthWallet store assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Pillow
+        run: pip install pillow
+
+      - name: Generate assets
+        run: python scripts/generate_play_store_assets.py
+
+      - name: Upload generated assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthwallet-google-play-assets
+          path: play_store_assets/
+          if-no-files-found: error
