@@ -1,13 +1,12 @@
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-import textwrap
 
 OUT = Path('play_store_assets')
 OUT.mkdir(exist_ok=True)
 
 EMERALD = '#059669'
 TEAL = '#0f766e'
- CYAN = '#0ea5e9'
+CYAN = '#0ea5e9'
 DARK = '#0f172a'
 MUTED = '#64748b'
 WHITE = '#ffffff'
@@ -19,11 +18,6 @@ PURPLE = '#7c3aed'
 BLUE = '#2563eb'
 PINK = '#db2777'
 AMBER = '#d97706'
-
-FONT_CANDIDATES = [
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-]
 
 
 def get_font(size=32, bold=False):
@@ -43,9 +37,9 @@ def gradient_bg(size, top, bottom):
     w, h = size
     img = Image.new('RGB', size, top)
     draw = ImageDraw.Draw(img)
+    r1, g1, b1 = tuple(int(top[i:i+2], 16) for i in (1, 3, 5))
+    r2, g2, b2 = tuple(int(bottom[i:i+2], 16) for i in (1, 3, 5))
     for y in range(h):
-        r1, g1, b1 = tuple(int(top[i:i+2], 16) for i in (1, 3, 5))
-        r2, g2, b2 = tuple(int(bottom[i:i+2], 16) for i in (1, 3, 5))
         r = int(r1 + (r2 - r1) * (y / max(1, h - 1)))
         g = int(g1 + (g2 - g1) * (y / max(1, h - 1)))
         b = int(b1 + (b2 - b1) * (y / max(1, h - 1)))
@@ -85,10 +79,9 @@ def draw_text(draw, xy, text, font, fill=WHITE, max_width=None, line_spacing=8):
 
 def draw_logo(draw, center_x, top_y, scale=1.0):
     size = int(72 * scale)
-    rounded_rect(draw, (center_x - size//2, top_y, center_x + size//2, top_y + size), radius=int(22 * scale), fill=WHITE)
-    # simple emerald heart icon
+    rounded_rect(draw, (center_x - size // 2, top_y, center_x + size // 2, top_y + size), radius=int(22 * scale), fill=WHITE)
     heart_font = get_font(int(34 * scale), bold=True)
-    draw.text((center_x - int(16*scale), top_y + int(12*scale)), '♥', font=heart_font, fill=EMERALD)
+    draw.text((center_x - int(16 * scale), top_y + int(12 * scale)), '♥', font=heart_font, fill=EMERALD)
 
 
 def create_icon():
@@ -114,8 +107,7 @@ def create_feature_graphic():
     draw.text((94, 255), 'by Nexa', font=get_font(22, bold=False), fill='#d1fae5')
     draw_text(draw, (90, 305), 'Seu cofre inteligente de saúde com IA, família, medicamentos, emergência e compartilhamento seguro.', font=sub_font, fill='#ecfeff', max_width=470)
 
-    phone = (690, 55, 930, 445)
-    rounded_rect(draw, phone, radius=34, fill='#0b1220', outline='#8ce9cf', width=3)
+    rounded_rect(draw, (690, 55, 930, 445), radius=34, fill='#0b1220', outline='#8ce9cf', width=3)
     rounded_rect(draw, (710, 90, 910, 410), radius=26, fill=LIGHT)
     rounded_rect(draw, (726, 112, 894, 188), radius=20, fill=EMERALD)
     draw.text((742, 128), 'MedScore 82/100', font=get_font(24, bold=True), fill=WHITE)
@@ -175,7 +167,7 @@ def create_medscore_shot():
     img, draw = phone_base('MedScore Inteligente', 'Resumo visual com IA e prioridades')
     rounded_rect(draw, (120, 310, 960, 980), radius=42, fill='#ecfeff', outline='#c9f5ff')
     draw.text((160, 355), 'Health Score', font=get_font(30, bold=True), fill=TEAL)
-    rounded_rect(draw, (350, 420, 730, 800), radius=190, fill='#ffffff', outline='#a7f3d0', width=16)
+    rounded_rect(draw, (350, 420, 730, 800), radius=190, fill=WHITE, outline='#a7f3d0', width=16)
     draw.text((445, 515), '82', font=get_font(110, bold=True), fill=EMERALD)
     draw.text((438, 655), '/100', font=get_font(36), fill=MUTED)
     draw.text((310, 840), 'Tendência positiva +4', font=get_font(28, bold=True), fill=EMERALD)
