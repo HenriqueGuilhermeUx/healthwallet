@@ -21,6 +21,7 @@ import ReceivedDocuments from '@/pages/ReceivedDocuments'
 import Chat from '@/pages/Chat'
 import Terms from '@/pages/Terms'
 import Privacy from '@/pages/Privacy'
+import DeleteAccount from '@/pages/DeleteAccount'
 import Consent from '@/pages/Consent'
 import AccessCode from '@/pages/AccessCode'
 import Passport from '@/pages/Passport'
@@ -136,6 +137,7 @@ export default function App() {
           <Route path="/access/:code" element={<AccessCode />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
+          <Route path="/delete-account" element={<DeleteAccount />} />
 
           {/* Protected routes */}
           <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
