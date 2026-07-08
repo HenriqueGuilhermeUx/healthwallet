@@ -5,7 +5,6 @@ import {
   Heart,
   Trash2,
   User,
-  Droplets,
   Pill,
   AlertTriangle,
   FileText,
@@ -14,7 +13,7 @@ import {
   ShieldCheck,
   Bell,
   Phone,
-  Mail,
+  CheckCircle,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -223,9 +222,21 @@ export default function Family() {
         <div className="flex gap-3">
           <ShieldCheck className="w-6 h-6 text-emerald-700 mt-0.5" />
           <div>
-            <h2 className="font-bold text-emerald-950">Acesso master familiar</h2>
+            <h2 className="font-bold text-emerald-950">Perfil familiar livre</h2>
             <p className="text-sm text-emerald-800 mt-1">
-              Um familiar master pode acompanhar medicamentos, exames, agenda, Passport, MedScore e alertas sem gerar código temporário. O código continua sendo usado para profissionais externos.
+              Familiar, idoso ou dependente cadastrado aqui não precisa assinar, aceitar convite ou gerar código. A partir do cadastro, você pode registrar dados, exames, medicamentos, Passport e alertas normalmente.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <div className="flex gap-3">
+          <CheckCircle className="w-6 h-6 text-blue-700 mt-0.5" />
+          <div>
+            <h2 className="font-bold text-blue-950">Quando usamos aceite?</h2>
+            <p className="text-sm text-blue-800 mt-1">
+              Aceite/assinatura fica para documentos profissionais, consentimentos ou autorizações externas. Para família e dependentes dentro do seu HealthWallet, o uso é direto e sem trava.
             </p>
           </div>
         </div>
@@ -246,7 +257,7 @@ export default function Family() {
           <Users className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <h3 className="font-semibold mb-2">Nenhuma pessoa cadastrada</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Cadastre idosos, filhos, cuidadores e familiares que recebem alertas.
+            Cadastre idosos, filhos, cuidadores e familiares. Depois disso, o perfil roda livre, sem aceite ou assinatura.
           </p>
           <button onClick={() => setShowAddForm(true)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">
             Adicionar
@@ -280,6 +291,10 @@ export default function Family() {
             </div>
 
             <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-900">
+                Cadastro familiar livre: não envia convite, não pede aceite e não exige assinatura. Basta salvar a pessoa para começar a organizar dados, exames e cuidados.
+              </div>
+
               <Input label="Nome *" value={formData.name} onChange={(v: string) => setFormData({ ...formData, name: v })} />
 
               <div>
@@ -324,7 +339,7 @@ export default function Family() {
               </div>
 
               <Input label="Telefone" value={formData.phone} onChange={(v: string) => setFormData({ ...formData, phone: v })} placeholder="WhatsApp ou telefone" />
-              <Input label="E-mail" value={formData.email} onChange={(v: string) => setFormData({ ...formData, email: v })} placeholder="para convite futuro" />
+              <Input label="E-mail" value={formData.email} onChange={(v: string) => setFormData({ ...formData, email: v })} placeholder="opcional" />
               <Input label="Alergias" value={formData.allergies} onChange={(v: string) => setFormData({ ...formData, allergies: v })} />
               <Input label="Medicamentos" value={formData.medications} onChange={(v: string) => setFormData({ ...formData, medications: v })} />
               <Input label="Condições" value={formData.conditions} onChange={(v: string) => setFormData({ ...formData, conditions: v })} />
@@ -353,7 +368,7 @@ export default function Family() {
               </div>
 
               <button onClick={handleAddMember} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold">
-                Salvar pessoa
+                Salvar pessoa e liberar cuidado
               </button>
             </div>
           </div>
@@ -377,6 +392,11 @@ export default function Family() {
                 {selectedMember.is_elderly && <Badge text="Idoso" />}
                 {selectedMember.is_caregiver && <Badge text="Cuidador" />}
                 {selectedMember.emergency_contact && <Badge text="Emergência" />}
+                <Badge text="Livre" />
+              </div>
+
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-900">
+                Perfil familiar/dependente gerenciado diretamente no HealthWallet, sem aceite ou assinatura.
               </div>
 
               <ProfileCard icon={User} title="Dados básicos">
@@ -445,6 +465,7 @@ function MemberGroup({ title, members, onSelect, onDelete }: any) {
                 <p className="font-semibold">{member.name}</p>
                 {member.master_access && <Badge text="Master" />}
                 {member.is_elderly && <Badge text="Idoso" />}
+                <Badge text="Livre" />
               </div>
               <p className="text-sm text-muted-foreground">{member.relationship || 'Vínculo não informado'}</p>
               <div className="grid grid-cols-2 gap-2 mt-3">
