@@ -15,6 +15,11 @@ import {
   Activity,
   QrCode,
   AlertTriangle,
+  ClipboardList,
+  ReceiptText,
+  MessageSquare,
+  UserRound,
+  RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -43,6 +48,7 @@ const DEFAULT_PERMISSIONS = {
 export default function Telemedicine() {
   const { user } = useAuth()
   const [appointments, setAppointments] = useState<any[]>([])
+  const [eventsByAppointment, setEventsByAppointment] = useState<Record<string, any[]>>({})
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -66,11 +72,32 @@ export default function Telemedicine() {
     const { data } = await supabase
       .from('telemedicine_appointments')
       .select('*')
-      .eq('user_id', user.id)
+      .or(`user_id.eq.${user.id},patient_id.eq.${user.id}`)
       .order('preferred_date', { ascending: false })
       .order('preferred_time', { ascending: false })
+      .order('created_at', { ascending: false })
 
-    setAppointments(data || [])
+    const rows = data || []
+    setAppointments(rows)
+
+    if (rows.length > 0) {
+      const ids = rows.map((item) => item.id)
+      const { data: events } = await supabase
+        .from('telemedicine_events')
+        .select('*')
+        .in('appointment_id', ids)
+        .order('created_at', { ascending: false })
+
+      const grouped: Record<string, any[]> = {}
+      ;(events || []).forEach((event) => {
+        grouped[event.appointment_id] = grouped[event.appointment_id] || []
+        grouped[event.appointment_id].push(event)
+      })
+      setEventsByAppointment(grouped)
+    } else {
+      setEventsByAppointment({})
+    }
+
     setLoading(false)
   }
 
@@ -82,10 +109,11 @@ export default function Telemedicine() {
       return
     }
 
-    const { error } = await supabase.from('telemedicine_appointments').insert({
+    const { data, error } = await supabase.from('telemedicine_appointments').insert({
       user_id: user.id,
       patient_id: user.id,
       patient_email: user.email,
+      patient_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
       specialty: form.specialty,
       reason: form.reason,
       preferred_date: form.preferred_date,
@@ -95,12 +123,25 @@ export default function Telemedicine() {
       provider: 'manual_link',
       shared_data_permissions: DEFAULT_PERMISSIONS,
       payment_status: 'not_required',
-    })
+    }).select('*').single()
 
     if (error) {
       alert('Erro ao solicitar consulta. Rode o SQL_TELECONSULTA_MOTOR_V1.sql no Supabase se ainda não rodou.')
       return
     }
+
+    await supabase.from('telemedicine_events').insert({
+      appointment_id: data.id,
+      actor_user_id: user.id,
+      patient_id: user.id,
+      type: 'patient_requested',
+      description: 'Paciente solicitou uma teleconsulta.',
+      metadata: {
+        specialty: form.specialty,
+        preferred_date: form.preferred_date,
+        preferred_time: form.preferred_time,
+      },
+    })
 
     await createMedicalEvent({
       userId: user.id,
@@ -131,7 +172,7 @@ export default function Telemedicine() {
       await supabase
         .from('telemedicine_appointments')
         .update({
-          status: appointment.status === 'scheduled' ? 'confirmed' : appointment.status,
+          status: ['scheduled', 'reminder_sent'].includes(appointment.status) ? 'confirmed' : appointment.status,
           patient_confirmed: true,
           patient_confirmed_at: now,
           updated_at: now,
@@ -195,6 +236,7 @@ export default function Telemedicine() {
   }
 
   async function cancelAppointment(id: string) {
+    if (!user) return
     if (!confirm('Deseja cancelar esta consulta?')) return
 
     await supabase
@@ -206,22 +248,47 @@ export default function Telemedicine() {
       })
       .eq('id', id)
 
+    await supabase.from('telemedicine_events').insert({
+      appointment_id: id,
+      actor_user_id: user.id,
+      patient_id: user.id,
+      type: 'patient_cancelled',
+      description: 'Paciente cancelou a solicitação de teleconsulta.',
+    })
+
     load()
   }
 
+  const nextActive = appointments.find((item) => !['completed', 'cancelled', 'no_show'].includes(item.status))
+
   return (
     <div className="space-y-5 pb-20">
-      <div className="rounded-2xl bg-gradient-to-br from-blue-700 to-cyan-800 text-white p-5">
-        <div className="flex items-center gap-3">
+      <div className="rounded-2xl bg-gradient-to-br from-blue-700 to-cyan-800 text-white p-5 overflow-hidden relative">
+        <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full" />
+        <div className="relative flex items-center gap-3">
           <Video className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">Teleconsulta</h1>
             <p className="text-white/80 text-sm">
-              Confirme consultas, autorize dados e entre na chamada no horário.
+              Confirme, autorize dados e entre na chamada no horário.
             </p>
           </div>
         </div>
       </div>
+
+      {nextActive && (
+        <section className="bg-white border rounded-2xl p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <Clock className="w-5 h-5 text-cyan-600" />
+            <h2 className="font-bold">Próxima teleconsulta</h2>
+          </div>
+          <p className="font-semibold">{nextActive.specialty || 'Consulta online'}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {formatDate(nextActive.preferred_date)} {nextActive.preferred_time ? `às ${String(nextActive.preferred_time).slice(0, 5)}` : ''}
+          </p>
+          <StatusTimeline appointment={nextActive} />
+        </section>
+      )}
 
       <section className="bg-cyan-50 border border-cyan-200 rounded-xl p-4 text-sm text-cyan-900">
         <strong>Fluxo simples:</strong> o profissional agenda, você confirma, autoriza os dados daquela consulta e entra na chamada.
@@ -279,9 +346,13 @@ export default function Telemedicine() {
             <textarea
               value={form.reason}
               onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              placeholder="Ex: revisar exames, colesterol alto, sintomas recentes..."
+              placeholder="Ex: revisar exames, sintomas recentes, acompanhamento..."
               className="w-full px-3 py-2 rounded-lg border bg-background min-h-[90px]"
             />
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
+            Após o profissional agendar, você poderá confirmar presença e autorizar os dados apenas para aquela consulta.
           </div>
 
           <div className="flex gap-2">
@@ -296,7 +367,13 @@ export default function Telemedicine() {
       )}
 
       <section className="bg-white rounded-xl border p-4">
-        <h2 className="font-bold mb-3">Minhas consultas</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-bold">Minhas consultas</h2>
+          <button onClick={load} className="text-xs text-emerald-700 flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" />
+            Atualizar
+          </button>
+        </div>
 
         {loading ? (
           <div className="py-10 flex justify-center">
@@ -308,6 +385,7 @@ export default function Telemedicine() {
               <AppointmentCard
                 key={appointment.id}
                 appointment={appointment}
+                events={eventsByAppointment[appointment.id] || []}
                 saving={savingId === appointment.id}
                 onCancel={() => cancelAppointment(appointment.id)}
                 onConfirm={() => confirmAppointment(appointment)}
@@ -316,30 +394,31 @@ export default function Telemedicine() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Nenhuma consulta solicitada ainda.</p>
+          <EmptyState onNew={() => setShowForm(true)} />
         )}
       </section>
     </div>
   )
 }
 
-function AppointmentCard({ appointment, onCancel, onConfirm, onAuthorize, saving }: any) {
+function AppointmentCard({ appointment, events, onCancel, onConfirm, onAuthorize, saving }: any) {
   const roomUrl = appointment.room_url || appointment.meet_url
-  const canJoin = roomUrl && ['confirmed', 'in_progress', 'scheduled'].includes(appointment.status)
-  const cancelled = appointment.status === 'cancelled'
-  const needsConfirmation = ['scheduled', 'confirmed'].includes(appointment.status) && !appointment.patient_confirmed
-  const needsAuthorization = ['scheduled', 'confirmed', 'in_progress'].includes(appointment.status) && !appointment.data_sharing_authorized
+  const canJoin = roomUrl && ['confirmed', 'in_progress', 'scheduled', 'reminder_sent'].includes(appointment.status)
+  const cancelled = ['cancelled', 'no_show'].includes(appointment.status)
+  const completed = appointment.status === 'completed'
+  const needsConfirmation = ['scheduled', 'confirmed', 'reminder_sent'].includes(appointment.status) && !appointment.patient_confirmed
+  const needsAuthorization = ['scheduled', 'confirmed', 'in_progress', 'reminder_sent'].includes(appointment.status) && !appointment.data_sharing_authorized
 
   return (
-    <div className={`border rounded-xl p-4 ${cancelled ? 'opacity-60' : ''}`}>
+    <div className={`border rounded-2xl p-4 ${cancelled ? 'opacity-60' : ''}`}>
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-          <Stethoscope className="w-5 h-5 text-blue-600" />
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${completed ? 'bg-emerald-100' : 'bg-blue-100'}`}>
+          <Stethoscope className={`w-5 h-5 ${completed ? 'text-emerald-600' : 'text-blue-600'}`} />
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-semibold">{appointment.specialty}</p>
+            <p className="font-semibold">{appointment.specialty || 'Teleconsulta'}</p>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
               {translateStatus(appointment.status)}
             </span>
@@ -352,10 +431,15 @@ function AppointmentCard({ appointment, onCancel, onConfirm, onAuthorize, saving
           </div>
 
           {appointment.professional_name && (
-            <p className="text-xs text-muted-foreground mt-1">Profissional: {appointment.professional_name}</p>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+              <UserRound className="w-3 h-3" />
+              Profissional: {appointment.professional_name}
+            </div>
           )}
 
           {appointment.reason && <p className="text-sm text-gray-600 mt-2">{appointment.reason}</p>}
+
+          <StatusTimeline appointment={appointment} />
 
           <div className="grid grid-cols-2 gap-2 mt-3">
             <StatusPill icon={CheckCircle} active={!!appointment.patient_confirmed} label="Presença" />
@@ -410,15 +494,38 @@ function AppointmentCard({ appointment, onCancel, onConfirm, onAuthorize, saving
 
           {appointment.orientation_text && (
             <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-900">
-              <p className="font-semibold mb-1">Orientações do profissional</p>
+              <div className="flex items-center gap-2 font-semibold mb-1">
+                <MessageSquare className="w-4 h-4" />
+                Orientações do profissional
+              </div>
               <p>{appointment.orientation_text}</p>
             </div>
           )}
 
           {appointment.prescription_text && (
             <div className="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm text-orange-900">
-              <p className="font-semibold mb-1">Receita / prescrição</p>
-              <p>{appointment.prescription_text}</p>
+              <div className="flex items-center gap-2 font-semibold mb-1">
+                <ReceiptText className="w-4 h-4" />
+                Receita / prescrição
+              </div>
+              <p className="whitespace-pre-line">{appointment.prescription_text}</p>
+            </div>
+          )}
+
+          {events.length > 0 && (
+            <div className="mt-3 bg-gray-50 border rounded-lg p-3">
+              <p className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
+                <ClipboardList className="w-3 h-3" />
+                Histórico da consulta
+              </p>
+              <div className="space-y-2">
+                {events.slice(0, 4).map((event: any) => (
+                  <div key={event.id} className="text-xs text-gray-600">
+                    <span className="font-medium">{translateEventType(event.type)}</span>
+                    {event.description ? ` — ${event.description}` : ''}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -439,7 +546,7 @@ function AppointmentCard({ appointment, onCancel, onConfirm, onAuthorize, saving
             </div>
           )}
 
-          {appointment.status === 'scheduled' && (
+          {['scheduled', 'reminder_sent'].includes(appointment.status) && (
             <div className="mt-3 bg-cyan-50 border border-cyan-200 rounded-lg p-2 flex items-center gap-2 text-sm text-cyan-700">
               <AlertTriangle className="w-4 h-4" />
               Consulta agendada. Confirme presença e autorize os dados.
@@ -447,6 +554,27 @@ function AppointmentCard({ appointment, onCancel, onConfirm, onAuthorize, saving
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function StatusTimeline({ appointment }: { appointment: any }) {
+  const steps = [
+    { key: 'requested', label: 'Solicitada', done: true },
+    { key: 'scheduled', label: 'Agendada', done: ['scheduled', 'confirmed', 'reminder_sent', 'in_progress', 'completed'].includes(appointment.status) },
+    { key: 'confirmed', label: 'Confirmada', done: !!appointment.patient_confirmed || ['confirmed', 'in_progress', 'completed'].includes(appointment.status) },
+    { key: 'sharing', label: 'Dados', done: !!appointment.data_sharing_authorized },
+    { key: 'completed', label: 'Finalizada', done: appointment.status === 'completed' },
+  ]
+
+  return (
+    <div className="mt-3 grid grid-cols-5 gap-1">
+      {steps.map((step) => (
+        <div key={step.key} className="text-center">
+          <div className={`h-1.5 rounded-full mb-1 ${step.done ? 'bg-emerald-500' : 'bg-gray-200'}`} />
+          <p className={`text-[10px] ${step.done ? 'text-emerald-700 font-medium' : 'text-gray-400'}`}>{step.label}</p>
+        </div>
+      ))}
     </div>
   )
 }
@@ -469,11 +597,30 @@ function SmallPermission({ icon: Icon, label }: any) {
   )
 }
 
+function EmptyState({ onNew }: { onNew: () => void }) {
+  return (
+    <div className="py-8 text-center">
+      <div className="mx-auto w-14 h-14 rounded-2xl bg-cyan-50 flex items-center justify-center mb-3">
+        <Video className="w-7 h-7 text-cyan-600" />
+      </div>
+      <h3 className="font-bold">Nenhuma teleconsulta ainda</h3>
+      <p className="text-sm text-muted-foreground mt-1 mb-4">
+        Solicite uma consulta online e compartilhe seus dados com segurança apenas para aquele atendimento.
+      </p>
+      <button onClick={onNew} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold">
+        <Plus className="w-4 h-4" />
+        Solicitar consulta
+      </button>
+    </div>
+  )
+}
+
 function translateStatus(status: string) {
   const map: Record<string, string> = {
     requested: 'Solicitada',
     scheduled: 'Agendada',
     confirmed: 'Confirmada',
+    reminder_sent: 'Lembrete enviado',
     in_progress: 'Em andamento',
     completed: 'Concluída',
     cancelled: 'Cancelada',
@@ -481,6 +628,24 @@ function translateStatus(status: string) {
   }
 
   return map[status] || status
+}
+
+function translateEventType(type: string) {
+  const map: Record<string, string> = {
+    patient_requested: 'Solicitação',
+    professional_scheduled: 'Agendamento',
+    patient_confirmed: 'Confirmação',
+    patient_authorized_sharing: 'Dados autorizados',
+    reminder_sent: 'Lembrete',
+    consultation_started: 'Início',
+    consultation_completed: 'Finalização',
+    post_consultation_saved: 'Orientação salva',
+    patient_cancelled: 'Cancelamento',
+    consultation_cancelled: 'Cancelamento',
+    patient_no_show: 'Ausência',
+  }
+
+  return map[type] || type
 }
 
 function formatDate(date: string) {
