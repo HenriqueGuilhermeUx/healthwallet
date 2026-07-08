@@ -10,14 +10,8 @@ export default function AppHeader() {
             <Heart className="w-5 h-5 text-white" />
           </div>
 
-          <div>
-            <div className="font-bold text-lg leading-tight">
-              HealthWallet
-            </div>
-
-            <div className="text-[11px] text-muted-foreground -mt-1">
-              by Nexa
-            </div>
+          <div className="font-bold text-lg leading-tight">
+            HealthWallet
           </div>
         </Link>
 
