@@ -14,6 +14,7 @@ import {
   Bell,
   Phone,
   CheckCircle,
+  Building2,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -27,6 +28,13 @@ interface FamilyMember {
   blood_type?: string
   phone?: string
   email?: string
+  cpf?: string
+  cns_number?: string
+  sus_card_number?: string
+  sus_municipality?: string
+  sus_ubs_reference?: string
+  sus_family_health_team?: string
+  sus_local_record_number?: string
   allergies?: string
   medications?: string
   conditions?: string
@@ -52,6 +60,12 @@ const emptyForm = {
   blood_type: '',
   phone: '',
   email: '',
+  cpf: '',
+  cns_number: '',
+  sus_municipality: '',
+  sus_ubs_reference: '',
+  sus_family_health_team: '',
+  sus_local_record_number: '',
   allergies: '',
   medications: '',
   conditions: '',
@@ -69,6 +83,16 @@ const emptyForm = {
   preferred_contact_method: 'whatsapp',
 }
 
+function onlyDigits(value: string) {
+  return String(value || '').replace(/\D/g, '')
+}
+
+function formatCns(value: string) {
+  const digits = onlyDigits(value)
+  if (!digits) return ''
+  return digits.replace(/(\d{3})(\d{4})(\d{4})(\d{4})/, '$1 $2 $3 $4')
+}
+
 export default function Family() {
   const { user } = useAuth()
   const [members, setMembers] = useState<FamilyMember[]>([])
@@ -83,16 +107,13 @@ export default function Family() {
 
   async function loadMembers() {
     if (!user) return
-
     setLoading(true)
-
     try {
       const { data } = await supabase
         .from('family_members')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-
       setMembers(data || [])
     } catch (error) {
       console.error('Error loading family:', error)
@@ -108,6 +129,7 @@ export default function Family() {
     }
 
     try {
+      const cnsDigits = onlyDigits(formData.cns_number)
       const payload = {
         user_id: user.id,
         name: formData.name,
@@ -117,6 +139,13 @@ export default function Family() {
         blood_type: formData.blood_type,
         phone: formData.phone,
         email: formData.email,
+        cpf: onlyDigits(formData.cpf) || null,
+        cns_number: cnsDigits || null,
+        sus_card_number: cnsDigits || null,
+        sus_municipality: formData.sus_municipality || null,
+        sus_ubs_reference: formData.sus_ubs_reference || null,
+        sus_family_health_team: formData.sus_family_health_team || null,
+        sus_local_record_number: formData.sus_local_record_number || null,
         allergies: formData.allergies,
         medications: formData.medications,
         conditions: formData.conditions,
@@ -134,12 +163,7 @@ export default function Family() {
         preferred_contact_method: formData.preferred_contact_method,
       }
 
-      const { data, error } = await supabase
-        .from('family_members')
-        .insert(payload)
-        .select()
-        .single()
-
+      const { data, error } = await supabase.from('family_members').insert(payload).select().single()
       if (error) throw error
 
       if (formData.master_access || formData.is_caregiver) {
@@ -183,13 +207,12 @@ export default function Family() {
       loadMembers()
     } catch (error: any) {
       console.error('Error adding member:', error)
-      alert(error.message || 'Erro ao adicionar familiar. Rode o SQL_FAMILIA_IDOSOS_FASE1.sql no Supabase se ainda não rodou.')
+      alert(error.message || 'Erro ao adicionar familiar. Rode SQL_FAMILIA_IDOSOS_FASE1.sql e SQL_CNS_CARTAO_SUS_V1.sql no Supabase se ainda não rodou.')
     }
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Deseja remover este membro?')) return
-
     await supabase.from('family_members').delete().eq('id', id)
     setSelectedMember(null)
     loadMembers()
@@ -205,9 +228,7 @@ export default function Family() {
           <Users className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">Círculo de Cuidado</h1>
-            <p className="text-white/80 text-sm">
-              Família, idosos, cuidadores, acesso master e alertas importantes.
-            </p>
+            <p className="text-white/80 text-sm">Família, idosos, cuidadores, CNS/Cartão SUS, acesso master e alertas importantes.</p>
           </div>
         </div>
       </div>
@@ -215,7 +236,7 @@ export default function Family() {
       <div className="grid grid-cols-3 gap-2">
         <StatCard label="Pessoas" value={members.length} />
         <StatCard label="Cuidados" value={monitored.length} />
-        <StatCard label="Masters" value={members.filter((m) => m.master_access).length} />
+        <StatCard label="Com CNS" value={members.filter((m) => m.cns_number || m.sus_card_number).length} />
       </div>
 
       <section className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
@@ -223,31 +244,23 @@ export default function Family() {
           <ShieldCheck className="w-6 h-6 text-emerald-700 mt-0.5" />
           <div>
             <h2 className="font-bold text-emerald-950">Perfil familiar livre</h2>
-            <p className="text-sm text-emerald-800 mt-1">
-              Familiar, idoso ou dependente cadastrado aqui não precisa assinar, aceitar convite ou gerar código. A partir do cadastro, você pode registrar dados, exames, medicamentos, Passport e alertas normalmente.
-            </p>
+            <p className="text-sm text-emerald-800 mt-1">Familiar, idoso ou dependente não precisa assinar, aceitar convite ou gerar código. Também pode ter CPF, CNS/Cartão SUS, UBS e município para organizar o cuidado.</p>
           </div>
         </div>
       </section>
 
       <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
         <div className="flex gap-3">
-          <CheckCircle className="w-6 h-6 text-blue-700 mt-0.5" />
+          <CreditCard className="w-6 h-6 text-blue-700 mt-0.5" />
           <div>
-            <h2 className="font-bold text-blue-950">Quando usamos aceite?</h2>
-            <p className="text-sm text-blue-800 mt-1">
-              Aceite/assinatura fica para documentos profissionais, consentimentos ou autorizações externas. Para família e dependentes dentro do seu HealthWallet, o uso é direto e sem trava.
-            </p>
+            <h2 className="font-bold text-blue-950">CNS / Cartão SUS complementar</h2>
+            <p className="text-sm text-blue-800 mt-1">Use como ponte operacional para família, UBS, programas municipais, idosos, dependentes e cuidado contínuo. Não é consulta automática ao SUS nesta fase.</p>
           </div>
         </div>
       </section>
 
-      <button
-        onClick={() => setShowAddForm(true)}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-semibold"
-      >
-        <Plus className="w-5 h-5" />
-        Adicionar pessoa
+      <button onClick={() => setShowAddForm(true)} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-semibold">
+        <Plus className="w-5 h-5" /> Adicionar pessoa
       </button>
 
       {loading ? (
@@ -256,28 +269,15 @@ export default function Family() {
         <div className="text-center py-12 bg-card rounded-xl border border-dashed">
           <Users className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <h3 className="font-semibold mb-2">Nenhuma pessoa cadastrada</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Cadastre idosos, filhos, cuidadores e familiares. Depois disso, o perfil roda livre, sem aceite ou assinatura.
-          </p>
-          <button onClick={() => setShowAddForm(true)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">
-            Adicionar
-          </button>
+          <p className="text-sm text-muted-foreground mb-4">Cadastre idosos, filhos, cuidadores e familiares. O perfil roda livre, sem aceite ou assinatura.</p>
+          <button onClick={() => setShowAddForm(true)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm">Adicionar</button>
         </div>
       ) : (
         <div className="space-y-4">
-          {caregivers.length > 0 && (
-            <MemberGroup title="Familiares e cuidadores" members={caregivers} onSelect={setSelectedMember} onDelete={handleDelete} />
-          )}
-          {monitored.length > 0 && (
-            <MemberGroup title="Pessoas cuidadas" members={monitored} onSelect={setSelectedMember} onDelete={handleDelete} />
-          )}
+          {caregivers.length > 0 && <MemberGroup title="Familiares e cuidadores" members={caregivers} onSelect={setSelectedMember} onDelete={handleDelete} />}
+          {monitored.length > 0 && <MemberGroup title="Pessoas cuidadas" members={monitored} onSelect={setSelectedMember} onDelete={handleDelete} />}
           {members.filter((m) => !caregivers.includes(m) && !monitored.includes(m)).length > 0 && (
-            <MemberGroup
-              title="Outros"
-              members={members.filter((m) => !caregivers.includes(m) && !monitored.includes(m))}
-              onSelect={setSelectedMember}
-              onDelete={handleDelete}
-            />
+            <MemberGroup title="Outros" members={members.filter((m) => !caregivers.includes(m) && !monitored.includes(m))} onSelect={setSelectedMember} onDelete={handleDelete} />
           )}
         </div>
       )}
@@ -289,14 +289,9 @@ export default function Family() {
               <h2 className="font-bold">Adicionar ao cuidado</h2>
               <button onClick={() => setShowAddForm(false)} className="text-muted-foreground">✕</button>
             </div>
-
             <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-900">
-                Cadastro familiar livre: não envia convite, não pede aceite e não exige assinatura. Basta salvar a pessoa para começar a organizar dados, exames e cuidados.
-              </div>
-
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-900">Cadastro familiar livre: não envia convite, não pede aceite e não exige assinatura.</div>
               <Input label="Nome *" value={formData.name} onChange={(v: string) => setFormData({ ...formData, name: v })} />
-
               <div>
                 <label className="text-sm font-medium mb-1 block">Tipo</label>
                 <select value={formData.member_type} onChange={(e) => setFormData({ ...formData, member_type: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-background">
@@ -306,52 +301,38 @@ export default function Family() {
                   <option value="professional">Profissional</option>
                 </select>
               </div>
-
               <div>
                 <label className="text-sm font-medium mb-1 block">Parentesco / vínculo</label>
                 <select value={formData.relationship} onChange={(e) => setFormData({ ...formData, relationship: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-background">
                   <option value="">Selecione</option>
-                  <option value="Cônjuge">Cônjuge</option>
-                  <option value="Filho(a)">Filho(a)</option>
-                  <option value="Pai/Mãe">Pai/Mãe</option>
-                  <option value="Irmão(ã)">Irmão(ã)</option>
-                  <option value="Avô/Avó">Avô/Avó</option>
-                  <option value="Cuidador(a)">Cuidador(a)</option>
-                  <option value="Outro">Outro</option>
+                  <option value="Cônjuge">Cônjuge</option><option value="Filho(a)">Filho(a)</option><option value="Pai/Mãe">Pai/Mãe</option><option value="Irmão(ã)">Irmão(ã)</option><option value="Avô/Avó">Avô/Avó</option><option value="Cuidador(a)">Cuidador(a)</option><option value="Outro">Outro</option>
                 </select>
               </div>
-
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium mb-1 block">Nascimento</label>
-                  <input type="date" value={formData.birth_date} onChange={(e) => setFormData({ ...formData, birth_date: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-background" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1 block">Sangue</label>
-                  <select value={formData.blood_type} onChange={(e) => setFormData({ ...formData, blood_type: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-background">
-                    <option value="">—</option>
-                    <option value="A+">A+</option><option value="A-">A-</option>
-                    <option value="B+">B+</option><option value="B-">B-</option>
-                    <option value="AB+">AB+</option><option value="AB-">AB-</option>
-                    <option value="O+">O+</option><option value="O-">O-</option>
-                  </select>
-                </div>
+                <DateInput label="Nascimento" value={formData.birth_date} onChange={(v: string) => setFormData({ ...formData, birth_date: v })} />
+                <BloodInput value={formData.blood_type} onChange={(v: string) => setFormData({ ...formData, blood_type: v })} />
               </div>
-
+              <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 space-y-3">
+                <p className="font-semibold text-sm text-blue-950 flex items-center gap-2"><CreditCard className="w-4 h-4" /> SUS / identificação local</p>
+                <Input label="CPF" value={formData.cpf} onChange={(v: string) => setFormData({ ...formData, cpf: v })} />
+                <Input label="CNS / Cartão SUS" value={formData.cns_number} onChange={(v: string) => setFormData({ ...formData, cns_number: v })} />
+                <Input label="Município" value={formData.sus_municipality} onChange={(v: string) => setFormData({ ...formData, sus_municipality: v })} />
+                <Input label="UBS referência" value={formData.sus_ubs_reference} onChange={(v: string) => setFormData({ ...formData, sus_ubs_reference: v })} />
+                <Input label="Equipe / agente de saúde" value={formData.sus_family_health_team} onChange={(v: string) => setFormData({ ...formData, sus_family_health_team: v })} />
+                <Input label="Nº prontuário local" value={formData.sus_local_record_number} onChange={(v: string) => setFormData({ ...formData, sus_local_record_number: v })} />
+              </div>
               <Input label="Telefone" value={formData.phone} onChange={(v: string) => setFormData({ ...formData, phone: v })} placeholder="WhatsApp ou telefone" />
               <Input label="E-mail" value={formData.email} onChange={(v: string) => setFormData({ ...formData, email: v })} placeholder="opcional" />
               <Input label="Alergias" value={formData.allergies} onChange={(v: string) => setFormData({ ...formData, allergies: v })} />
               <Input label="Medicamentos" value={formData.medications} onChange={(v: string) => setFormData({ ...formData, medications: v })} />
               <Input label="Condições" value={formData.conditions} onChange={(v: string) => setFormData({ ...formData, conditions: v })} />
               <Input label="Plano/SUS" value={formData.health_plan} onChange={(v: string) => setFormData({ ...formData, health_plan: v })} />
-
               <div className="grid grid-cols-2 gap-2">
                 <Check label="Idoso" checked={formData.is_elderly} onChange={(v: boolean) => setFormData({ ...formData, is_elderly: v })} />
                 <Check label="Cuidador" checked={formData.is_caregiver} onChange={(v: boolean) => setFormData({ ...formData, is_caregiver: v })} />
                 <Check label="Acesso master" checked={formData.master_access} onChange={(v: boolean) => setFormData({ ...formData, master_access: v })} />
                 <Check label="Contato emergência" checked={formData.emergency_contact} onChange={(v: boolean) => setFormData({ ...formData, emergency_contact: v })} />
               </div>
-
               <div className="bg-muted/40 rounded-xl p-3 space-y-2">
                 <p className="text-sm font-semibold">Receber alertas</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -361,15 +342,11 @@ export default function Family() {
                   <Check label="Ajuda rápida" checked={formData.notify_sos} onChange={(v: boolean) => setFormData({ ...formData, notify_sos: v })} />
                 </div>
               </div>
-
               <div>
                 <label className="text-sm font-medium mb-1 block">Observações</label>
                 <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-background min-h-[90px]" placeholder="Rotina, médicos, cuidados, preferências..." />
               </div>
-
-              <button onClick={handleAddMember} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold">
-                Salvar pessoa e liberar cuidado
-              </button>
+              <button onClick={handleAddMember} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold">Salvar pessoa e liberar cuidado</button>
             </div>
           </div>
         </div>
@@ -379,69 +356,24 @@ export default function Family() {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
           <div className="bg-background rounded-2xl w-full max-w-md overflow-hidden">
             <div className="p-4 border-b flex items-center justify-between">
-              <div>
-                <h2 className="font-bold">{selectedMember.name}</h2>
-                <p className="text-sm text-muted-foreground">{selectedMember.relationship || 'Familiar'}</p>
-              </div>
+              <div><h2 className="font-bold">{selectedMember.name}</h2><p className="text-sm text-muted-foreground">{selectedMember.relationship || 'Familiar'}</p></div>
               <button onClick={() => setSelectedMember(null)} className="text-muted-foreground"><X className="w-5 h-5" /></button>
             </div>
-
             <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
               <div className="flex flex-wrap gap-2">
-                {selectedMember.master_access && <Badge text="Master" />}
-                {selectedMember.is_elderly && <Badge text="Idoso" />}
-                {selectedMember.is_caregiver && <Badge text="Cuidador" />}
-                {selectedMember.emergency_contact && <Badge text="Emergência" />}
-                <Badge text="Livre" />
+                {selectedMember.master_access && <Badge text="Master" />}{selectedMember.is_elderly && <Badge text="Idoso" />}{selectedMember.is_caregiver && <Badge text="Cuidador" />}{selectedMember.emergency_contact && <Badge text="Emergência" />}{(selectedMember.cns_number || selectedMember.sus_card_number) && <Badge text="CNS" />}<Badge text="Livre" />
               </div>
-
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-900">
-                Perfil familiar/dependente gerenciado diretamente no HealthWallet, sem aceite ou assinatura.
-              </div>
-
-              <ProfileCard icon={User} title="Dados básicos">
-                <Info label="Nome" value={selectedMember.name} />
-                <Info label="Vínculo" value={selectedMember.relationship} />
-                <Info label="Nascimento" value={selectedMember.birth_date ? formatDate(selectedMember.birth_date) : ''} />
-                <Info label="Idade" value={selectedMember.birth_date ? `${calculateAge(selectedMember.birth_date)} anos` : ''} />
-                <Info label="Tipo sanguíneo" value={selectedMember.blood_type} />
-              </ProfileCard>
-
-              <ProfileCard icon={Phone} title="Contato">
-                <Info label="Telefone" value={selectedMember.phone} />
-                <Info label="E-mail" value={selectedMember.email} />
-              </ProfileCard>
-
-              <ProfileCard icon={AlertTriangle} title="Alergias">
-                <Info label="Alergias" value={selectedMember.allergies} />
-              </ProfileCard>
-
-              <ProfileCard icon={Pill} title="Medicamentos">
-                <Info label="Medicamentos" value={selectedMember.medications} />
-              </ProfileCard>
-
-              <ProfileCard icon={Heart} title="Condições">
-                <Info label="Condições" value={selectedMember.conditions} />
-              </ProfileCard>
-
-              <ProfileCard icon={CreditCard} title="Plano/SUS">
-                <Info label="Carteira" value={selectedMember.health_plan} />
-              </ProfileCard>
-
-              <ProfileCard icon={Bell} title="Alertas">
-                <Info label="Medicamentos" value={selectedMember.notify_medications ? 'Sim' : 'Não'} />
-                <Info label="Consultas" value={selectedMember.notify_appointments ? 'Sim' : 'Não'} />
-                <Info label="Exames" value={selectedMember.notify_exams ? 'Sim' : 'Não'} />
-                <Info label="Ajuda rápida" value={selectedMember.notify_sos ? 'Sim' : 'Não'} />
-              </ProfileCard>
-
-              <ProfileCard icon={FileText} title="Resumo familiar">
-                <Info label="Observações" value={selectedMember.notes} />
-              </ProfileCard>
-
-              <button onClick={() => handleDelete(selectedMember.id)} className="w-full py-3 rounded-xl border border-red-200 text-red-600 font-medium">
-                Remover pessoa
-              </button>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-900">Perfil familiar/dependente gerenciado diretamente no HealthWallet, sem aceite ou assinatura.</div>
+              <ProfileCard icon={User} title="Dados básicos"><Info label="Nome" value={selectedMember.name} /><Info label="Vínculo" value={selectedMember.relationship} /><Info label="Nascimento" value={selectedMember.birth_date ? formatDate(selectedMember.birth_date) : ''} /><Info label="Idade" value={selectedMember.birth_date ? `${calculateAge(selectedMember.birth_date)} anos` : ''} /><Info label="Tipo sanguíneo" value={selectedMember.blood_type} /></ProfileCard>
+              <ProfileCard icon={CreditCard} title="SUS / CNS"><Info label="CNS / Cartão SUS" value={formatCns(selectedMember.cns_number || selectedMember.sus_card_number || '')} /><Info label="CPF" value={selectedMember.cpf} /><Info label="Município" value={selectedMember.sus_municipality} /><Info label="UBS referência" value={selectedMember.sus_ubs_reference} /><Info label="Equipe / agente" value={selectedMember.sus_family_health_team} /><Info label="Prontuário local" value={selectedMember.sus_local_record_number} /></ProfileCard>
+              <ProfileCard icon={Phone} title="Contato"><Info label="Telefone" value={selectedMember.phone} /><Info label="E-mail" value={selectedMember.email} /></ProfileCard>
+              <ProfileCard icon={AlertTriangle} title="Alergias"><Info label="Alergias" value={selectedMember.allergies} /></ProfileCard>
+              <ProfileCard icon={Pill} title="Medicamentos"><Info label="Medicamentos" value={selectedMember.medications} /></ProfileCard>
+              <ProfileCard icon={Heart} title="Condições"><Info label="Condições" value={selectedMember.conditions} /></ProfileCard>
+              <ProfileCard icon={Building2} title="Plano/SUS"><Info label="Carteira" value={selectedMember.health_plan} /></ProfileCard>
+              <ProfileCard icon={Bell} title="Alertas"><Info label="Medicamentos" value={selectedMember.notify_medications ? 'Sim' : 'Não'} /><Info label="Consultas" value={selectedMember.notify_appointments ? 'Sim' : 'Não'} /><Info label="Exames" value={selectedMember.notify_exams ? 'Sim' : 'Não'} /><Info label="Ajuda rápida" value={selectedMember.notify_sos ? 'Sim' : 'Não'} /></ProfileCard>
+              <ProfileCard icon={FileText} title="Resumo familiar"><Info label="Observações" value={selectedMember.notes} /></ProfileCard>
+              <button onClick={() => handleDelete(selectedMember.id)} className="w-full py-3 rounded-xl border border-red-200 text-red-600 font-medium">Remover pessoa</button>
             </div>
           </div>
         </div>
@@ -457,28 +389,14 @@ function MemberGroup({ title, members, onSelect, onDelete }: any) {
       {members.map((member: FamilyMember) => (
         <div key={member.id} className="bg-card rounded-xl border border-border p-4">
           <div className="flex items-start gap-3">
-            <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center">
-              <Heart className="w-6 h-6 text-pink-600" />
-            </div>
+            <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center"><Heart className="w-6 h-6 text-pink-600" /></div>
             <div className="flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-semibold">{member.name}</p>
-                {member.master_access && <Badge text="Master" />}
-                {member.is_elderly && <Badge text="Idoso" />}
-                <Badge text="Livre" />
-              </div>
+              <div className="flex items-center gap-2 flex-wrap"><p className="font-semibold">{member.name}</p>{member.master_access && <Badge text="Master" />}{member.is_elderly && <Badge text="Idoso" />}{(member.cns_number || member.sus_card_number) && <Badge text="CNS" />}<Badge text="Livre" /></div>
               <p className="text-sm text-muted-foreground">{member.relationship || 'Vínculo não informado'}</p>
-              <div className="grid grid-cols-2 gap-2 mt-3">
-                <MiniInfo label="Sangue" value={member.blood_type || '—'} />
-                <MiniInfo label="Idade" value={member.birth_date ? `${calculateAge(member.birth_date)} anos` : '—'} />
-              </div>
-              <button onClick={() => onSelect(member)} className="mt-3 w-full py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium">
-                Ver cuidado
-              </button>
+              <div className="grid grid-cols-2 gap-2 mt-3"><MiniInfo label="Sangue" value={member.blood_type || '—'} /><MiniInfo label="CNS" value={formatCns(member.cns_number || member.sus_card_number || '') || '—'} /></div>
+              <button onClick={() => onSelect(member)} className="mt-3 w-full py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium">Ver cuidado</button>
             </div>
-            <button onClick={() => onDelete(member.id)} className="text-red-500">
-              <Trash2 className="w-4 h-4" />
-            </button>
+            <button onClick={() => onDelete(member.id)} className="text-red-500"><Trash2 className="w-4 h-4" /></button>
           </div>
         </div>
       ))}
@@ -486,80 +404,14 @@ function MemberGroup({ title, members, onSelect, onDelete }: any) {
   )
 }
 
-function StatCard({ label, value }: any) {
-  return (
-    <div className="bg-white rounded-xl border p-3 text-center">
-      <p className="text-2xl font-bold text-indigo-700">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
-  )
-}
-
-function Badge({ text }: any) {
-  return <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">{text}</span>
-}
-
-function MiniInfo({ label, value }: any) {
-  return (
-    <div className="bg-muted/40 rounded-lg p-2">
-      <p className="text-[11px] text-muted-foreground">{label}</p>
-      <p className="text-sm font-semibold">{value}</p>
-    </div>
-  )
-}
-
-function ProfileCard({ icon: Icon, title, children }: any) {
-  return (
-    <div className="bg-muted/40 rounded-xl p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className="w-5 h-5 text-indigo-600" />
-        <h3 className="font-bold">{title}</h3>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function Info({ label, value }: any) {
-  return (
-    <p className="text-sm py-1">
-      <strong>{label}:</strong> {value || 'Não informado'}
-    </p>
-  )
-}
-
-function Input({ label, value, onChange, placeholder = '' }: any) {
-  return (
-    <div>
-      <label className="text-sm font-medium mb-1 block">{label}</label>
-      <input type="text" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background" />
-    </div>
-  )
-}
-
-function Check({ label, checked, onChange }: any) {
-  return (
-    <label className="flex items-center gap-2 text-sm bg-white rounded-lg border p-2">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      {label}
-    </label>
-  )
-}
-
-function calculateAge(date: string) {
-  const birth = new Date(date)
-  const today = new Date()
-  let age = today.getFullYear() - birth.getFullYear()
-  const m = today.getMonth() - birth.getMonth()
-
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
-    age--
-  }
-
-  return age
-}
-
-function formatDate(date: string) {
-  if (!date) return ''
-  return new Date(date).toLocaleDateString('pt-BR')
-}
+function StatCard({ label, value }: any) { return <div className="bg-white rounded-xl border p-3 text-center"><p className="text-2xl font-bold text-indigo-700">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div> }
+function Badge({ text }: any) { return <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">{text}</span> }
+function MiniInfo({ label, value }: any) { return <div className="bg-muted/40 rounded-lg p-2"><p className="text-[11px] text-muted-foreground">{label}</p><p className="text-sm font-semibold">{value}</p></div> }
+function ProfileCard({ icon: Icon, title, children }: any) { return <div className="bg-muted/40 rounded-xl p-4"><div className="flex items-center gap-2 mb-3"><Icon className="w-5 h-5 text-indigo-600" /><h3 className="font-bold">{title}</h3></div>{children}</div> }
+function Info({ label, value }: any) { return <p className="text-sm py-1"><strong>{label}:</strong> {value || 'Não informado'}</p> }
+function Input({ label, value, onChange, placeholder = '' }: any) { return <div><label className="text-sm font-medium mb-1 block">{label}</label><input type="text" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background" /></div> }
+function DateInput({ label, value, onChange }: any) { return <div><label className="text-sm font-medium mb-1 block">{label}</label><input type="date" value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background" /></div> }
+function BloodInput({ value, onChange }: any) { return <div><label className="text-sm font-medium mb-1 block">Sangue</label><select value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background"><option value="">—</option><option value="A+">A+</option><option value="A-">A-</option><option value="B+">B+</option><option value="B-">B-</option><option value="AB+">AB+</option><option value="AB-">AB-</option><option value="O+">O+</option><option value="O-">O-</option></select></div> }
+function Check({ label, checked, onChange }: any) { return <label className="flex items-center gap-2 text-sm bg-white rounded-lg border p-2"><input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />{label}</label> }
+function calculateAge(date: string) { const birth = new Date(date); const today = new Date(); let age = today.getFullYear() - birth.getFullYear(); const m = today.getMonth() - birth.getMonth(); if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--; return age }
+function formatDate(date: string) { if (!date) return ''; return new Date(date).toLocaleDateString('pt-BR') }
