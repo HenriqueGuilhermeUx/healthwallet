@@ -7,11 +7,22 @@ import {
   Activity,
   Calendar,
   ChevronRight,
-  AlertTriangle
+  AlertTriangle,
+  CreditCard,
+  Building2,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+
+function onlyDigits(value: string) {
+  return String(value || '').replace(/\D/g, '')
+}
+
+function formatCns(value: string) {
+  const digits = onlyDigits(value)
+  if (!digits) return ''
+  return digits.replace(/(\d{3})(\d{4})(\d{4})(\d{4})/, '$1 $2 $3 $4')
+}
 
 export default function Profile() {
   const { user, signOut } = useAuth()
@@ -20,6 +31,12 @@ export default function Profile() {
   const [editing, setEditing] = useState(false)
 
   const [formData, setFormData] = useState({
+    cpf: '',
+    cns_number: '',
+    sus_municipality: '',
+    sus_ubs_reference: '',
+    sus_family_health_team: '',
+    sus_local_record_number: '',
     birth_date: '',
     gender: '',
     blood_type: '',
@@ -58,6 +75,12 @@ export default function Profile() {
       if (data) {
         setProfile(data)
         setFormData({
+          cpf: data.cpf || '',
+          cns_number: data.cns_number || data.sus_card_number || '',
+          sus_municipality: data.sus_municipality || '',
+          sus_ubs_reference: data.sus_ubs_reference || '',
+          sus_family_health_team: data.sus_family_health_team || '',
+          sus_local_record_number: data.sus_local_record_number || '',
           birth_date: data.birth_date || '',
           gender: data.gender || '',
           blood_type: data.blood_type || '',
@@ -117,8 +140,17 @@ export default function Profile() {
 
     try {
       const score = calculateScore()
+      const cnsDigits = onlyDigits(formData.cns_number)
+      const cpfDigits = onlyDigits(formData.cpf)
 
       const payload = {
+        cpf: cpfDigits || null,
+        cns_number: cnsDigits || null,
+        sus_card_number: cnsDigits || null,
+        sus_municipality: formData.sus_municipality || null,
+        sus_ubs_reference: formData.sus_ubs_reference || null,
+        sus_family_health_team: formData.sus_family_health_team || null,
+        sus_local_record_number: formData.sus_local_record_number || null,
         birth_date: formData.birth_date || null,
         gender: formData.gender || null,
         blood_type: formData.blood_type || null,
@@ -167,17 +199,19 @@ export default function Profile() {
       localStorage.setItem(
         `healthwallet_profile_${user.id}`,
         JSON.stringify({
+          cpf: payload.cpf,
+          cnsNumber: payload.cns_number,
+          susCardNumber: payload.sus_card_number,
+          susMunicipality: payload.sus_municipality,
+          susUbsReference: payload.sus_ubs_reference,
+          susFamilyHealthTeam: payload.sus_family_health_team,
+          susLocalRecordNumber: payload.sus_local_record_number,
           birthDate: payload.birth_date,
           gender: payload.gender,
           bloodType: payload.blood_type,
           phone: payload.phone,
           weight: payload.weight,
           height: payload.height,
-          smokingStatus: payload.smoking_status,
-          alcoholConsumption: payload.alcohol_consumption,
-          physicalActivity: payload.physical_activity,
-          sleepHours: payload.sleep_hours,
-          stressLevel: payload.stress_level,
           allergies: payload.allergies,
           chronicConditions: payload.chronic_conditions,
           familyHistory: payload.family_history,
@@ -199,7 +233,7 @@ export default function Profile() {
       loadProfile()
     } catch (error) {
       console.error('Error saving profile:', error)
-      alert('Erro ao salvar perfil')
+      alert('Erro ao salvar perfil. Rode o SQL_CNS_CARTAO_SUS_V1.sql no Supabase se ainda não rodou.')
     }
   }
 
@@ -224,6 +258,18 @@ export default function Profile() {
         <p className="text-sm text-muted-foreground">{user?.email}</p>
       </div>
 
+      <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <div className="flex gap-3">
+          <CreditCard className="w-6 h-6 text-blue-700 mt-0.5" />
+          <div>
+            <h2 className="font-bold text-blue-950">CNS / Cartão SUS complementar</h2>
+            <p className="text-sm text-blue-800 mt-1">
+              Informe CPF, CNS/Cartão SUS, UBS e município para ajudar na organização local, Passport e programas públicos. Isso não consulta automaticamente o SUS; é uma ponte operacional informada por você.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <div className="bg-card rounded-xl border border-border overflow-hidden">
         <div className="p-4 border-b flex items-center justify-between">
           <p className="font-semibold">Perfil de Saúde</p>
@@ -234,49 +280,45 @@ export default function Profile() {
 
         {editing ? (
           <div className="p-4 space-y-4">
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-blue-700" />
+                <p className="font-semibold text-blue-950">Identificação SUS / município</p>
+              </div>
+              <Input label="CPF" type="text" value={formData.cpf} onChange={(v) => setFormData({ ...formData, cpf: v })} />
+              <Input label="CNS / Cartão SUS" type="text" value={formData.cns_number} onChange={(v) => setFormData({ ...formData, cns_number: v })} />
+              <Input label="Município" type="text" value={formData.sus_municipality} onChange={(v) => setFormData({ ...formData, sus_municipality: v })} />
+              <Input label="UBS de referência" type="text" value={formData.sus_ubs_reference} onChange={(v) => setFormData({ ...formData, sus_ubs_reference: v })} />
+              <Input label="Equipe / agente de saúde" type="text" value={formData.sus_family_health_team} onChange={(v) => setFormData({ ...formData, sus_family_health_team: v })} />
+              <Input label="Nº prontuário local" type="text" value={formData.sus_local_record_number} onChange={(v) => setFormData({ ...formData, sus_local_record_number: v })} />
+            </div>
+
             <Input label="Data de Nascimento" type="date" value={formData.birth_date} onChange={(v) => setFormData({ ...formData, birth_date: v })} />
             <Input label="Peso (kg)" type="number" value={formData.weight} onChange={(v) => setFormData({ ...formData, weight: v })} />
             <Input label="Altura (cm)" type="number" value={formData.height} onChange={(v) => setFormData({ ...formData, height: v })} />
             <Input label="Telefone" type="tel" value={formData.phone} onChange={(v) => setFormData({ ...formData, phone: v })} />
 
             <Select label="Gênero" value={formData.gender} onChange={(v) => setFormData({ ...formData, gender: v })} options={[
-              ['', 'Selecione'],
-              ['male', 'Masculino'],
-              ['female', 'Feminino'],
-              ['other', 'Outro'],
+              ['', 'Selecione'], ['male', 'Masculino'], ['female', 'Feminino'], ['other', 'Outro'],
             ]} />
 
             <Select label="Tipo Sanguíneo" value={formData.blood_type} onChange={(v) => setFormData({ ...formData, blood_type: v })} options={[
-              ['', 'Selecione'],
-              ['A+', 'A+'], ['A-', 'A-'], ['B+', 'B+'], ['B-', 'B-'],
-              ['AB+', 'AB+'], ['AB-', 'AB-'], ['O+', 'O+'], ['O-', 'O-'],
+              ['', 'Selecione'], ['A+', 'A+'], ['A-', 'A-'], ['B+', 'B+'], ['B-', 'B-'], ['AB+', 'AB+'], ['AB-', 'AB-'], ['O+', 'O+'], ['O-', 'O-'],
             ]} />
 
             <Select label="Atividade Física" value={formData.physical_activity} onChange={(v) => setFormData({ ...formData, physical_activity: v })} options={[
-              ['', 'Selecione'],
-              ['sedentary', 'Sedentário'],
-              ['light', 'Leve'],
-              ['moderate', 'Moderado'],
-              ['active', 'Ativo'],
+              ['', 'Selecione'], ['sedentary', 'Sedentário'], ['light', 'Leve'], ['moderate', 'Moderado'], ['active', 'Ativo'],
             ]} />
 
             <Select label="Tabagismo" value={formData.smoking_status} onChange={(v) => setFormData({ ...formData, smoking_status: v })} options={[
-              ['', 'Selecione'],
-              ['never', 'Nunca fumei'],
-              ['former', 'Ex-fumante'],
-              ['current', 'Fumante atual'],
+              ['', 'Selecione'], ['never', 'Nunca fumei'], ['former', 'Ex-fumante'], ['current', 'Fumante atual'],
             ]} />
 
             <Select label="Álcool" value={formData.alcohol_consumption} onChange={(v) => setFormData({ ...formData, alcohol_consumption: v })} options={[
-              ['', 'Selecione'],
-              ['never', 'Nunca'],
-              ['occasional', 'Ocasional'],
-              ['moderate', 'Moderado'],
-              ['frequent', 'Frequente'],
+              ['', 'Selecione'], ['never', 'Nunca'], ['occasional', 'Ocasional'], ['moderate', 'Moderado'], ['frequent', 'Frequente'],
             ]} />
 
             <Input label="Horas de sono" type="number" value={formData.sleep_hours} onChange={(v) => setFormData({ ...formData, sleep_hours: v })} />
-
             <Textarea label="Alergias" value={formData.allergies_text} onChange={(v) => setFormData({ ...formData, allergies_text: v })} placeholder="Ex: penicilina, camarão" />
             <Textarea label="Condições / doenças" value={formData.chronic_conditions} onChange={(v) => setFormData({ ...formData, chronic_conditions: v })} placeholder="Ex: hipertensão, diabetes" />
             <Textarea label="Medicamentos atuais" value={formData.current_medications} onChange={(v) => setFormData({ ...formData, current_medications: v })} placeholder="Ex: Losartana 50mg" />
@@ -288,7 +330,6 @@ export default function Profile() {
                 <AlertTriangle className="w-5 h-5 text-red-600" />
                 <p className="font-semibold text-red-900">Contato de emergência</p>
               </div>
-
               <Input label="Nome do contato" type="text" value={formData.emergency_contact_name} onChange={(v) => setFormData({ ...formData, emergency_contact_name: v })} />
               <Input label="Telefone do contato" type="tel" value={formData.emergency_contact_phone} onChange={(v) => setFormData({ ...formData, emergency_contact_phone: v })} />
               <Input label="Parentesco / relação" type="text" value={formData.emergency_contact_relationship} onChange={(v) => setFormData({ ...formData, emergency_contact_relationship: v })} />
@@ -300,6 +341,9 @@ export default function Profile() {
           </div>
         ) : (
           <div className="p-4 space-y-3">
+            <Info icon={CreditCard} label="CNS / Cartão SUS" value={formatCns(profile?.cns_number || profile?.sus_card_number || '')} />
+            <Info icon={Shield} label="CPF" value={profile?.cpf} />
+            <Info icon={Building2} label="UBS / Município" value={[profile?.sus_ubs_reference, profile?.sus_municipality].filter(Boolean).join(' · ')} />
             <Info icon={Calendar} label="Nascimento" value={profile?.birth_date} />
             <Info icon={Heart} label="Tipo Sanguíneo" value={profile?.blood_type} />
             <Info icon={Activity} label="Peso / Altura" value={`${profile?.weight || '—'} kg / ${profile?.height || '—'} cm`} />
@@ -314,33 +358,24 @@ export default function Profile() {
           <Shield className="w-5 h-5 text-red-500" />
           <div className="flex-1">
             <p className="font-semibold text-sm">Perfil de Emergência</p>
-            <p className="text-xs text-muted-foreground">Alergias, medicamentos, plano e contato de emergência</p>
+            <p className="text-xs text-muted-foreground">Alergias, medicamentos, CNS/Cartão SUS e contato de emergência</p>
           </div>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </a>
       </div>
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-  <a href="/womens-health" className="flex items-center gap-3 p-4 hover:bg-muted/50">
-    <Heart className="w-5 h-5 text-pink-600" />
-    <div className="flex-1">
-      <p className="font-semibold text-sm">
-        Saúde da Mulher
-      </p>
+        <a href="/womens-health" className="flex items-center gap-3 p-4 hover:bg-muted/50">
+          <Heart className="w-5 h-5 text-pink-600" />
+          <div className="flex-1">
+            <p className="font-semibold text-sm">Saúde da Mulher</p>
+            <p className="text-xs text-muted-foreground">Ciclo menstrual, gravidez, menopausa e prevenção</p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+        </a>
+      </div>
 
-      <p className="text-xs text-muted-foreground">
-        Ciclo menstrual, gravidez, menopausa e prevenção
-      </p>
-    </div>
-
-    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-  </a>
-</div>
-
-      <button
-        onClick={handleLogout}
-        className="w-full py-3 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
-      >
+      <button onClick={handleLogout} className="w-full py-3 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
         Sair da conta
       </button>
     </div>
@@ -351,12 +386,7 @@ function Input({ label, type, value, onChange }: any) {
   return (
     <div>
       <label className="text-sm font-medium mb-1 block">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-      />
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background" />
     </div>
   )
 }
@@ -365,14 +395,8 @@ function Select({ label, value, onChange, options }: any) {
   return (
     <div>
       <label className="text-sm font-medium mb-1 block">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-      >
-        {options.map(([value, label]: string[]) => (
-          <option key={value} value={value}>{label}</option>
-        ))}
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-background">
+        {options.map(([value, label]: string[]) => <option key={value} value={value}>{label}</option>)}
       </select>
     </div>
   )
@@ -382,12 +406,7 @@ function Textarea({ label, value, onChange, placeholder }: any) {
   return (
     <div>
       <label className="text-sm font-medium mb-1 block">{label}</label>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-3 py-2 rounded-lg border border-border bg-background min-h-[80px]"
-      />
+      <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full px-3 py-2 rounded-lg border border-border bg-background min-h-[80px]" />
     </div>
   )
 }
