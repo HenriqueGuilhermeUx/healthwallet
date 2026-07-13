@@ -15,10 +15,21 @@ import {
   Shield,
   User,
   Calendar,
+  Building2,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { createProfessionalShare } from '@/services/shareAccess'
+
+function onlyDigits(value: string) {
+  return String(value || '').replace(/\D/g, '')
+}
+
+function formatCns(value: string) {
+  const digits = onlyDigits(value)
+  if (!digits) return ''
+  return digits.replace(/(\d{3})(\d{4})(\d{4})(\d{4})/, '$1 $2 $3 $4')
+}
 
 export default function Passport() {
   const { user } = useAuth()
@@ -51,6 +62,12 @@ export default function Passport() {
           user.user_metadata?.name ||
           user.email?.split('@')[0] ||
           'Usuário',
+        cpf: dbProfile.cpf,
+        cnsNumber: dbProfile.cns_number || dbProfile.sus_card_number,
+        susMunicipality: dbProfile.sus_municipality,
+        susUbsReference: dbProfile.sus_ubs_reference,
+        susFamilyHealthTeam: dbProfile.sus_family_health_team,
+        susLocalRecordNumber: dbProfile.sus_local_record_number,
         birthDate: dbProfile.birth_date,
         gender: dbProfile.gender,
         bloodType: dbProfile.blood_type,
@@ -73,18 +90,8 @@ export default function Passport() {
       supabase.from('medications').select('*').eq('user_id', user.id),
       supabase.from('patient_conditions').select('*').eq('user_id', user.id),
       supabase.from('health_plans').select('*').eq('user_id', user.id),
-      supabase
-        .from('medical_records')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5),
-      supabase
-        .from('medical_events')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('event_date', { ascending: false })
-        .limit(5),
+      supabase.from('medical_records').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
+      supabase.from('medical_events').select('*').eq('user_id', user.id).order('event_date', { ascending: false }).limit(5),
     ])
 
     setMedications(medsRes.data || [])
@@ -114,16 +121,14 @@ export default function Passport() {
       : []
 
   const activeMedications = medications.filter((med) => med.is_active !== false)
-
   const criticalMeds = activeMedications.length
     ? activeMedications
     : profile.currentMedications
       ? [{ id: 'profile-med', name: profile.currentMedications, dosage: '' }]
       : []
 
-  const lastConsultation = events.find((event) =>
-    ['consultation', 'return'].includes(event.type)
-  )
+  const lastConsultation = events.find((event) => ['consultation', 'return'].includes(event.type))
+  const cnsFormatted = formatCns(profile.cnsNumber)
 
   const missingFields = [
     !profile.bloodType && 'Tipo sanguíneo',
@@ -132,6 +137,7 @@ export default function Passport() {
     criticalMeds.length === 0 && 'Medicamentos',
     plans.length === 0 && 'Plano/SUS',
     !profile.phone && 'Telefone',
+    !profile.cnsNumber && 'CNS / Cartão SUS',
   ].filter(Boolean)
 
   return (
@@ -141,93 +147,66 @@ export default function Passport() {
           <Siren className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">Passaporte 3.0</h1>
-            <p className="text-white/80 text-sm">
-              Emergência, prontuário resumido e Plano/SUS em cards.
-            </p>
+            <p className="text-white/80 text-sm">Emergência, prontuário resumido, CNS/Cartão SUS e Plano/SUS em cards.</p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <EmergencyMiniCard
-            icon={User}
-            label="Nome"
-            value={profile.fullName || user?.email || 'Não informado'}
-          />
-          <EmergencyMiniCard
-            icon={Droplets}
-            label="Tipo sanguíneo"
-            value={profile.bloodType || 'Não informado'}
-          />
-          <EmergencyMiniCard
-            icon={AlertTriangle}
-            label="Alergias"
-            value={allergies.length ? allergies.join(', ') : 'Não informado'}
-          />
-          <EmergencyMiniCard
-            icon={Pill}
-            label="Medicamentos"
-            value={formatMedsShort(criticalMeds)}
-          />
+          <EmergencyMiniCard icon={User} label="Nome" value={profile.fullName || user?.email || 'Não informado'} />
+          <EmergencyMiniCard icon={CreditCard} label="CNS / Cartão SUS" value={cnsFormatted || 'Não informado'} />
+          <EmergencyMiniCard icon={Droplets} label="Tipo sanguíneo" value={profile.bloodType || 'Não informado'} />
+          <EmergencyMiniCard icon={AlertTriangle} label="Alergias" value={allergies.length ? allergies.join(', ') : 'Não informado'} />
+          <EmergencyMiniCard icon={Pill} label="Medicamentos" value={formatMedsShort(criticalMeds)} />
+          <EmergencyMiniCard icon={Building2} label="UBS" value={profile.susUbsReference || 'Não informado'} />
         </div>
       </div>
+
+      <section className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <CreditCard className="w-5 h-5 text-blue-700" />
+          <h2 className="font-bold text-blue-950">Identificação SUS / município</h2>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <InfoCard icon={CreditCard} label="CNS / Cartão SUS" value={cnsFormatted} />
+          <InfoCard icon={Shield} label="CPF" value={profile.cpf} />
+          <InfoCard icon={Building2} label="Município" value={profile.susMunicipality} />
+          <InfoCard icon={Stethoscope} label="UBS referência" value={profile.susUbsReference} />
+          <InfoCard icon={UsersIconSafe} label="Equipe / agente" value={profile.susFamilyHealthTeam} />
+          <InfoCard icon={FileText} label="Prontuário local" value={profile.susLocalRecordNumber} />
+        </div>
+        <p className="text-xs text-blue-800 mt-3">
+          Vínculo complementar informado pelo cidadão, familiar ou município. Não representa consulta automática ao SUS nesta fase.
+        </p>
+        <a href="/profile" className="block mt-3 text-center py-2 rounded-xl bg-blue-600 text-white text-sm font-medium">Atualizar CNS/Cartão SUS</a>
+      </section>
 
       <section className="bg-red-50 border border-red-200 rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-3">
           <Phone className="w-5 h-5 text-red-600" />
           <h2 className="font-bold text-red-900">Contato de emergência</h2>
         </div>
-
         {profile.emergencyContactName ? (
           <div className="bg-white rounded-xl border border-red-100 p-4">
-            <p className="text-lg font-bold text-red-900">
-              {profile.emergencyContactName}
-            </p>
-            <p className="text-sm text-red-800">
-              {profile.emergencyContactRelationship || 'Parentesco não informado'}
-            </p>
-            <p className="text-sm text-red-800 mt-1">
-              {profile.emergencyContactPhone || 'Telefone não informado'}
-            </p>
+            <p className="text-lg font-bold text-red-900">{profile.emergencyContactName}</p>
+            <p className="text-sm text-red-800">{profile.emergencyContactRelationship || 'Parentesco não informado'}</p>
+            <p className="text-sm text-red-800 mt-1">{profile.emergencyContactPhone || 'Telefone não informado'}</p>
           </div>
-        ) : (
-          <Empty text="Nenhum contato de emergência cadastrado." />
-        )}
-
-        <a
-          href="/profile"
-          className="block mt-3 text-center py-2 rounded-xl bg-red-600 text-white text-sm font-medium"
-        >
-          Atualizar contato
-        </a>
+        ) : <Empty text="Nenhum contato de emergência cadastrado." />}
+        <a href="/profile" className="block mt-3 text-center py-2 rounded-xl bg-red-600 text-white text-sm font-medium">Atualizar contato</a>
       </section>
 
       {missingFields.length > 0 && (
         <section className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-yellow-700 mt-0.5" />
-
             <div className="flex-1">
-              <h2 className="font-bold text-yellow-900 mb-2">
-                Informações faltantes
-              </h2>
-
+              <h2 className="font-bold text-yellow-900 mb-2">Informações faltantes</h2>
               <div className="flex flex-wrap gap-2 mb-3">
                 {missingFields.map((item: any) => (
-                  <span
-                    key={item}
-                    className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full"
-                  >
-                    {item}
-                  </span>
+                  <span key={item} className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">{item}</span>
                 ))}
               </div>
-
-              <a
-                href="/profile"
-                className="inline-flex px-4 py-2 rounded-xl bg-yellow-600 text-white text-sm font-medium"
-              >
-                Atualizar agora
-              </a>
+              <a href="/profile" className="inline-flex px-4 py-2 rounded-xl bg-yellow-600 text-white text-sm font-medium">Atualizar agora</a>
             </div>
           </div>
         </section>
@@ -238,32 +217,11 @@ export default function Passport() {
           <HeartPulse className="w-5 h-5 text-emerald-600" />
           <h2 className="font-bold">Prontuário resumido</h2>
         </div>
-
         <div className="grid grid-cols-2 gap-3">
-          <InfoCard
-            icon={Shield}
-            label="MedScore"
-            value={profile.medScore ? `${profile.medScore}/100` : 'Não calculado'}
-          />
-          <InfoCard
-            icon={Stethoscope}
-            label="Condições"
-            value={
-              conditions.length
-                ? `${conditions.length} cadastrada(s)`
-                : profile.chronicConditions || 'Não informado'
-            }
-          />
-          <InfoCard
-            icon={FileText}
-            label="Últimos exames"
-            value={exams.length ? `${exams.length} recente(s)` : 'Nenhum exame'}
-          />
-          <InfoCard
-            icon={Calendar}
-            label="Última consulta"
-            value={lastConsultation ? formatDate(lastConsultation.event_date) : 'Não informado'}
-          />
+          <InfoCard icon={Shield} label="MedScore" value={profile.medScore ? `${profile.medScore}/100` : 'Não calculado'} />
+          <InfoCard icon={Stethoscope} label="Condições" value={conditions.length ? `${conditions.length} cadastrada(s)` : profile.chronicConditions || 'Não informado'} />
+          <InfoCard icon={FileText} label="Últimos exames" value={exams.length ? `${exams.length} recente(s)` : 'Nenhum exame'} />
+          <InfoCard icon={Calendar} label="Última consulta" value={lastConsultation ? formatDate(lastConsultation.event_date) : 'Não informado'} />
         </div>
       </section>
 
@@ -272,14 +230,11 @@ export default function Passport() {
           <CreditCard className="w-5 h-5 text-blue-600" />
           <h2 className="font-bold">Plano/SUS</h2>
         </div>
-
         {plans.length > 0 ? (
           <div className="space-y-3">
             {plans.map((plan) => (
               <div key={plan.id} className="rounded-xl border bg-blue-50 border-blue-100 p-4 text-sm text-blue-900">
-                <p className="font-bold">
-                  {plan.plan_type === 'sus' ? 'SUS' : plan.operator_name || 'Plano de saúde'}
-                </p>
+                <p className="font-bold">{plan.plan_type === 'sus' ? 'SUS' : plan.operator_name || 'Plano de saúde'}</p>
                 <p>{plan.plan_name || 'Carteira cadastrada'}</p>
                 <p className="mt-1"><strong>Número:</strong> {plan.card_number || 'Não informado'}</p>
                 <p><strong>Titular:</strong> {plan.beneficiary_name || 'Não informado'}</p>
@@ -287,16 +242,8 @@ export default function Passport() {
               </div>
             ))}
           </div>
-        ) : (
-          <Empty text="Nenhuma carteira Plano/SUS cadastrada." />
-        )}
-
-        <a
-          href="/wallet"
-          className="block mt-3 text-center py-2 rounded-xl bg-blue-600 text-white text-sm font-medium"
-        >
-          Adicionar Plano/SUS
-        </a>
+        ) : <Empty text="Nenhuma carteira Plano/SUS cadastrada." />}
+        <a href="/wallet" className="block mt-3 text-center py-2 rounded-xl bg-blue-600 text-white text-sm font-medium">Adicionar Plano/SUS</a>
       </section>
 
       <section className="bg-white rounded-2xl border p-4">
@@ -304,21 +251,16 @@ export default function Passport() {
           <Pill className="w-5 h-5 text-orange-600" />
           <h2 className="font-bold">Medicamentos críticos / em uso</h2>
         </div>
-
         {criticalMeds.length > 0 ? (
           <div className="space-y-2">
             {criticalMeds.slice(0, 5).map((med: any) => (
               <div key={med.id || med.name} className="rounded-xl border bg-orange-50 border-orange-100 p-3 text-sm">
                 <p className="font-semibold">{med.name || med.medication_name || 'Medicamento'}</p>
-                <p className="text-gray-600">
-                  {[med.dosage, med.frequency].filter(Boolean).join(' · ') || 'Sem detalhes'}
-                </p>
+                <p className="text-gray-600">{[med.dosage, med.frequency].filter(Boolean).join(' · ') || 'Sem detalhes'}</p>
               </div>
             ))}
           </div>
-        ) : (
-          <Empty text="Nenhum medicamento cadastrado." />
-        )}
+        ) : <Empty text="Nenhum medicamento cadastrado." />}
       </section>
 
       <section className="bg-white rounded-2xl border p-4">
@@ -326,29 +268,17 @@ export default function Passport() {
           <FileText className="w-5 h-5 text-emerald-600" />
           <h2 className="font-bold">Últimos exames</h2>
         </div>
-
         {exams.length > 0 ? (
           <div className="space-y-2">
             {exams.slice(0, 5).map((exam) => (
               <div key={exam.id} className="rounded-xl border p-3 text-sm">
                 <p className="font-semibold">{exam.file_name || exam.exam_type || 'Exame'}</p>
-                <p className="text-xs text-gray-500">
-                  {exam.status === 'processed' ? 'Analisado' : 'Pendente'} ·{' '}
-                  {formatDate(exam.created_at)}
-                </p>
+                <p className="text-xs text-gray-500">{exam.status === 'processed' ? 'Analisado' : 'Pendente'} · {formatDate(exam.created_at)}</p>
               </div>
             ))}
           </div>
-        ) : (
-          <Empty text="Nenhum exame cadastrado." />
-        )}
-
-        <a
-          href="/upload"
-          className="block mt-3 text-center py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium"
-        >
-          Enviar exame
-        </a>
+        ) : <Empty text="Nenhum exame enviado." />}
+        <a href="/upload" className="block mt-3 text-center py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium">Enviar exame</a>
       </section>
 
       <section className="bg-white rounded-2xl border p-4">
@@ -356,23 +286,13 @@ export default function Passport() {
           <QrCode className="w-5 h-5 text-emerald-600" />
           <h2 className="font-bold">Compartilhamento médico</h2>
         </div>
-
-        <button
-          onClick={generateEmergencyCode}
-          className="w-full bg-emerald-600 text-white py-3 rounded-xl font-medium"
-        >
-          Gerar código de acesso
-        </button>
-
+        <p className="text-xs text-gray-500 mb-3">O código pode levar junto o vínculo CNS/Cartão SUS informado, quando cadastrado.</p>
+        <button onClick={generateEmergencyCode} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-medium">Gerar código de acesso</button>
         {shareCode && (
           <div className="mt-4 text-center bg-emerald-50 border border-emerald-200 rounded-xl p-4">
             <p className="text-sm text-emerald-700">Código:</p>
             <p className="text-3xl font-bold tracking-widest text-emerald-900">{shareCode}</p>
-
-            <button
-              onClick={copyCode}
-              className="mt-3 w-full bg-white border border-emerald-300 text-emerald-700 py-2 rounded-xl font-medium flex items-center justify-center gap-2"
-            >
+            <button onClick={copyCode} className="mt-3 w-full bg-white border border-emerald-300 text-emerald-700 py-2 rounded-xl font-medium flex items-center justify-center gap-2">
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copied ? 'Copiado!' : 'Copiar código'}
             </button>
@@ -382,12 +302,14 @@ export default function Passport() {
 
       <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex gap-3">
         <AlertTriangle className="w-5 h-5 text-yellow-700" />
-        <p className="text-xs text-yellow-800">
-          Em emergência real, ligue para o serviço de emergência local. Este passaporte é apoio informativo e não substitui avaliação médica.
-        </p>
+        <p className="text-xs text-yellow-800">Em emergência real, ligue para o serviço de emergência local. Este passaporte é apoio informativo e não substitui avaliação médica.</p>
       </div>
     </div>
   )
+}
+
+function UsersIconSafe(props: any) {
+  return <Stethoscope {...props} />
 }
 
 function EmergencyMiniCard({ icon: Icon, label, value }: any) {
@@ -416,11 +338,7 @@ function Empty({ text }: any) {
 
 function formatMedsShort(meds: any[]) {
   if (!meds.length) return 'Não informado'
-
-  return meds
-    .slice(0, 3)
-    .map((med) => `${med.name || med.medication_name || 'Medicamento'} ${med.dosage || ''}`.trim())
-    .join(', ')
+  return meds.slice(0, 3).map((med) => `${med.name || med.medication_name || 'Medicamento'} ${med.dosage || ''}`.trim()).join(', ')
 }
 
 function formatDate(date: string) {
