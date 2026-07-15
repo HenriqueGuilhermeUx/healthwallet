@@ -1,10 +1,11 @@
-import { Home, FileText, User, Mail, Video } from 'lucide-react'
+import { Home, FileText, User, Mail, Video, ShieldCheck } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 
 const navItems = [
   { icon: Home, label: 'Início', path: '/dashboard' },
   { icon: FileText, label: 'Exames', path: '/exams' },
   { icon: Video, label: 'Consulta', path: '/telemedicine' },
+  { icon: ShieldCheck, label: 'Vínculos', path: '/care-links' },
   { icon: Mail, label: 'Receitas', path: '/documents' },
   { icon: User, label: 'Perfil', path: '/profile' },
 ]
@@ -20,12 +21,12 @@ export default function BottomNav() {
           <a
             key={path}
             href={path}
-            className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-all ${
+            className={`flex flex-col items-center gap-1 px-1.5 py-1.5 rounded-xl transition-all ${
               isActive ? 'text-emerald-600' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             <Icon className={`w-5 h-5 ${isActive ? 'fill-emerald-600/20' : ''}`} />
-            <span className="text-[10px] font-medium">{label}</span>
+            <span className="text-[9px] font-medium">{label}</span>
           </a>
         )
       })}
