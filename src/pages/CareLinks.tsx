@@ -55,6 +55,42 @@ export default function CareLinks() {
     setLoading(false)
   }
 
+  async function emitAutomationEvent(eventType: string, item: any, extraPayload: any = {}) {
+    if (!user) return
+
+    try {
+      await supabase.from('automation_events').insert({
+        event_type: eventType,
+        source_app: 'healthwallet',
+        source_table: 'professional_care_links',
+        source_id: item.id,
+        actor_user_id: user.id,
+        actor_role: 'patient',
+        patient_id: user.id,
+        professional_id: item.professional_id || null,
+        care_link_id: item.id,
+        payload: {
+          patient_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email,
+          patient_email: user.email,
+          professional_name: item.professional_name,
+          professional_email: item.professional_email,
+          scope: item.scope || item.requested_scope || {},
+          continuous: item.continuous,
+          duration_days: item.duration_days,
+          ...extraPayload,
+        },
+        metadata: {
+          powered_by: 'MyDataMed Autopilot',
+          n8n_ready: true,
+        },
+        priority: eventType === 'care_link_approved' ? 2 : 4,
+        status: 'pending',
+      })
+    } catch {
+      // Não bloqueia o consentimento se a fila Autopilot ainda não existir.
+    }
+  }
+
   async function approve(item: any) {
     if (!user) return
     const scope = item.requested_scope && Object.keys(item.requested_scope).length ? item.requested_scope : item.scope
@@ -82,6 +118,7 @@ export default function CareLinks() {
       return
     }
 
+    await emitAutomationEvent('care_link_approved', { ...item, scope }, { expires_at: expiresAt })
     toast.success('Vínculo aprovado')
     loadLinks()
   }
@@ -97,6 +134,7 @@ export default function CareLinks() {
       return
     }
 
+    await emitAutomationEvent('care_link_rejected', item)
     toast.success('Solicitação recusada')
     loadLinks()
   }
@@ -114,6 +152,7 @@ export default function CareLinks() {
       return
     }
 
+    await emitAutomationEvent('care_link_revoked', item)
     toast.success('Vínculo revogado')
     loadLinks()
   }
@@ -217,7 +256,7 @@ export default function CareLinks() {
       <section className="rounded-xl bg-white border border-border p-4 space-y-2">
         <div className="flex items-center gap-2 font-bold text-gray-900"><FileText className="w-5 h-5 text-emerald-600" /> Como funciona</div>
         <p className="text-sm text-muted-foreground">O vínculo assistencial permite acompanhamento contínuo autorizado. Ele não substitui consentimentos específicos, receitas, laudos ou documentos que exijam assinatura própria.</p>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground"><MessageCircle className="w-4 h-4" /> SmartBots, Staff, DocWallet e NextGen podem apoiar agenda, lembretes, documentos e planos.</div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground"><MessageCircle className="w-4 h-4" /> SmartBots, Staff, DocWallet, NextGen e n8n podem apoiar agenda, lembretes, documentos, planos e automações.</div>
       </section>
     </div>
   )
