@@ -1,5 +1,5 @@
 import { Home, FileText, User, Mail, Video, ShieldCheck } from 'lucide-react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 const navItems = [
   { icon: Home, label: 'Início', path: '/dashboard' },
@@ -18,16 +18,16 @@ export default function BottomNav() {
       {navItems.map(({ icon: Icon, label, path }) => {
         const isActive = location.pathname === path
         return (
-          <a
+          <Link
             key={path}
-            href={path}
+            to={path}
             className={`flex flex-col items-center gap-1 px-1.5 py-1.5 rounded-xl transition-all ${
               isActive ? 'text-emerald-600' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             <Icon className={`w-5 h-5 ${isActive ? 'fill-emerald-600/20' : ''}`} />
             <span className="text-[9px] font-medium">{label}</span>
-          </a>
+          </Link>
         )
       })}
     </nav>
