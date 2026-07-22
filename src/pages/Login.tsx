@@ -1,60 +1,55 @@
 import { useEffect, useState } from 'react'
 import { Heart, Loader2, Eye, EyeOff, ShieldCheck } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
-import { Link } from 'react-router-dom'
 
 const NEXA_API_URL = 'https://nexa-backend-p2u0.onrender.com/api/v1'
+const SHOW_NEXA_LOGIN = import.meta.env.VITE_ENABLE_NEXA_LOGIN === 'true'
+
 export default function Login() {
   const { user, loading: authLoading, signInWithEmail, signUpWithEmail } = useAuth()
   const [isSignUp, setIsSignUp] = useState(false)
   const [loading, setLoading] = useState(false)
-const [nexaLoading, setNexaLoading] = useState(false)
-const [error, setError] = useState('')
-const [showPassword, setShowPassword] = useState(false)
+  const [nexaLoading, setNexaLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
-  // Form states
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
 
   useEffect(() => {
-  const params = new URLSearchParams(window.location.search)
-  const nexaToken = params.get('nexaToken')
+    const params = new URLSearchParams(window.location.search)
+    const nexaToken = params.get('nexaToken')
 
-  if (nexaToken) {
-    loginWithNexaToken(nexaToken)
-  }
-}, [])
-
-const loginWithNexaToken = async (nexaToken: string) => {
-  setNexaLoading(true)
-  setError('')
-
-  try {
-    const response = await fetch(`${NEXA_API_URL}/nexa-id/validate/${nexaToken}`)
-    const data = await response.json()
-
-    if (!data.success || !data.user) {
-      setError('Token Nexa ID inválido ou expirado')
-      return
+    if (nexaToken) {
+      loginWithNexaToken(nexaToken)
     }
+  }, [])
 
-    localStorage.setItem('healthwallet_nexa_user', JSON.stringify(data.user))
-    localStorage.setItem('healthwallet_nexa_token', nexaToken)
+  const loginWithNexaToken = async (nexaToken: string) => {
+    setNexaLoading(true)
+    setError('')
 
-    window.location.href = '/dashboard'
-  } catch (err) {
-    setError('Erro ao entrar com Nexa ID')
-  } finally {
-    setNexaLoading(false)
+    try {
+      const response = await fetch(`${NEXA_API_URL}/nexa-id/validate/${nexaToken}`)
+      const data = await response.json()
+
+      if (!data.success || !data.user) {
+        setError('Token Nexa ID inválido ou expirado')
+        return
+      }
+
+      localStorage.setItem('healthwallet_nexa_user', JSON.stringify(data.user))
+      localStorage.setItem('healthwallet_nexa_token', nexaToken)
+
+      window.location.href = '/dashboard'
+    } catch (err) {
+      setError('Erro ao entrar com Nexa ID')
+    } finally {
+      setNexaLoading(false)
+    }
   }
-}
 
-const handleNexaLogin = () => {
-  setError('Abra o HealthWallet pelo app Nexa para entrar automaticamente com Nexa ID.')
-}
-
-  // Se já está logado, redireciona
   if (user) {
     window.location.href = '/dashboard'
     return null
@@ -95,7 +90,6 @@ const handleNexaLogin = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
       <header className="px-4 py-6">
         <div className="flex items-center gap-2">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
@@ -105,10 +99,8 @@ const handleNexaLogin = () => {
         </div>
       </header>
 
-      {/* Content */}
       <div className="flex-1 flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-sm">
-          {/* Logo grande */}
           <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/30">
             <Heart className="w-12 h-12 text-white" />
           </div>
@@ -123,34 +115,36 @@ const handleNexaLogin = () => {
             }
           </p>
 
-          <button
-  type="button"
-  onClick={handleNexaLogin}
-  disabled={nexaLoading}
-  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-4"
->
-  {nexaLoading ? (
-    <Loader2 className="w-5 h-5 animate-spin" />
-  ) : (
-    <ShieldCheck className="w-5 h-5" />
-  )}
-  <span>{nexaLoading ? 'Validando Nexa ID...' : 'Entrar com Nexa ID'}</span>
-</button>
+          {SHOW_NEXA_LOGIN && (
+            <>
+              <button
+                type="button"
+                onClick={() => setError('Abra o HealthWallet pelo app Nexa para entrar automaticamente com Nexa ID.')}
+                disabled={nexaLoading}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-4"
+              >
+                {nexaLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <ShieldCheck className="w-5 h-5" />
+                )}
+                <span>{nexaLoading ? 'Validando Nexa ID...' : 'Entrar com Nexa ID'}</span>
+              </button>
 
-<div className="flex items-center gap-3 mb-5">
-  <div className="h-px bg-gray-200 flex-1" />
-  <span className="text-xs text-gray-400 font-medium">ou entre com e-mail</span>
-  <div className="h-px bg-gray-200 flex-1" />
-</div>
+              <div className="flex items-center gap-3 mb-5">
+                <div className="h-px bg-gray-200 flex-1" />
+                <span className="text-xs text-gray-400 font-medium">ou entre com e-mail</span>
+                <div className="h-px bg-gray-200 flex-1" />
+              </div>
+            </>
+          )}
 
-          {/* Error message */}
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
               {error}
             </div>
           )}
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {isSignUp && (
               <div>
@@ -208,14 +202,11 @@ const handleNexaLogin = () => {
               disabled={loading || authLoading}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : null}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
               <span>{loading ? 'Aguarde...' : isSignUp ? 'Criar Conta' : 'Entrar'}</span>
             </button>
           </form>
 
-          {/* Toggle sign up / sign in */}
           <p className="text-center text-sm text-muted-foreground mt-6">
             {isSignUp ? 'Já tem conta?' : 'Não tem conta?'}{' '}
             <button
@@ -230,7 +221,6 @@ const handleNexaLogin = () => {
             </button>
           </p>
 
-          {/* Info */}
           <p className="text-xs text-muted-foreground mt-6 text-center">
             Ao continuar, você concorda com nossos{' '}
             <a href="/terms" className="underline">Termos de Uso</a>
