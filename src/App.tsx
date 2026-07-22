@@ -38,6 +38,7 @@ import CareLinks from '@/pages/CareLinks'
 // Components
 import BottomNav from '@/components/BottomNav'
 import AppHeader from '@/components/AppHeader'
+import AppErrorBoundary from '@/components/AppErrorBoundary'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -54,26 +55,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
       const localAccepted = localStorage.getItem(`healthwallet_terms_${user.id}`)
 
-if (localAccepted === 'true') {
-  setAcceptedTerms(true)
-  setCheckingConsent(false)
-  return
-}
+      if (localAccepted === 'true') {
+        setAcceptedTerms(true)
+        setCheckingConsent(false)
+        return
+      }
 
-const { data } = await supabase
-  .from('profiles')
-  .select('accepted_terms')
-  .eq('id', user.id)
-  .maybeSingle()
+      const { data } = await supabase
+        .from('profiles')
+        .select('accepted_terms')
+        .eq('id', user.id)
+        .maybeSingle()
 
-if (data?.accepted_terms) {
-  localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
-  setAcceptedTerms(true)
-} else {
-  setAcceptedTerms(false)
-}
+      if (data?.accepted_terms) {
+        localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
+        setAcceptedTerms(true)
+      } else {
+        setAcceptedTerms(false)
+      }
 
-setCheckingConsent(false)
+      setCheckingConsent(false)
     }
 
     checkConsent()
@@ -95,12 +96,12 @@ setCheckingConsent(false)
   }
 
   if (
-  !acceptedTerms &&
-  location.pathname !== '/consent' &&
-  location.pathname !== '/telemedicine-admin'
-) {
-  return <Navigate to="/consent" replace />
-}
+    !acceptedTerms &&
+    location.pathname !== '/consent' &&
+    location.pathname !== '/telemedicine-admin'
+  ) {
+    return <Navigate to="/consent" replace />
+  }
 
   return <>{children}</>
 }
@@ -127,48 +128,50 @@ function ProtectedPage({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          {/* Public routes */}
-          <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/onboarding" element={<Onboarding />} />
-          <Route path="/share" element={<ShareQRCode />} />
-          <Route path="/access/:code" element={<AccessCode />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy" element={<Privacy />} />
-          <Route path="/delete-account" element={<DeleteAccount />} />
+    <AppErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/share" element={<ShareQRCode />} />
+            <Route path="/access/:code" element={<AccessCode />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/delete-account" element={<DeleteAccount />} />
 
-          {/* Protected routes */}
-          <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
-          <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
-          <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
-          <Route path="/exams" element={<ProtectedPage><Exams /></ProtectedPage>} />
-          <Route path="/upload" element={<ProtectedPage><UploadExam /></ProtectedPage>} />
-          <Route path="/translator" element={<ProtectedPage><ExamTranslator /></ProtectedPage>} />
-          <Route path="/medications" element={<ProtectedPage><Medications /></ProtectedPage>} />
-          <Route path="/family" element={<ProtectedPage><Family /></ProtectedPage>} />
-          <Route path="/profile" element={<ProtectedPage><Profile /></ProtectedPage>} />
-          <Route path="/chat" element={<ProtectedPage><Chat /></ProtectedPage>} />
-          <Route path="/passport" element={<ProtectedPage><Passport /></ProtectedPage>} />
-          <Route path="/summary" element={<ProtectedPage><Summary /></ProtectedPage>} />
-          <Route path="/timeline" element={<ProtectedPage><Timeline /></ProtectedPage>} />
-          <Route path="/documents" element={<ProtectedPage><ReceivedDocuments /></ProtectedPage>} />
-          <Route path="/womens-health" element={<ProtectedPage><WomensHealth /></ProtectedPage>} />
-          <Route path="/medscore" element={<ProtectedPage><MedScore /></ProtectedPage>} />
-          <Route path="/marketplace" element={<ProtectedPage><Marketplace /></ProtectedPage>} />
-          <Route path="/telemedicine" element={<ProtectedPage><Telemedicine /></ProtectedPage>} />
-          <Route path="/telemedicine-admin" element={<ProtectedPage><TelemedicineAdmin /></ProtectedPage>} />
-          <Route path="/emergency" element={<ProtectedPage><Emergency /></ProtectedPage>} />
-          <Route path="/care-links" element={<ProtectedPage><CareLinks /></ProtectedPage>} />
+            {/* Protected routes */}
+            <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
+            <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
+            <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
+            <Route path="/exams" element={<ProtectedPage><Exams /></ProtectedPage>} />
+            <Route path="/upload" element={<ProtectedPage><UploadExam /></ProtectedPage>} />
+            <Route path="/translator" element={<ProtectedPage><ExamTranslator /></ProtectedPage>} />
+            <Route path="/medications" element={<ProtectedPage><Medications /></ProtectedPage>} />
+            <Route path="/family" element={<ProtectedPage><Family /></ProtectedPage>} />
+            <Route path="/profile" element={<ProtectedPage><Profile /></ProtectedPage>} />
+            <Route path="/chat" element={<ProtectedPage><Chat /></ProtectedPage>} />
+            <Route path="/passport" element={<ProtectedPage><Passport /></ProtectedPage>} />
+            <Route path="/summary" element={<ProtectedPage><Summary /></ProtectedPage>} />
+            <Route path="/timeline" element={<ProtectedPage><Timeline /></ProtectedPage>} />
+            <Route path="/documents" element={<ProtectedPage><ReceivedDocuments /></ProtectedPage>} />
+            <Route path="/womens-health" element={<ProtectedPage><WomensHealth /></ProtectedPage>} />
+            <Route path="/medscore" element={<ProtectedPage><MedScore /></ProtectedPage>} />
+            <Route path="/marketplace" element={<ProtectedPage><Marketplace /></ProtectedPage>} />
+            <Route path="/telemedicine" element={<ProtectedPage><Telemedicine /></ProtectedPage>} />
+            <Route path="/telemedicine-admin" element={<ProtectedPage><TelemedicineAdmin /></ProtectedPage>} />
+            <Route path="/emergency" element={<ProtectedPage><Emergency /></ProtectedPage>} />
+            <Route path="/care-links" element={<ProtectedPage><CareLinks /></ProtectedPage>} />
 
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
 
-        <Toaster position="top-center" richColors />
-      </AuthProvider>
-    </BrowserRouter>
+          <Toaster position="top-center" richColors />
+        </AuthProvider>
+      </BrowserRouter>
+    </AppErrorBoundary>
   )
 }
