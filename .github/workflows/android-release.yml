@@ -2,6 +2,15 @@ name: Android Release AAB
 
 on:
   workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'Android versionCode, must be higher than every version already uploaded to Google Play'
+        required: true
+        default: '10002'
+      version_name:
+        description: 'Android versionName shown in release metadata'
+        required: true
+        default: '1.0.1'
   push:
     branches:
       - main
@@ -23,8 +32,8 @@ jobs:
     name: Build HealthWallet Android bundle
     runs-on: ubuntu-latest
     env:
-      ANDROID_VERSION_CODE: ${{ github.run_number }}
-      ANDROID_VERSION_NAME: 1.0.1
+      ANDROID_VERSION_CODE: ${{ github.event.inputs.version_code || '10002' }}
+      ANDROID_VERSION_NAME: ${{ github.event.inputs.version_name || '1.0.1' }}
 
     steps:
       - name: Checkout
