@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react'
 import {
-  User,
-  Heart,
-  Shield,
-  Phone,
   Activity,
+  AlertTriangle,
+  Building2,
   Calendar,
   ChevronRight,
-  AlertTriangle,
   CreditCard,
-  Building2,
+  Heart,
+  Phone,
+  Shield,
+  User,
 } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 
@@ -26,9 +27,11 @@ function formatCns(value: string) {
 
 export default function Profile() {
   const { user, signOut } = useAuth()
+  const navigate = useNavigate()
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
+  const [error, setError] = useState('')
 
   const [formData, setFormData] = useState({
     cpf: '',
@@ -112,6 +115,7 @@ export default function Profile() {
       }
     } catch (error) {
       console.error('Error loading profile:', error)
+      setError('Não foi possível carregar o perfil agora.')
     } finally {
       setLoading(false)
     }
@@ -139,6 +143,7 @@ export default function Profile() {
     if (!user) return
 
     try {
+      setError('')
       const score = calculateScore()
       const cnsDigits = onlyDigits(formData.cns_number)
       const cpfDigits = onlyDigits(formData.cpf)
@@ -221,11 +226,7 @@ export default function Profile() {
           emergencyContactPhone: payload.emergency_contact_phone,
           emergencyContactRelationship: payload.emergency_contact_relationship,
           medScore: score,
-          fullName:
-            user.user_metadata?.full_name ||
-            user.user_metadata?.name ||
-            user.email?.split('@')[0] ||
-            'Usuário',
+          fullName: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Usuário',
         })
       )
 
@@ -233,13 +234,13 @@ export default function Profile() {
       loadProfile()
     } catch (error) {
       console.error('Error saving profile:', error)
-      alert('Erro ao salvar perfil. Rode o SQL_CNS_CARTAO_SUS_V1.sql no Supabase se ainda não rodou.')
+      setError('Erro ao salvar perfil. Tente novamente em alguns instantes.')
     }
   }
 
   const handleLogout = async () => {
     await signOut()
-    window.location.href = '/'
+    navigate('/', { replace: true })
   }
 
   if (loading) {
@@ -258,6 +259,8 @@ export default function Profile() {
         <p className="text-sm text-muted-foreground">{user?.email}</p>
       </div>
 
+      {error && <div className="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">{error}</div>}
+
       <section className="bg-blue-50 border border-blue-200 rounded-xl p-4">
         <div className="flex gap-3">
           <CreditCard className="w-6 h-6 text-blue-700 mt-0.5" />
@@ -273,7 +276,7 @@ export default function Profile() {
       <div className="bg-card rounded-xl border border-border overflow-hidden">
         <div className="p-4 border-b flex items-center justify-between">
           <p className="font-semibold">Perfil de Saúde</p>
-          <button onClick={() => setEditing(!editing)} className="text-sm text-emerald-600">
+          <button type="button" onClick={() => setEditing(!editing)} className="text-sm text-emerald-600">
             {editing ? 'Cancelar' : 'Editar'}
           </button>
         </div>
@@ -335,7 +338,7 @@ export default function Profile() {
               <Input label="Parentesco / relação" type="text" value={formData.emergency_contact_relationship} onChange={(v) => setFormData({ ...formData, emergency_contact_relationship: v })} />
             </div>
 
-            <button onClick={handleSave} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold">
+            <button type="button" onClick={handleSave} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold">
               Salvar Perfil
             </button>
           </div>
@@ -354,28 +357,28 @@ export default function Profile() {
       </div>
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <a href="/passport" className="flex items-center gap-3 p-4 hover:bg-muted/50">
+        <Link to="/passport" className="flex items-center gap-3 p-4 hover:bg-muted/50">
           <Shield className="w-5 h-5 text-red-500" />
           <div className="flex-1">
             <p className="font-semibold text-sm">Perfil de Emergência</p>
             <p className="text-xs text-muted-foreground">Alergias, medicamentos, CNS/Cartão SUS e contato de emergência</p>
           </div>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
-        </a>
+        </Link>
       </div>
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <a href="/womens-health" className="flex items-center gap-3 p-4 hover:bg-muted/50">
+        <Link to="/womens-health" className="flex items-center gap-3 p-4 hover:bg-muted/50">
           <Heart className="w-5 h-5 text-pink-600" />
           <div className="flex-1">
             <p className="font-semibold text-sm">Saúde da Mulher</p>
             <p className="text-xs text-muted-foreground">Ciclo menstrual, gravidez, menopausa e prevenção</p>
           </div>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
-        </a>
+        </Link>
       </div>
 
-      <button onClick={handleLogout} className="w-full py-3 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
+      <button type="button" onClick={handleLogout} className="w-full py-3 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
         Sair da conta
       </button>
     </div>
