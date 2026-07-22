@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Heart, Loader2, Eye, EyeOff, ShieldCheck } from 'lucide-react'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 
 const NEXA_API_URL = 'https://nexa-backend-p2u0.onrender.com/api/v1'
@@ -7,6 +8,7 @@ const SHOW_NEXA_LOGIN = import.meta.env.VITE_ENABLE_NEXA_LOGIN === 'true'
 
 export default function Login() {
   const { user, loading: authLoading, signInWithEmail, signUpWithEmail } = useAuth()
+  const navigate = useNavigate()
   const [isSignUp, setIsSignUp] = useState(false)
   const [loading, setLoading] = useState(false)
   const [nexaLoading, setNexaLoading] = useState(false)
@@ -41,8 +43,7 @@ export default function Login() {
 
       localStorage.setItem('healthwallet_nexa_user', JSON.stringify(data.user))
       localStorage.setItem('healthwallet_nexa_token', nexaToken)
-
-      window.location.href = '/dashboard'
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       setError('Erro ao entrar com Nexa ID')
     } finally {
@@ -51,8 +52,7 @@ export default function Login() {
   }
 
   if (user) {
-    window.location.href = '/dashboard'
-    return null
+    return <Navigate to="/dashboard" replace />
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -71,8 +71,7 @@ export default function Login() {
         if (error) {
           setError(error.message)
         } else {
-          setError('')
-          alert('Conta criada com sucesso! Verifique seu email para confirmar o cadastro.')
+          setError('Conta criada com sucesso. Verifique seu e-mail para confirmar o cadastro e depois faça login.')
           setIsSignUp(false)
         }
       } else {
@@ -188,6 +187,7 @@ export default function Login() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -223,9 +223,9 @@ export default function Login() {
 
           <p className="text-xs text-muted-foreground mt-6 text-center">
             Ao continuar, você concorda com nossos{' '}
-            <a href="/terms" className="underline">Termos de Uso</a>
+            <Link to="/terms" className="underline">Termos de Uso</Link>
             {' '}e{' '}
-            <a href="/privacy" className="underline">Política de Privacidade</a>
+            <Link to="/privacy" className="underline">Política de Privacidade</Link>
           </p>
         </div>
       </div>
