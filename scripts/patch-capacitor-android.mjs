@@ -5,6 +5,7 @@ const root = process.cwd()
 const variablesPath = path.join(root, 'android', 'variables.gradle')
 const buildGradlePath = path.join(root, 'android', 'app', 'build.gradle')
 const manifestPath = path.join(root, 'android', 'app', 'src', 'main', 'AndroidManifest.xml')
+const packagePath = path.join(root, 'package.json')
 
 function replaceIfExists(filePath, replacer) {
   if (!fs.existsSync(filePath)) return
@@ -12,6 +13,18 @@ function replaceIfExists(filePath, replacer) {
   const next = replacer(current)
   if (next !== current) fs.writeFileSync(filePath, next)
 }
+
+function getPackageVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
+    return pkg.version || '1.0.1'
+  } catch {
+    return '1.0.1'
+  }
+}
+
+const androidVersionCode = Number(process.env.ANDROID_VERSION_CODE || process.env.GITHUB_RUN_NUMBER || 2)
+const androidVersionName = process.env.ANDROID_VERSION_NAME || getPackageVersion()
 
 replaceIfExists(variablesPath, (content) => {
   return content
@@ -51,6 +64,10 @@ replaceIfExists(buildGradlePath, (content) => {
 
   let next = content
 
+  next = next
+    .replace(/versionCode\s+\d+/g, `versionCode ${androidVersionCode}`)
+    .replace(/versionName\s+['"][^'"]+['"]/g, `versionName "${androidVersionName}"`)
+
   if (hasSigningSecrets && !next.includes('healthwalletRelease')) {
     next = next.replace(
       /android\s*\{/,
@@ -66,4 +83,4 @@ replaceIfExists(buildGradlePath, (content) => {
   return next
 })
 
-console.log('Android project patched for HealthWallet release build.')
+console.log(`Android project patched for HealthWallet release build. versionCode=${androidVersionCode}, versionName=${androidVersionName}`)
