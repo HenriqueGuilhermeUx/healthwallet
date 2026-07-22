@@ -22,6 +22,9 @@ jobs:
   build-android:
     name: Build HealthWallet Android bundle
     runs-on: ubuntu-latest
+    env:
+      ANDROID_VERSION_CODE: ${{ github.run_number }}
+      ANDROID_VERSION_NAME: 1.0.1
 
     steps:
       - name: Checkout
@@ -93,6 +96,8 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_VERSION_CODE: ${{ env.ANDROID_VERSION_CODE }}
+          ANDROID_VERSION_NAME: ${{ env.ANDROID_VERSION_NAME }}
 
       - name: Build release AAB
         run: cd android && ./gradlew bundleRelease --stacktrace
