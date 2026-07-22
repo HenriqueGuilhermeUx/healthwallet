@@ -195,9 +195,19 @@ export default function Emergency() {
         <a href="tel:192" className="py-4 rounded-xl bg-white border border-red-200 text-red-700 font-semibold flex flex-col items-center justify-center gap-2">
           <Phone className="w-6 h-6" /> Ligar 192
         </a>
-        <a href={primaryContact?.phone ? `tel:${primaryContact.phone}` : '#'} className="py-4 rounded-xl bg-white border border-orange-200 text-orange-700 font-semibold flex flex-col items-center justify-center gap-2">
-          <Phone className="w-6 h-6" /> Contato principal
-        </a>
+        {primaryContact?.phone ? (
+          <a href={`tel:${primaryContact.phone}`} className="py-4 rounded-xl bg-white border border-orange-200 text-orange-700 font-semibold flex flex-col items-center justify-center gap-2">
+            <Phone className="w-6 h-6" /> Contato principal
+          </a>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setError('Cadastre um contato com telefone na tela Família para usar este atalho.')}
+            className="py-4 rounded-xl bg-white border border-orange-200 text-orange-700 font-semibold flex flex-col items-center justify-center gap-2"
+          >
+            <Phone className="w-6 h-6" /> Cadastrar contato
+          </button>
+        )}
       </div>
 
       {mapLatitude && mapLongitude && (
