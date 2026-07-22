@@ -1,35 +1,35 @@
 import {
-  Loader2,
+  AlertTriangle,
+  Bell,
   Calendar,
-  FileText,
-  Users,
-  MessageCircle,
-  Sparkles,
-  TrendingUp,
-  HeartPulse,
-  Target,
-  Upload,
-  User,
-  Shield,
-  Share2,
-  CreditCard,
   ChevronDown,
   ChevronUp,
-  ShoppingBag,
-  Video,
-  Pill,
-  Bell,
+  CreditCard,
+  FileText,
+  HeartPulse,
+  Loader2,
   Lock,
-  AlertTriangle,
+  MessageCircle,
+  Pill,
+  Share2,
+  Shield,
+  Sparkles,
+  Target,
+  TrendingUp,
+  Upload,
+  User,
+  Users,
+  Video,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { calculateMedScore } from '@/services/calculateMedScore'
 
 export default function Dashboard() {
   const { user, signOut } = useAuth()
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [medScore, setMedScore] = useState<any>(null)
   const [nextEvent, setNextEvent] = useState<any>(null)
@@ -118,16 +118,17 @@ export default function Dashboard() {
       setLastExam(records[0] || null)
       setActiveShares(sharesRes.data?.length || 0)
 
-      let delta = 0
-      if (lastScoreRes.data && lastScoreRes.data.length >= 2) {
-        delta = Number(lastScoreRes.data[0].score || 0) - Number(lastScoreRes.data[1].score || 0)
-      }
+      const delta = lastScoreRes.data && lastScoreRes.data.length >= 2
+        ? Number(lastScoreRes.data[0].score || 0) - Number(lastScoreRes.data[1].score || 0)
+        : 0
 
       setScoreChange(delta)
       setInsights(buildDashboardInsights(records, calculated, delta, activeMedsRes.data || [], sharesRes.data || [], telemedicineRes.data || [], careSummary))
       setMedScore(calculated)
     } catch (error) {
       console.error('Error loading dashboard:', error)
+      setMedScore({ score: 0, confidence: 0, missingExams: [] })
+      setInsights(['Não foi possível carregar todos os dados agora. Tente atualizar em instantes.'])
     } finally {
       setLoading(false)
     }
@@ -135,7 +136,7 @@ export default function Dashboard() {
 
   async function handleLogout() {
     await signOut()
-    window.location.href = '/'
+    navigate('/', { replace: true })
   }
 
   const userName = user?.user_metadata?.full_name?.split(' ')[0] || user?.user_metadata?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Usuário'
@@ -155,7 +156,7 @@ export default function Dashboard() {
             <div className="relative">
               <svg className="w-24 h-24 -rotate-90" viewBox="0 0 100 100">
                 <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="10" />
-                <circle cx="50" cy="50" r="40" fill="none" stroke="white" strokeWidth="10" strokeDasharray={`${(medScore.score / 100) * 251.2} 251.2`} strokeLinecap="round" />
+                <circle cx="50" cy="50" r="40" fill="none" stroke="white" strokeWidth="10" strokeDasharray={`${(Number(medScore.score || 0) / 100) * 251.2} 251.2`} strokeLinecap="round" />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center"><span className="text-2xl font-bold">{medScore.score}</span><span className="text-xs opacity-80">/100</span></div>
             </div>
@@ -163,7 +164,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2 mb-1"><Sparkles className="w-4 h-4" /><p className="text-white/70 text-xs font-medium uppercase tracking-wider">MedScore</p></div>
               <h1 className="text-2xl font-bold">Acesse seu MedScore</h1>
               <p className="text-white/80 text-sm mt-1">Veja áreas analisadas, melhorias possíveis e exames recomendados.</p>
-              <div className="flex items-center gap-2 mt-3"><TrendingUp className="w-4 h-4 text-emerald-300" /><span className="text-xs text-white/80">{medScore.confidence}% de confiança dos dados</span></div>
+              <div className="flex items-center gap-2 mt-3"><TrendingUp className="w-4 h-4 text-emerald-300" /><span className="text-xs text-white/80">{medScore.confidence || 0}% de confiança dos dados</span></div>
             </div>
           </div>
         </div>
@@ -185,7 +186,7 @@ export default function Dashboard() {
         </Link>
       )}
 
-      <button onClick={() => setShowHealthDashboard(!showHealthDashboard)} className="w-full bg-white rounded-xl border border-border p-4 flex items-center justify-between">
+      <button type="button" onClick={() => setShowHealthDashboard(!showHealthDashboard)} className="w-full bg-white rounded-xl border border-border p-4 flex items-center justify-between">
         <div className="flex items-center gap-2"><HeartPulse className="w-5 h-5 text-emerald-600" /><span className="font-bold">Dashboard de Saúde</span></div>
         {showHealthDashboard ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
       </button>
@@ -215,7 +216,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3">
         <AppButton to="/upload" icon={Upload} label="Upload de Exame" color="bg-violet-600" />
-        <AppButton to="/marketplace" icon={ShoppingBag} label="Medicamentos e Exames" color="bg-lime-600" />
+        <AppButton to="/medscore" icon={TrendingUp} label="MedScore" color="bg-lime-600" />
         <AppButton to="/profile" icon={User} label="Meu Perfil" color="bg-emerald-600" />
         <AppButton to="/summary" icon={FileText} label="Resumo" color="bg-blue-600" />
         <AppButton to="/chat" icon={MessageCircle} label="Health Coach" color="bg-purple-600" />
@@ -229,7 +230,7 @@ export default function Dashboard() {
         {profileGender === 'female' && <AppButton to="/womens-health" icon={HeartPulse} label="Saúde da Mulher" color="bg-rose-600" />}
       </div>
 
-      <button onClick={handleLogout} className="w-full py-3 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors text-sm font-medium">Sair da conta</button>
+      <button type="button" onClick={handleLogout} className="w-full py-3 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors text-sm font-medium">Sair da conta</button>
     </div>
   )
 }
