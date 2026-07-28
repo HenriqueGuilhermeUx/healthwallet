@@ -47,38 +47,57 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [acceptedTerms, setAcceptedTerms] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
+
     async function checkConsent() {
       if (!user) {
-        setCheckingConsent(false)
+        if (!cancelled) setCheckingConsent(false)
+        return
+      }
+
+      if (location.pathname === '/consent') {
+        if (!cancelled) setCheckingConsent(false)
         return
       }
 
       const localAccepted = localStorage.getItem(`healthwallet_terms_${user.id}`)
 
       if (localAccepted === 'true') {
-        setAcceptedTerms(true)
-        setCheckingConsent(false)
+        if (!cancelled) {
+          setAcceptedTerms(true)
+          setCheckingConsent(false)
+        }
         return
       }
 
-      const { data } = await supabase
-        .from('profiles')
-        .select('accepted_terms')
-        .eq('id', user.id)
-        .maybeSingle()
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('accepted_terms')
+          .eq('id', user.id)
+          .maybeSingle()
 
-      if (data?.accepted_terms) {
-        localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
-        setAcceptedTerms(true)
-      } else {
-        setAcceptedTerms(false)
+        if (data?.accepted_terms) {
+          localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
+          if (!cancelled) setAcceptedTerms(true)
+        } else if (!cancelled) {
+          setAcceptedTerms(false)
+        }
+      } catch (error) {
+        console.warn('Consent check skipped:', error)
+        if (!cancelled) setAcceptedTerms(false)
       }
 
-      setCheckingConsent(false)
+      if (!cancelled) setCheckingConsent(false)
     }
 
+    setCheckingConsent(true)
     checkConsent()
-  }, [user])
+
+    return () => {
+      cancelled = true
+    }
+  }, [user, location.pathname])
 
   if (loading || checkingConsent) {
     return (
