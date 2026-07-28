@@ -52,7 +52,8 @@ export default function Login() {
   }
 
   if (user) {
-    return <Navigate to="/dashboard" replace />
+    const accepted = localStorage.getItem(`healthwallet_terms_${user.id}`) === 'true'
+    return <Navigate to={accepted ? '/dashboard' : '/consent'} replace />
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -71,8 +72,7 @@ export default function Login() {
         if (error) {
           setError(error.message)
         } else {
-          setError('Conta criada com sucesso. Verifique seu e-mail para confirmar o cadastro e depois faça login.')
-          setIsSignUp(false)
+          setError('Conta criada. Vamos finalizar seu aceite de privacidade.')
         }
       } else {
         const { error } = await signInWithEmail(email, password)
@@ -139,7 +139,7 @@ export default function Login() {
           )}
 
           {error && (
-            <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+            <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
               {error}
             </div>
           )}
