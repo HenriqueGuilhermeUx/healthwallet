@@ -20,6 +20,24 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 })
 
+async function ensureUserProfile(user: User | any | null) {
+  if (!user?.id) return
+
+  try {
+    await supabase
+      .from('profiles')
+      .upsert(
+        {
+          id: user.id,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      )
+  } catch (error) {
+    console.warn('Could not ensure profile after auth:', error)
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | any | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -30,7 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const nexaUser = localStorage.getItem('healthwallet_nexa_user')
 
       if (nexaUser) {
-        setUser(JSON.parse(nexaUser))
+        const parsed = JSON.parse(nexaUser)
+        setUser(parsed)
         setSession(null)
         setLoading(false)
         return
@@ -41,6 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
+
+      if (session?.user) void ensureUserProfile(session.user)
     }
 
     loadAuth()
@@ -49,7 +70,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const nexaUser = localStorage.getItem('healthwallet_nexa_user')
 
       if (nexaUser) {
-        setUser(JSON.parse(nexaUser))
+        const parsed = JSON.parse(nexaUser)
+        setUser(parsed)
         setSession(null)
         setLoading(false)
         return
@@ -58,6 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
+
+      if (session?.user) void ensureUserProfile(session.user)
     })
 
     return () => subscription.unsubscribe()
@@ -67,10 +91,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('healthwallet_nexa_user')
     localStorage.removeItem('healthwallet_nexa_token')
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
+
+    if (data.user) await ensureUserProfile(data.user)
 
     return { error: error as Error | null }
   }
@@ -79,15 +105,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('healthwallet_nexa_user')
     localStorage.removeItem('healthwallet_nexa_token')
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
           name,
+          full_name: name,
         },
       },
     })
+
+    if (data.user) await ensureUserProfile(data.user)
 
     return { error: error as Error | null }
   }
