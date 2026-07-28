@@ -108,9 +108,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div
+      className="min-h-screen bg-background"
+      style={{ paddingBottom: 'calc(8.5rem + env(safe-area-inset-bottom, 0px))' }}
+    >
       <AppHeader />
-      <main className="px-4 py-4 max-w-md mx-auto">
+      <main className="px-5 py-5 max-w-md mx-auto overflow-x-hidden">
         {children}
       </main>
       <BottomNav />
