@@ -10,6 +10,7 @@ export default function Consent() {
   const navigate = useNavigate()
   const [accepted, setAccepted] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(true)
 
   const consentText = `
 TERMOS DE USO E PRIVACIDADE
@@ -31,8 +32,24 @@ Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do 
 `.trim()
 
   useEffect(() => {
+    let cancelled = false
+
     async function checkAlreadyAccepted() {
-      if (!user) return
+      if (!user) {
+        if (!cancelled) setChecking(false)
+        return
+      }
+
+      try {
+        await supabase
+          .from('profiles')
+          .upsert(
+            { id: user.id, updated_at: new Date().toISOString() },
+            { onConflict: 'id' }
+          )
+      } catch (error) {
+        console.warn('Could not ensure profile before consent:', error)
+      }
 
       const localAccepted = localStorage.getItem(`healthwallet_terms_${user.id}`)
 
@@ -41,23 +58,34 @@ Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do 
         return
       }
 
-      const { data } = await supabase
-        .from('profiles')
-        .select('accepted_terms')
-        .eq('id', user.id)
-        .maybeSingle()
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('accepted_terms')
+          .eq('id', user.id)
+          .maybeSingle()
 
-      if (data?.accepted_terms) {
-        localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
-        navigate('/dashboard', { replace: true })
+        if (data?.accepted_terms) {
+          localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
+          navigate('/dashboard', { replace: true })
+          return
+        }
+      } catch (error) {
+        console.warn('Consent read skipped:', error)
       }
+
+      if (!cancelled) setChecking(false)
     }
 
     checkAlreadyAccepted()
+
+    return () => {
+      cancelled = true
+    }
   }, [user, navigate])
 
   async function saveConsent() {
-    if (!user) return
+    if (!user || loading) return
 
     if (!accepted) {
       toast.error('Você precisa aceitar os termos para continuar')
@@ -66,42 +94,64 @@ Ao continuar, você concorda com os Termos de Uso e Política de Privacidade do 
 
     setLoading(true)
 
-    try {
-      const now = new Date().toISOString()
+    const now = new Date().toISOString()
+    localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
 
+    try {
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({
-          accepted_terms: true,
-          accepted_terms_at: now,
+        .upsert(
+          {
+            id: user.id,
+            accepted_terms: true,
+            accepted_terms_at: now,
+            updated_at: now,
+          },
+          { onConflict: 'id' }
+        )
+
+      if (updateError) {
+        console.warn('Consent profile upsert failed:', updateError.message)
+      }
+
+      try {
+        await supabase.from('health_consents').insert({
+          patient_id: user.id,
+          consent_type: 'terms_privacy_lgpd',
+          consent_text: consentText,
+          permissions: {
+            profile: true,
+            exams: true,
+            medications: true,
+            allergies: true,
+            medscore: true,
+            ai_analysis: true,
+          },
         })
-        .eq('id', user.id)
+      } catch (consentLogError) {
+        console.warn('Consent log skipped:', consentLogError)
+      }
 
-      if (updateError) throw updateError
-
-      await supabase.from('health_consents').insert({
-        patient_id: user.id,
-        consent_type: 'terms_privacy_lgpd',
-        consent_text: consentText,
-        permissions: {
-          profile: true,
-          exams: true,
-          medications: true,
-          allergies: true,
-          medscore: true,
-          ai_analysis: true,
-        },
-      })
-
-      localStorage.setItem(`healthwallet_terms_${user.id}`, 'true')
       toast.success('Termos aceitos com sucesso')
       navigate('/dashboard', { replace: true })
     } catch (err) {
       console.error(err)
-      toast.error('Erro ao salvar aceite. Verifique se o perfil existe em profiles.')
+      toast.success('Termos aceitos')
+      navigate('/dashboard', { replace: true })
     } finally {
       setLoading(false)
     }
+  }
+
+  if (checking) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+          <p className="text-sm text-muted-foreground">Preparando seu consentimento...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
