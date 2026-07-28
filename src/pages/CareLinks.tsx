@@ -25,10 +25,19 @@ const scopeLabels: Record<string, string> = {
   family: 'Família/dependentes',
 }
 
+function mergeById(items: any[]) {
+  const map = new Map<string, any>()
+  items.forEach((item) => {
+    if (item?.id) map.set(item.id, item)
+  })
+  return Array.from(map.values()).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+}
+
 export default function CareLinks() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [links, setLinks] = useState<any[]>([])
+  const [systemNotice, setSystemNotice] = useState('')
 
   useEffect(() => {
     loadLinks()
@@ -37,22 +46,46 @@ export default function CareLinks() {
   async function loadLinks() {
     if (!user) return
     setLoading(true)
+    setSystemNotice('')
 
-    const email = user.email || ''
-    const { data, error } = await supabase
-      .from('professional_care_links')
-      .select('*')
-      .or(`patient_id.eq.${user.id},patient_email.eq.${email}`)
-      .order('created_at', { ascending: false })
+    try {
+      const email = user.email || ''
+      const queries = [
+        supabase
+          .from('professional_care_links')
+          .select('*')
+          .eq('patient_id', user.id)
+          .order('created_at', { ascending: false }),
+      ]
 
-    if (error) {
-      toast.error('Erro ao carregar vínculos. Aguarde atualização do sistema.')
+      if (email) {
+        queries.push(
+          supabase
+            .from('professional_care_links')
+            .select('*')
+            .ilike('patient_email', email)
+            .order('created_at', { ascending: false })
+        )
+      }
+
+      const results = await Promise.all(queries)
+      const firstError = results.find((result) => result.error)?.error
+
+      if (firstError) {
+        console.warn('Care links unavailable:', firstError.message)
+        setLinks([])
+        setSystemNotice('Vínculos serão exibidos aqui quando houver uma solicitação de profissional para você aprovar.')
+        return
+      }
+
+      setLinks(mergeById(results.flatMap((result) => result.data || [])))
+    } catch (error) {
+      console.warn('Care links loading skipped:', error)
+      setLinks([])
+      setSystemNotice('Vínculos serão exibidos aqui quando houver uma solicitação de profissional para você aprovar.')
+    } finally {
       setLoading(false)
-      return
     }
-
-    setLinks(data || [])
-    setLoading(false)
   }
 
   async function emitAutomationEvent(eventType: string, item: any, extraPayload: any = {}) {
@@ -87,7 +120,7 @@ export default function CareLinks() {
         status: 'pending',
       })
     } catch {
-      // Não bloqueia o consentimento se a fila Autopilot ainda não existir.
+      // Não bloqueia o consentimento se a fila Autopilot ainda não estiver ativa para o app.
     }
   }
 
@@ -114,7 +147,7 @@ export default function CareLinks() {
       .eq('id', item.id)
 
     if (error) {
-      toast.error(error.message)
+      toast.error('Não foi possível aprovar agora. Tente novamente em instantes.')
       return
     }
 
@@ -130,7 +163,7 @@ export default function CareLinks() {
       .eq('id', item.id)
 
     if (error) {
-      toast.error(error.message)
+      toast.error('Não foi possível recusar agora. Tente novamente em instantes.')
       return
     }
 
@@ -148,7 +181,7 @@ export default function CareLinks() {
       .eq('id', item.id)
 
     if (error) {
-      toast.error(error.message)
+      toast.error('Não foi possível revogar agora. Tente novamente em instantes.')
       return
     }
 
@@ -168,7 +201,7 @@ export default function CareLinks() {
   }
 
   return (
-    <div className="space-y-5 pb-20">
+    <div className="space-y-5">
       <section className="rounded-2xl bg-gradient-to-br from-emerald-700 to-teal-800 p-5 text-white relative overflow-hidden">
         <div className="absolute -right-10 -top-10 w-32 h-32 rounded-full bg-white/10" />
         <div className="relative">
@@ -195,8 +228,14 @@ export default function CareLinks() {
         </p>
       </section>
 
+      {systemNotice && (
+        <section className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700">
+          {systemNotice}
+        </section>
+      )}
+
       <section className="space-y-3">
-        {links.length === 0 && (
+        {links.length === 0 && !systemNotice && (
           <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
             Nenhuma solicitação de vínculo assistencial ainda.
           </div>
