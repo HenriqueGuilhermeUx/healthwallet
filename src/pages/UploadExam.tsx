@@ -26,6 +26,11 @@ export default function UploadExam() {
   const [examChat, setExamChat] = useState<ExamChatMessage[]>([])
   const [chatLoading, setChatLoading] = useState(false)
 
+  const openPicker = () => {
+    if (uploading || processing) return
+    fileInputRef.current?.click()
+  }
+
   const handleFileSelect = async (file: File) => {
     if (!user) return
 
@@ -248,7 +253,7 @@ export default function UploadExam() {
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={() => setDragOver(false)}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={openPicker}
         className={`relative border-2 border-dashed rounded-2xl p-8 text-center transition-colors cursor-pointer ${
           dragOver
             ? 'border-emerald-500 bg-emerald-50'
@@ -258,8 +263,7 @@ export default function UploadExam() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,.pdf"
-          capture="environment"
+          accept="image/*,application/pdf,.pdf"
           onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
           className="hidden"
         />
@@ -274,21 +278,30 @@ export default function UploadExam() {
             <div className="w-16 h-16 rounded-2xl bg-emerald-100 flex items-center justify-center mx-auto mb-4">
               <Upload className="w-8 h-8 text-emerald-600" />
             </div>
-            <p className="font-semibold mb-1">Arraste ou clique para enviar</p>
+            <p className="font-semibold mb-1">Toque para escolher arquivo</p>
             <p className="text-sm text-muted-foreground">
-              Formatos: PDF, JPG, PNG
+              PDF, JPG ou PNG. Você também pode tirar foto pela câmera.
             </p>
           </>
         )}
       </div>
 
       <button
-        onClick={() => fileInputRef.current?.click()}
-        className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold flex items-center justify-center gap-2"
+        type="button"
+        onClick={openPicker}
+        disabled={uploading || processing}
+        className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
       >
         <Camera className="w-5 h-5" />
-        Fotografar exame
+        Enviar foto ou arquivo
       </button>
+
+      {uploadedFile && !error && (
+        <div className="flex items-center gap-2 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800">
+          <CheckCircle className="w-5 h-5 flex-shrink-0" />
+          <p className="text-sm">Arquivo salvo: {uploadedFile.name}</p>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700">
@@ -446,6 +459,7 @@ export default function UploadExam() {
               />
 
               <button
+                type="button"
                 onClick={askAboutExam}
                 disabled={!examQuestion.trim() || chatLoading}
                 className="w-12 rounded-xl bg-purple-600 text-white flex items-center justify-center disabled:opacity-50"
