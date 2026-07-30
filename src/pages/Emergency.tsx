@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Loader2, MapPin, Phone, Shield, CheckCircle, XCircle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { createMedicalEvent } from '@/services/medicalTimeline'
@@ -12,6 +13,7 @@ type LocationState = {
 
 export default function Emergency() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [triggering, setTriggering] = useState(false)
   const [profile, setProfile] = useState<any>(null)
@@ -154,7 +156,7 @@ export default function Emergency() {
   }
 
   return (
-    <div className="space-y-5 pb-20">
+    <div className="space-y-5 pb-28">
       <div className="rounded-2xl bg-gradient-to-br from-red-700 to-orange-700 text-white p-5">
         <div className="flex items-center gap-3">
           <AlertTriangle className="w-8 h-8" />
@@ -202,7 +204,7 @@ export default function Emergency() {
         ) : (
           <button
             type="button"
-            onClick={() => setError('Cadastre um contato com telefone na tela Família para usar este atalho.')}
+            onClick={() => navigate('/family?add=emergency')}
             className="py-4 rounded-xl bg-white border border-orange-200 text-orange-700 font-semibold flex flex-col items-center justify-center gap-2"
           >
             <Phone className="w-6 h-6" /> Cadastrar contato
