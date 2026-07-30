@@ -23,7 +23,7 @@ export default function Chat() {
   }, [user])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [messages])
 
   async function loadContext() {
@@ -59,20 +59,13 @@ export default function Chat() {
     const params = new URLSearchParams(window.location.search)
     const mode = params.get('context')
     const examId = params.get('examId')
-const selectedExam = examId
-  ? ctx.exams.find((exam: any) => exam.id === examId)
-  : null
+    const selectedExam = examId ? ctx.exams.find((exam: any) => exam.id === examId) : null
 
     setMessages([
       {
         id: 'welcome',
         role: 'assistant',
-        content:
-  mode === 'exam' && selectedExam
-    ? buildExamOpening(ctx, selectedExam)
-    : mode === 'score'
-      ? buildScoreOpening(ctx)
-      : buildDefaultOpening(ctx),
+        content: mode === 'exam' && selectedExam ? buildExamOpening(ctx, selectedExam) : mode === 'score' ? buildScoreOpening(ctx) : buildDefaultOpening(ctx),
         timestamp: new Date(),
       },
     ])
@@ -119,7 +112,7 @@ const selectedExam = examId
   ]
 
   return (
-    <div className="space-y-4 pb-40">
+    <div className="space-y-4 pb-[17rem]">
       <div className="flex items-center gap-3 mb-4">
         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
           <Bot className="w-6 h-6 text-white" />
@@ -137,33 +130,22 @@ const selectedExam = examId
           </div>
           <div>
             <p className="text-xs font-medium text-purple-900 mb-1">Contexto ativo</p>
-            <p className="text-sm text-purple-800">
-              Vou usar seu perfil, exames, medicamentos e HealthScore.
-            </p>
+            <p className="text-sm text-purple-800">Vou usar seu perfil, exames, medicamentos e HealthScore.</p>
           </div>
         </div>
       </div>
 
-      <div className="space-y-4 min-h-[50vh]">
+      <div className="space-y-4 min-h-[42vh]">
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
-          >
+          <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
             {message.role === 'assistant' && (
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center flex-shrink-0">
                 <Bot className="w-4 h-4 text-white" />
               </div>
             )}
 
-            <div
-              className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                message.role === 'user'
-                  ? 'bg-emerald-600 text-white rounded-br-md'
-                  : 'bg-card border border-border rounded-bl-md'
-              }`}
-            >
-              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+            <div className={`max-w-[82%] rounded-2xl px-4 py-3 ${message.role === 'user' ? 'bg-emerald-600 text-white rounded-br-md' : 'bg-card border border-border rounded-bl-md'}`}>
+              <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
               <p className={`text-xs mt-1 ${message.role === 'user' ? 'text-emerald-200' : 'text-muted-foreground'}`}>
                 {message.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </p>
@@ -199,11 +181,7 @@ const selectedExam = examId
           <p className="text-xs font-medium text-muted-foreground mb-3">Perguntas sugeridas:</p>
           <div className="flex flex-wrap gap-2">
             {suggestedQuestions.map((question) => (
-              <button
-                key={question}
-                onClick={() => setInput(question)}
-                className="text-xs bg-purple-50 text-purple-700 px-3 py-2 rounded-full hover:bg-purple-100"
-              >
+              <button key={question} onClick={() => setInput(question)} className="text-xs bg-purple-50 text-purple-700 px-3 py-2 rounded-full hover:bg-purple-100">
                 {question}
               </button>
             ))}
@@ -211,30 +189,29 @@ const selectedExam = examId
         </div>
       )}
 
-      <div className="fixed bottom-20 left-0 right-0 bg-background border-t border-border p-4">
-        <div className="max-w-md mx-auto flex gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Pergunte sobre seu score, exames ou saúde..."
-            className="flex-1 bg-card border border-border rounded-full px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-            disabled={loading}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || loading}
-            className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-          </button>
-        </div>
-      </div>
-
       <p className="text-xs text-center text-muted-foreground mt-4">
         <AlertCircle className="w-3 h-3 inline mr-1" />
         Informativo. Não substitui orientação médica profissional.
       </p>
+
+      <div
+        className="fixed left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-border bg-background/95 p-3 backdrop-blur"
+        style={{ bottom: 'calc(7.35rem + env(safe-area-inset-bottom, 0px))' }}
+      >
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Pergunte sobre score, exames ou saúde..."
+            className="flex-1 bg-card border border-border rounded-full px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+            disabled={loading}
+          />
+          <button onClick={handleSend} disabled={!input.trim() || loading} className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center disabled:opacity-50">
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -394,9 +371,7 @@ function buildExamSummaries(exams: any[]) {
       const items = Array.isArray(result.items) ? result.items : []
       const altered = items.filter((item: any) => item.status && item.status !== 'normal')
 
-      const alteredText = altered.length
-        ? altered.map((item: any) => `${item.name}: ${item.value} (${item.status})`).join(', ')
-        : ''
+      const alteredText = altered.length ? altered.map((item: any) => `${item.name}: ${item.value} (${item.status})`).join(', ') : ''
 
       return `${e.file_name || 'Exame'}:
 ${e.ai_analysis || result.summary || 'Sem resumo.'}
@@ -408,36 +383,24 @@ ${alteredText ? `Alterações: ${alteredText}` : 'Sem alterações estruturadas 
 function buildScoreAdvice(score: any, alerts: string[]) {
   const n = Number(score)
 
-  if (alerts.length > 0) {
-    return `Seu foco deve ser corrigir ou acompanhar os pontos de atenção: ${alerts.join(', ')}.`
-  }
-
-  if (!Number.isNaN(n) && n >= 85) {
-    return 'Seu score está muito bom. O foco agora é manutenção, prevenção e exames periódicos.'
-  }
-
-  if (!Number.isNaN(n) && n >= 70) {
-    return 'Seu score está bom, mas ainda pode melhorar com rotina, exames completos e controle de fatores de risco.'
-  }
-
+  if (alerts.length > 0) return `Seu foco deve ser corrigir ou acompanhar os pontos de atenção: ${alerts.join(', ')}.`
+  if (!Number.isNaN(n) && n >= 85) return 'Seu score está muito bom. O foco agora é manutenção, prevenção e exames periódicos.'
+  if (!Number.isNaN(n) && n >= 70) return 'Seu score está bom, mas ainda pode melhorar com rotina, exames completos e controle de fatores de risco.'
   return 'Seu score indica espaço importante para melhoria. O ideal é atualizar perfil, enviar exames e revisar hábitos.'
 }
+
 function buildMissingExams(profile: any, examsText: string) {
   const missing: string[] = []
-
   if (!examsText.includes('hemograma')) missing.push('Hemograma completo')
   if (!examsText.includes('colesterol') && !examsText.includes('ldl') && !examsText.includes('lipid')) missing.push('Perfil lipídico')
   if (!examsText.includes('glicemia') && !examsText.includes('glucose')) missing.push('Glicemia de jejum')
   if (!profile?.blood_type && !profile?.bloodType) missing.push('Tipagem sanguínea')
-
   return missing
 }
 
 function formatMissingExams(profile: any, examsText: string) {
   const missing = buildMissingExams(profile, examsText)
-
   if (!missing.length) return '- Nenhum exame básico pendente identificado no momento.'
-
   return missing.map((m) => `- ${m}`).join('\n')
 }
 
@@ -447,11 +410,7 @@ function buildExamOpening(ctx: any, exam: any) {
   const items = Array.isArray(result.items) ? result.items : []
 
   const itemsText = items.length
-    ? items
-        .map((item: any) => {
-          return `- ${item.name}: ${item.value} | Ref: ${item.reference || 'não informada'} | Status: ${item.status}`
-        })
-        .join('\n')
+    ? items.map((item: any) => `- ${item.name}: ${item.value} | Ref: ${item.reference || 'não informada'} | Status: ${item.status}`).join('\n')
     : 'A IA ainda não conseguiu extrair marcadores estruturados deste arquivo.'
 
   return `Analisei este exame:
@@ -491,6 +450,5 @@ function translate(value: any) {
     occasional: 'ocasional',
     frequent: 'frequente',
   }
-
   return value ? map[value] || value : 'não informado'
 }
