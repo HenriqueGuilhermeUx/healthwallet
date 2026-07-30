@@ -15,7 +15,7 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="fixed left-1/2 z-50 max-w-md -translate-x-1/2 rounded-3xl border bg-background/95 px-2 py-2 shadow-lg backdrop-blur"
+      className="fixed left-1/2 z-30 max-w-md -translate-x-1/2 rounded-3xl border bg-background/95 px-2 py-2 shadow-lg backdrop-blur"
       style={{
         width: 'calc(100% - 1.5rem)',
         bottom: 'calc(1.35rem + env(safe-area-inset-bottom, 0px))',
