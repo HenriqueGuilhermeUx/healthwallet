@@ -48,13 +48,38 @@ export default function Dashboard() {
     loadDashboardData()
   }, [user])
 
+  async function loadCareLinksSummary() {
+    if (!user) return { active: 0, pending: 0, total: 0 }
+
+    try {
+      const email = user.email || ''
+      const queries = [
+        supabase.from('professional_care_links').select('*').eq('patient_id', user.id).in('status', ['pending', 'active']),
+      ]
+
+      if (email) {
+        queries.push(supabase.from('professional_care_links').select('*').ilike('patient_email', email).in('status', ['pending', 'active']))
+      }
+
+      const results = await Promise.all(queries)
+      const rows = mergeById(results.flatMap((result) => result.data || []))
+      return {
+        active: rows.filter((item: any) => item.status === 'active').length,
+        pending: rows.filter((item: any) => item.status === 'pending').length,
+        total: rows.length,
+      }
+    } catch (error) {
+      console.warn('Care links summary skipped:', error)
+      return { active: 0, pending: 0, total: 0 }
+    }
+  }
+
   async function loadDashboardData() {
     if (!user) return
 
     try {
       const today = new Date().toISOString().slice(0, 10)
       const now = new Date().toISOString()
-      const email = user.email || ''
 
       const [
         profileRes,
@@ -66,7 +91,7 @@ export default function Dashboard() {
         remindersRes,
         sharesRes,
         telemedicineRes,
-        careLinksRes,
+        careSummary,
       ] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
         supabase.from('patient_conditions').select('*').eq('user_id', user.id),
@@ -77,17 +102,11 @@ export default function Dashboard() {
         supabase.from('health_reminders').select('*').eq('user_id', user.id).eq('is_active', true).gte('reminder_date', today).order('reminder_date', { ascending: true }).order('reminder_time', { ascending: true }).limit(5),
         supabase.from('access_codes').select('*').eq('patient_id', user.id).eq('revoked', false).gt('expires_at', now),
         supabase.from('telemedicine_appointments').select('*').eq('user_id', user.id).in('status', ['requested', 'confirmed']).gte('preferred_date', today).order('preferred_date', { ascending: true }).order('preferred_time', { ascending: true }).limit(1),
-        supabase.from('professional_care_links').select('*').or(`patient_id.eq.${user.id},patient_email.eq.${email}`).in('status', ['pending', 'active']),
+        loadCareLinksSummary(),
       ])
 
       const records = recordsRes.data || []
       const profile = profileRes.data || {}
-      const careLinks = careLinksRes.data || []
-      const careSummary = {
-        active: careLinks.filter((item: any) => item.status === 'active').length,
-        pending: careLinks.filter((item: any) => item.status === 'pending').length,
-        total: careLinks.length,
-      }
 
       setProfileGender(profile.gender || '')
       setCareLinksSummary(careSummary)
@@ -146,7 +165,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-5 pb-20">
+    <div className="space-y-5 pb-28">
       <Link to="/medscore" className="block rounded-2xl bg-gradient-to-br from-emerald-700 via-teal-700 to-cyan-800 p-5 text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2" />
@@ -216,6 +235,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3">
         <AppButton to="/upload" icon={Upload} label="Upload de Exame" color="bg-violet-600" />
+        <AppButton to="/medications" icon={Pill} label="Medicamentos" color="bg-orange-600" />
         <AppButton to="/medscore" icon={TrendingUp} label="MedScore" color="bg-lime-600" />
         <AppButton to="/profile" icon={User} label="Meu Perfil" color="bg-emerald-600" />
         <AppButton to="/summary" icon={FileText} label="Resumo" color="bg-blue-600" />
@@ -233,6 +253,14 @@ export default function Dashboard() {
       <button type="button" onClick={handleLogout} className="w-full py-3 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors text-sm font-medium">Sair da conta</button>
     </div>
   )
+}
+
+function mergeById(items: any[]) {
+  const map = new Map<string, any>()
+  items.forEach((item) => {
+    if (item?.id) map.set(item.id, item)
+  })
+  return Array.from(map.values())
 }
 
 function buildDashboardInsights(records: any[], medScore: any, scoreChange: number, medications: any[], shares: any[], telemedicine: any[], careLinks: { active: number; pending: number; total: number }) {
