@@ -14,6 +14,7 @@ import {
   Smartphone,
   ShoppingCart,
   Shield,
+  Barcode,
   Store,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
@@ -39,6 +40,14 @@ interface Medication {
   last_taken_at?: string | null
   allow_repurchase_offers?: boolean
   last_repurchase_requested_at?: string | null
+  ean_code?: string | null
+  active_ingredient?: string | null
+  standardized_dosage?: string | null
+  pharmaceutical_form?: string | null
+  manufacturer?: string | null
+  normalized_product_name?: string | null
+  pharmacy_search_key?: string | null
+  product_mapping_status?: string | null
 }
 
 interface FamilyMember {
@@ -62,6 +71,12 @@ const emptyForm = {
   stock_quantity: '',
   pills_per_day: '',
   stock_alert_threshold: '5',
+  ean_code: '',
+  active_ingredient: '',
+  standardized_dosage: '',
+  pharmaceutical_form: '',
+  manufacturer: '',
+  normalized_product_name: '',
   allow_repurchase_offers: false,
   notify_push: true,
   notify_email: false,
@@ -106,11 +121,37 @@ export default function Medications() {
     if (!first.error) return first
 
     const message = String(first.error.message || '').toLowerCase()
-    const missingRepurchaseColumns = message.includes('allow_repurchase_offers') || message.includes('repurchase_metadata')
+    const missingNewColumns = [
+      'allow_repurchase_offers',
+      'repurchase_metadata',
+      'ean_code',
+      'active_ingredient',
+      'standardized_dosage',
+      'pharmaceutical_form',
+      'manufacturer',
+      'normalized_product_name',
+      'pharmacy_search_key',
+      'product_mapping_status',
+      'product_mapping_metadata',
+    ].some((column) => message.includes(column))
 
-    if (!missingRepurchaseColumns) return first
+    if (!missingNewColumns) return first
 
-    const { allow_repurchase_offers, repurchase_metadata, ...fallbackPayload } = payload
+    const {
+      allow_repurchase_offers,
+      repurchase_metadata,
+      ean_code,
+      active_ingredient,
+      standardized_dosage,
+      pharmaceutical_form,
+      manufacturer,
+      normalized_product_name,
+      pharmacy_search_key,
+      product_mapping_status,
+      product_mapping_metadata,
+      ...fallbackPayload
+    } = payload
+
     return supabase.from('medications').insert(fallbackPayload).select().single()
   }
 
@@ -124,6 +165,16 @@ export default function Medications() {
     const targetName = targetMember?.name || 'Eu'
     const targetFamilyMemberId = formData.target_family_member_id === 'self' ? null : formData.target_family_member_id
     const frequencyText = [formData.frequency, formData.reminder_days ? `Dias: ${formData.reminder_days}` : ''].filter(Boolean).join(' · ')
+    const eanCode = sanitizeEan(formData.ean_code)
+    const standardizedDosage = formData.standardized_dosage || formData.dosage
+    const normalizedProductName = formData.normalized_product_name || formData.name
+    const pharmacySearchKey = buildPharmacySearchKey({
+      name: normalizedProductName,
+      active_ingredient: formData.active_ingredient,
+      standardized_dosage: standardizedDosage,
+      pharmaceutical_form: formData.pharmaceutical_form,
+      manufacturer: formData.manufacturer,
+    })
 
     try {
       const payload = {
@@ -142,10 +193,31 @@ export default function Medications() {
         stock_quantity: formData.stock_quantity ? Number(formData.stock_quantity) : null,
         pills_per_day: formData.pills_per_day ? Number(formData.pills_per_day) : null,
         stock_alert_threshold: formData.stock_alert_threshold ? Number(formData.stock_alert_threshold) : 5,
+        ean_code: eanCode || null,
+        active_ingredient: formData.active_ingredient || null,
+        standardized_dosage: standardizedDosage || null,
+        pharmaceutical_form: formData.pharmaceutical_form || null,
+        manufacturer: formData.manufacturer || null,
+        normalized_product_name: normalizedProductName || null,
+        pharmacy_search_key: pharmacySearchKey || null,
+        product_mapping_status: eanCode ? 'ean' : pharmacySearchKey ? 'substance_dosage' : 'unmapped',
+        product_mapping_metadata: {
+          source: 'manual_medication_form',
+          ean_present: Boolean(eanCode),
+          fallback_strategy: 'active_ingredient_standardized_dosage_form',
+        },
         allow_repurchase_offers: formData.allow_repurchase_offers,
         repurchase_metadata: {
           consent_source: 'medication_form',
           consent_text: 'Quero receber lembretes de recompra e opcoes de farmacias parceiras para medicamentos que eu cadastrar.',
+          product_lookup: {
+            ean_code: eanCode || null,
+            active_ingredient: formData.active_ingredient || null,
+            standardized_dosage: standardizedDosage || null,
+            pharmaceutical_form: formData.pharmaceutical_form || null,
+            manufacturer: formData.manufacturer || null,
+            pharmacy_search_key: pharmacySearchKey || null,
+          },
           channels: {
             push: formData.notify_push,
             email: formData.notify_email,
@@ -164,6 +236,8 @@ export default function Medications() {
         title: `${targetName}: ${formData.name}`,
         description: [
           formData.dosage ? `Dosagem: ${formData.dosage}` : '',
+          eanCode ? `EAN: ${eanCode}` : '',
+          formData.active_ingredient ? `Substância: ${formData.active_ingredient}` : '',
           frequencyText ? `Frequência: ${frequencyText}` : '',
           formData.reminder_time ? `Horário: ${formData.reminder_time}` : '',
           formData.allow_repurchase_offers ? 'Reposição inteligente autorizada' : '',
@@ -194,6 +268,11 @@ export default function Medications() {
           requires_confirmation: true,
           is_done: false,
           is_active: true,
+          metadata: {
+            medication_id: data?.id || null,
+            ean_code: eanCode || null,
+            pharmacy_search_key: pharmacySearchKey || null,
+          },
         })
       }
 
@@ -213,7 +292,7 @@ export default function Medications() {
       }
     } catch (error: any) {
       console.error('Error adding medication:', error)
-      alert(error.message || 'Erro ao adicionar medicamento. Rode SQL_FAMILIA_IDOSOS_FASE1.sql e SQL_HEALTHWALLET_REPOSICAO_V1.sql no Supabase se ainda não rodou.')
+      alert(error.message || 'Erro ao adicionar medicamento. Rode SQL_FAMILIA_IDOSOS_FASE1.sql, SQL_HEALTHWALLET_REPOSICAO_V1.sql e SQL_HEALTHWALLET_EAN_FARMACIA_V1.sql no Supabase se ainda não rodou.')
     }
   }
 
@@ -271,10 +350,12 @@ export default function Medications() {
 
     try {
       const stockDays = calculateStockDays(med.stock_quantity, med.pills_per_day)
+      const productLookup = buildProductLookup(med)
       const consentSnapshot = {
         consent_source: med.allow_repurchase_offers ? 'previous_medication_consent' : 'repurchase_button_confirmation',
         consent_text: 'Usuario solicitou reposicao/orcamento para medicamento previamente cadastrado. HealthWallet nao prescreve nem vende diretamente.',
         medication_id: med.id,
+        product_lookup: productLookup,
         timestamp: new Date().toISOString(),
       }
 
@@ -302,12 +383,22 @@ export default function Medications() {
           frequency: med.frequency || null,
           stock_quantity: med.stock_quantity ?? null,
           estimated_stock_days: typeof stockDays === 'number' ? stockDays : null,
+          ean_code: med.ean_code || null,
+          active_ingredient: med.active_ingredient || null,
+          standardized_dosage: med.standardized_dosage || med.dosage || null,
+          pharmaceutical_form: med.pharmaceutical_form || null,
+          manufacturer: med.manufacturer || null,
+          normalized_product_name: med.normalized_product_name || med.name || null,
+          pharmacy_search_key: med.pharmacy_search_key || productLookup.fallback_key || null,
+          product_lookup_payload: productLookup,
           preferred_channel: 'partner_quote',
           status: 'requested',
           consent_snapshot: consentSnapshot,
           partner_payload: {
             source: 'healthwallet_app',
             next_step: 'send_to_partner_pharmacy_or_marketplace',
+            lookup_strategy: productLookup.lookup_strategy,
+            product_lookup: productLookup,
           },
           notes: 'Solicitacao gerada pelo usuario no app HealthWallet.',
         })
@@ -334,10 +425,17 @@ export default function Medications() {
           stock_quantity: med.stock_quantity ?? null,
           estimated_stock_days: typeof stockDays === 'number' ? stockDays : null,
           target_name: med.target_name || 'Eu',
+          product_lookup: productLookup,
+          ean_code: med.ean_code || null,
+          active_ingredient: med.active_ingredient || null,
+          standardized_dosage: med.standardized_dosage || med.dosage || null,
+          pharmaceutical_form: med.pharmaceutical_form || null,
+          manufacturer: med.manufacturer || null,
+          pharmacy_search_key: med.pharmacy_search_key || productLookup.fallback_key || null,
           consent_snapshot: consentSnapshot,
         },
         status: 'pending',
-        priority: 3,
+        priority: productLookup.ean_code ? 4 : 3,
         scheduled_for: new Date().toISOString(),
       })
 
@@ -345,14 +443,17 @@ export default function Medications() {
         userId: user.id,
         type: 'medication_repurchase',
         title: `Reposição solicitada: ${med.name}`,
-        description: 'Pedido de orçamento/reposição registrado para farmácia parceira autorizada.',
+        description: [
+          'Pedido de orçamento/reposição registrado para farmácia parceira autorizada.',
+          productLookup.ean_code ? `EAN: ${productLookup.ean_code}` : `Busca: ${productLookup.fallback_key || med.name}`,
+        ].filter(Boolean).join(' '),
       })
 
-      alert('Solicitação registrada. O próximo passo é conectar uma farmácia/parceiro para responder disponibilidade e preço.')
+      alert('Solicitação registrada. Vamos usar EAN quando houver; se não houver, usamos substância, dosagem e forma para a farmácia parceira localizar o produto.')
       loadData()
     } catch (error: any) {
       console.error('Error requesting repurchase:', error)
-      alert(error.message || 'Não foi possível registrar a reposição. Rode SQL_HEALTHWALLET_REPOSICAO_V1.sql no Supabase e tente novamente.')
+      alert(error.message || 'Não foi possível registrar a reposição. Rode SQL_HEALTHWALLET_REPOSICAO_V1.sql e SQL_HEALTHWALLET_EAN_FARMACIA_V1.sql no Supabase e tente novamente.')
     } finally {
       setRequestingId(null)
     }
@@ -371,7 +472,6 @@ export default function Medications() {
 
   const activeMeds = medications.filter((m) => m.is_active)
   const inactiveMeds = medications.filter((m) => !m.is_active)
-  const caregiverAlerts = activeMeds.filter((m) => m.notify_caregivers).length
   const lowStockMeds = activeMeds.filter((m) => isLowStock(m))
 
   return (
@@ -381,7 +481,7 @@ export default function Medications() {
           <Pill className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">Medicamentos</h1>
-            <p className="text-white/80 text-sm">Horários, dias, estoque, recompra e confirmação Tomei/Adiar/Pulei.</p>
+            <p className="text-white/80 text-sm">Horários, estoque, EAN, substância, recompra e confirmação Tomei/Adiar/Pulei.</p>
           </div>
         </div>
       </div>
@@ -389,11 +489,12 @@ export default function Medications() {
       <div className="grid grid-cols-3 gap-2">
         <Stat label="Ativos" value={activeMeds.length} />
         <Stat label="Baixo estoque" value={lowStockMeds.length} />
-        <Stat label="Família" value={familyMembers.length} />
+        <Stat label="Com EAN" value={activeMeds.filter((m) => m.ean_code).length} />
       </div>
 
       <section className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 space-y-2">
-        <p><strong>Controle completo:</strong> cadastre remédio, dose, horários, dias, estoque e quando precisa recomprar.</p>
+        <p><strong>Controle completo:</strong> cadastre remédio, dose, horários, estoque e quando precisa recomprar.</p>
+        <p className="flex gap-2 items-center"><Barcode className="w-4 h-4" /> Para farmácias parceiras, usamos EAN quando houver. Sem EAN, usamos substância + dosagem + forma.</p>
         <p className="flex gap-2 items-center"><Smartphone className="w-4 h-4" /> Push/e-mail ficam prontos para o n8n; agenda/alarme abre no calendário do celular.</p>
       </section>
 
@@ -436,7 +537,7 @@ export default function Medications() {
         <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 px-3 sm:items-center" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))', paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
           <div className="flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-background shadow-2xl">
             <div className="p-4 border-b flex items-center justify-between">
-              <div><h2 className="font-bold">Adicionar Medicamento</h2><p className="text-xs text-muted-foreground">Dose, horário, estoque e alertas</p></div>
+              <div><h2 className="font-bold">Adicionar Medicamento</h2><p className="text-xs text-muted-foreground">EAN, dose, horário, estoque e alertas</p></div>
               <button onClick={() => setShowAddForm(false)} className="rounded-full p-2 text-muted-foreground hover:bg-muted">✕</button>
             </div>
 
@@ -450,7 +551,26 @@ export default function Medications() {
               </div>
 
               <Input label="Nome do medicamento *" value={formData.name} onChange={(v: string) => setFormData({ ...formData, name: v })} placeholder="Ex: Losartana" />
-              <Input label="Dosagem" value={formData.dosage} onChange={(v: string) => setFormData({ ...formData, dosage: v })} placeholder="Ex: 50mg" />
+              <Input label="Dosagem visível" value={formData.dosage} onChange={(v: string) => setFormData({ ...formData, dosage: v })} placeholder="Ex: 50mg" />
+
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 space-y-3 text-sm text-blue-950">
+                <div className="flex items-start gap-2">
+                  <Barcode className="mt-0.5 h-4 w-4 text-blue-700" />
+                  <div>
+                    <p className="font-semibold">Mapeamento para farmácia parceira</p>
+                    <p>Preencha o EAN se tiver. Sem EAN, a busca usa substância + dosagem + forma.</p>
+                  </div>
+                </div>
+                <Input label="EAN / código de barras" value={formData.ean_code} onChange={(v: string) => setFormData({ ...formData, ean_code: v })} placeholder="13 dígitos, se houver" />
+                <Input label="Substância ativa" value={formData.active_ingredient} onChange={(v: string) => setFormData({ ...formData, active_ingredient: v })} placeholder="Ex: losartana potássica" />
+                <div className="grid grid-cols-2 gap-3">
+                  <Input label="Dosagem padronizada" value={formData.standardized_dosage} onChange={(v: string) => setFormData({ ...formData, standardized_dosage: v })} placeholder="Ex: 50 mg" />
+                  <Input label="Forma" value={formData.pharmaceutical_form} onChange={(v: string) => setFormData({ ...formData, pharmaceutical_form: v })} placeholder="Ex: comprimido" />
+                </div>
+                <Input label="Laboratório/fabricante" value={formData.manufacturer} onChange={(v: string) => setFormData({ ...formData, manufacturer: v })} placeholder="opcional" />
+                <Input label="Nome normalizado" value={formData.normalized_product_name} onChange={(v: string) => setFormData({ ...formData, normalized_product_name: v })} placeholder="opcional; se vazio, usa o nome digitado" />
+              </div>
+
               <Input label="Frequência" value={formData.frequency} onChange={(v: string) => setFormData({ ...formData, frequency: v })} placeholder="Ex: 1x ao dia, 2x ao dia, de 8 em 8h..." />
               <Input label="Dias" value={formData.reminder_days} onChange={(v: string) => setFormData({ ...formData, reminder_days: v })} placeholder="Todos os dias, seg/qua/sex, dias úteis..." />
 
@@ -512,6 +632,7 @@ function MedGroup({ title, meds, muted, savingId, requestingId, onConfirm, onRep
 function MedicationCard({ med, active, saving, requesting, onConfirm, onRepurchase, onCalendar, onToggle, onDelete }: any) {
   const stockDays = calculateStockDays(med.stock_quantity, med.pills_per_day)
   const lowStock = isLowStock(med)
+  const lookup = buildProductLookup(med)
 
   return (
     <div className="bg-card rounded-xl border border-border p-4">
@@ -520,9 +641,10 @@ function MedicationCard({ med, active, saving, requesting, onConfirm, onRepurcha
           <Pill className={`w-5 h-5 ${active ? 'text-orange-600' : 'text-gray-500'}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap"><p className="font-semibold">{med.name}</p>{med.critical_medication && <Badge text="Crítico" tone="red" />}{med.allow_repurchase_offers && <Badge text="Reposição" tone="orange" />}</div>
+          <div className="flex items-center gap-2 flex-wrap"><p className="font-semibold">{med.name}</p>{med.critical_medication && <Badge text="Crítico" tone="red" />}{med.allow_repurchase_offers && <Badge text="Reposição" tone="orange" />}{med.ean_code && <Badge text="EAN" tone="blue" />}</div>
           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1"><Users className="w-3 h-3" />{med.target_name || 'Eu'}</p>
           {med.dosage && <p className="text-sm text-muted-foreground mt-1">{med.dosage}</p>}
+          {(med.ean_code || lookup.fallback_key) && <p className="text-xs text-blue-700 mt-1 flex items-center gap-1"><Barcode className="w-3 h-3" /> {med.ean_code ? `EAN ${med.ean_code}` : lookup.fallback_key}</p>}
           {med.frequency && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Clock className="w-3 h-3" /> {med.frequency}</p>}
           {med.reminder_time && <p className="text-xs text-emerald-700 mt-1 flex items-center gap-1"><Bell className="w-3 h-3" /> Lembrete às {String(med.reminder_time).slice(0, 5)}</p>}
           {(med.start_date || med.end_date) && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Calendar className="w-3 h-3" />{med.start_date ? formatDate(med.start_date) : 'Início não informado'}{med.end_date ? ` até ${formatDate(med.end_date)}` : ''}</p>}
@@ -547,7 +669,7 @@ function Stat({ label, value }: any) {
 }
 
 function Badge({ text, tone = 'emerald' }: any) {
-  const cls = tone === 'red' ? 'bg-red-100 text-red-700' : tone === 'orange' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'
+  const cls = tone === 'red' ? 'bg-red-100 text-red-700' : tone === 'orange' ? 'bg-orange-100 text-orange-700' : tone === 'blue' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
   return <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${cls}`}>{text}</span>
 }
 
@@ -589,6 +711,52 @@ function isLowStock(med: Medication) {
   return stockDays <= Number(med.stock_alert_threshold || 5)
 }
 
+function sanitizeEan(value: any) {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (!digits) return ''
+  return digits.length >= 8 && digits.length <= 14 ? digits : digits
+}
+
+function normalizeText(value: any) {
+  return String(value || '').trim().replace(/\s+/g, ' ')
+}
+
+function buildPharmacySearchKey(input: any) {
+  return [
+    input.active_ingredient,
+    input.standardized_dosage,
+    input.pharmaceutical_form,
+    input.manufacturer,
+  ]
+    .map(normalizeText)
+    .filter(Boolean)
+    .join(' | ')
+    || normalizeText(input.name)
+}
+
+function buildProductLookup(med: Medication) {
+  const ean = sanitizeEan(med.ean_code)
+  const fallbackKey = med.pharmacy_search_key || buildPharmacySearchKey({
+    name: med.normalized_product_name || med.name,
+    active_ingredient: med.active_ingredient,
+    standardized_dosage: med.standardized_dosage || med.dosage,
+    pharmaceutical_form: med.pharmaceutical_form,
+    manufacturer: med.manufacturer,
+  })
+
+  return {
+    lookup_strategy: ean ? 'ean' : 'substance_dosage_form',
+    ean_code: ean || null,
+    medication_name: med.name || null,
+    normalized_product_name: med.normalized_product_name || med.name || null,
+    active_ingredient: med.active_ingredient || null,
+    standardized_dosage: med.standardized_dosage || med.dosage || null,
+    pharmaceutical_form: med.pharmaceutical_form || null,
+    manufacturer: med.manufacturer || null,
+    fallback_key: fallbackKey || null,
+  }
+}
+
 function openCalendarReminder(med: any) {
   const today = new Date()
   const time = String(med.reminder_time || '09:00').slice(0, 5)
@@ -597,7 +765,7 @@ function openCalendarReminder(med: any) {
   const end = new Date(start.getTime() + 15 * 60 * 1000)
   const dates = `${formatCalendarDate(start)}/${formatCalendarDate(end)}`
   const text = encodeURIComponent(`Tomar ${med.name || 'medicamento'}`)
-  const details = encodeURIComponent([med.dosage ? `Dosagem: ${med.dosage}` : '', med.frequency ? `Frequência: ${med.frequency}` : '', 'Lembrete criado pelo HealthWallet.'].filter(Boolean).join('\n'))
+  const details = encodeURIComponent([med.dosage ? `Dosagem: ${med.dosage}` : '', med.frequency ? `Frequência: ${med.frequency}` : '', med.ean_code ? `EAN: ${med.ean_code}` : '', 'Lembrete criado pelo HealthWallet.'].filter(Boolean).join('\n'))
   window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}`)
 }
 
