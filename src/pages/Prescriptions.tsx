@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   Barcode,
@@ -16,6 +16,8 @@ import { createMedicalEvent } from '@/services/medicalTimeline'
 const OCR_API_URL = 'https://healthwallet-ocr-api.onrender.com'
 
 type PharmaItem = {
+  id?: string
+  appointment_id?: string
   medication_name?: string
   ean_code?: string | null
   active_ingredient?: string | null
@@ -26,6 +28,7 @@ type PharmaItem = {
   instructions?: string | null
   confidence?: number | null
   raw_text?: string | null
+  source?: string | null
 }
 
 export default function Prescriptions() {
@@ -37,7 +40,30 @@ export default function Prescriptions() {
   const [record, setRecord] = useState<any>(null)
   const [analysis, setAnalysis] = useState<any>(null)
   const [items, setItems] = useState<PharmaItem[]>([])
+  const [platformItems, setPlatformItems] = useState<PharmaItem[]>([])
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadPlatformPrescriptions()
+  }, [user])
+
+  async function loadPlatformPrescriptions() {
+    if (!user) return
+
+    try {
+      const { data, error } = await supabase
+        .from('telemedicine_prescription_items')
+        .select('*')
+        .eq('patient_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      if (error) throw error
+      setPlatformItems((data || []).map((item: any) => ({ ...item, source: 'telemedicine' })))
+    } catch (error) {
+      console.warn('Platform prescriptions not available yet. Run SQL_TELECONSULTA_RECEITA_FARMACIA_V1.sql.', error)
+    }
+  }
 
   function openPicker() {
     if (uploading || processing) return
@@ -233,9 +259,10 @@ export default function Prescriptions() {
     try {
       const lookup = buildProductLookup(item)
       const consentSnapshot = {
-        consent_source: 'prescription_quote_button',
-        consent_text: 'Usuario solicitou cotacao de compra/reposicao para item de receita enviada por ele. HealthWallet nao prescreve nem vende diretamente.',
+        consent_source: item.source === 'telemedicine' ? 'telemedicine_prescription_quote_button' : 'prescription_quote_button',
+        consent_text: 'Usuario solicitou cotacao de compra/reposicao para item de receita. HealthWallet nao prescreve nem vende diretamente.',
         medical_record_id: record?.id || null,
+        appointment_id: item.appointment_id || null,
         product_lookup: lookup,
         timestamp: new Date().toISOString(),
       }
@@ -261,12 +288,14 @@ export default function Prescriptions() {
           status: 'requested',
           consent_snapshot: consentSnapshot,
           partner_payload: {
-            source: 'healthwallet_prescription_upload',
+            source: item.source === 'telemedicine' ? 'mydatamed_teleconsultation_prescription' : 'healthwallet_prescription_upload',
             next_step: 'send_to_partner_pharmacy_or_marketplace',
             lookup_strategy: lookup.lookup_strategy,
             product_lookup: lookup,
           },
-          notes: 'Cotacao solicitada pelo usuario a partir de receita enviada ao HealthWallet.',
+          notes: item.source === 'telemedicine'
+            ? 'Cotacao solicitada pelo usuario a partir de receita emitida em teleconsulta MyDataMed.'
+            : 'Cotacao solicitada pelo usuario a partir de receita enviada ao HealthWallet.',
         })
         .select()
         .single()
@@ -280,7 +309,8 @@ export default function Prescriptions() {
         payload: {
           repurchase_request_id: request.id,
           medical_record_id: record?.id || null,
-          source: 'prescription_upload',
+          appointment_id: item.appointment_id || null,
+          source: item.source === 'telemedicine' ? 'telemedicine_prescription' : 'prescription_upload',
           medication_name: item.medication_name || item.active_ingredient || null,
           product_lookup: lookup,
           ean_code: lookup.ean_code || null,
@@ -328,6 +358,13 @@ export default function Prescriptions() {
         <p>Você decide se quer cotar. O HealthWallet não vende, não prescreve e não altera a receita.</p>
       </section>
 
+      {platformItems.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="font-bold">Receitas da teleconsulta</h2>
+          {platformItems.map((item, index) => renderPrescriptionItem(item, index + 10000, requestingKey, requestQuote))}
+        </section>
+      )}
+
       <div onClick={openPicker} className="cursor-pointer rounded-2xl border-2 border-dashed border-border p-8 text-center hover:border-blue-500 hover:bg-muted/40">
         <input
           ref={fileInputRef}
@@ -346,7 +383,7 @@ export default function Prescriptions() {
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-100">
               <Upload className="h-8 w-8 text-blue-700" />
             </div>
-            <p className="font-semibold">Enviar receita</p>
+            <p className="font-semibold">Enviar receita própria</p>
             <p className="text-sm text-muted-foreground">PDF, JPG ou PNG. Pode ser foto da receita.</p>
           </>
         )}
@@ -380,38 +417,44 @@ export default function Prescriptions() {
       {items.length > 0 ? (
         <section className="space-y-3">
           <h2 className="font-bold">Itens encontrados para conferência</h2>
-          {items.map((item, index) => {
-            const lookup = buildProductLookup(item)
-            const key = `${index}-${item.ean_code || item.medication_name || item.active_ingredient}`
-            return (
-              <div key={key} className="rounded-xl border bg-white p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
-                    <Pill className="h-5 w-5 text-blue-700" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold">{item.medication_name || item.active_ingredient || 'Medicamento identificado'}</p>
-                    <p className="text-xs text-muted-foreground">{[item.standardized_dosage, item.pharmaceutical_form, item.manufacturer].filter(Boolean).join(' · ') || 'Dados incompletos'}</p>
-                    {item.instructions && <p className="mt-1 text-xs text-gray-600">{item.instructions}</p>}
-                    <p className="mt-2 flex items-center gap-1 text-xs text-blue-700">
-                      <Barcode className="h-3 w-3" />
-                      {lookup.ean_code ? `EAN ${lookup.ean_code}` : `Busca: ${lookup.fallback_key || 'precisa conferência'}`}
-                    </p>
-                  </div>
-                </div>
-                <button onClick={() => requestQuote(item, index)} disabled={requestingKey === key} className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 py-3 text-sm font-semibold text-white disabled:opacity-60">
-                  {requestingKey === key ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
-                  Cotar com farmácia parceira
-                </button>
-              </div>
-            )
-          })}
+          {items.map((item, index) => renderPrescriptionItem(item, index, requestingKey, requestQuote))}
         </section>
       ) : analysis ? (
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           Não identifiquei medicamentos com segurança. A receita ficou salva no cofre; tente uma foto mais nítida ou confira manualmente com um profissional.
         </section>
       ) : null}
+    </div>
+  )
+}
+
+function renderPrescriptionItem(item: PharmaItem, index: number, requestingKey: string | null, requestQuote: (item: PharmaItem, index: number) => void) {
+  const lookup = buildProductLookup(item)
+  const key = `${index}-${item.ean_code || item.medication_name || item.active_ingredient}`
+
+  return (
+    <div key={key} className="rounded-xl border bg-white p-4 space-y-3">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
+          <Pill className="h-5 w-5 text-blue-700" />
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold">{item.medication_name || item.active_ingredient || 'Medicamento identificado'}</p>
+            {item.source === 'telemedicine' && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Teleconsulta</span>}
+          </div>
+          <p className="text-xs text-muted-foreground">{[item.standardized_dosage, item.pharmaceutical_form, item.manufacturer].filter(Boolean).join(' · ') || 'Dados incompletos'}</p>
+          {item.instructions && <p className="mt-1 text-xs text-gray-600">{item.instructions}</p>}
+          <p className="mt-2 flex items-center gap-1 text-xs text-blue-700">
+            <Barcode className="h-3 w-3" />
+            {lookup.ean_code ? `EAN ${lookup.ean_code}` : `Busca: ${lookup.fallback_key || 'precisa conferência'}`}
+          </p>
+        </div>
+      </div>
+      <button onClick={() => requestQuote(item, index)} disabled={requestingKey === key} className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 py-3 text-sm font-semibold text-white disabled:opacity-60">
+        {requestingKey === key ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
+        Cotar com farmácia parceira
+      </button>
     </div>
   )
 }
