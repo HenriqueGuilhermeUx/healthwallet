@@ -1,37 +1,40 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
+  Barcode,
+  Bell,
+  Calendar,
+  CheckCircle,
+  Clock,
+  ExternalLink,
+  Loader2,
+  Mail,
+  Package,
   Pill,
   Plus,
-  Clock,
-  Trash2,
-  Calendar,
-  Bell,
-  CheckCircle,
-  Users,
-  Package,
-  TimerReset,
-  Mail,
-  Smartphone,
-  ShoppingCart,
   Shield,
-  Barcode,
+  ShoppingCart,
+  Smartphone,
   Store,
+  TimerReset,
+  Trash2,
+  Users,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { createMedicalEvent } from '@/services/medicalTimeline'
+import { buildIfoodSearchUrl, buildPharmacySearchQuery, sanitizeEan, trackExternalPharmacyClick } from '@/services/pharmacyRedirect'
 
 interface Medication {
   id: string
   name: string
-  dosage: string
-  frequency: string
-  start_date?: string
-  end_date?: string
-  reminder_time?: string
+  dosage?: string | null
+  frequency?: string | null
+  start_date?: string | null
+  end_date?: string | null
+  reminder_time?: string | null
   is_active: boolean
   target_family_member_id?: string | null
-  target_name?: string
+  target_name?: string | null
   notify_caregivers?: boolean
   critical_medication?: boolean
   stock_quantity?: number | null
@@ -47,7 +50,6 @@ interface Medication {
   manufacturer?: string | null
   normalized_product_name?: string | null
   pharmacy_search_key?: string | null
-  product_mapping_status?: string | null
 }
 
 interface FamilyMember {
@@ -91,6 +93,7 @@ export default function Medications() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [requestingId, setRequestingId] = useState<string | null>(null)
+  const [externalOpeningId, setExternalOpeningId] = useState<string | null>(null)
   const [formData, setFormData] = useState<any>(emptyForm)
 
   useEffect(() => {
@@ -115,46 +118,6 @@ export default function Medications() {
     }
   }
 
-  async function insertMedication(payload: any) {
-    const first = await supabase.from('medications').insert(payload).select().single()
-
-    if (!first.error) return first
-
-    const message = String(first.error.message || '').toLowerCase()
-    const missingNewColumns = [
-      'allow_repurchase_offers',
-      'repurchase_metadata',
-      'ean_code',
-      'active_ingredient',
-      'standardized_dosage',
-      'pharmaceutical_form',
-      'manufacturer',
-      'normalized_product_name',
-      'pharmacy_search_key',
-      'product_mapping_status',
-      'product_mapping_metadata',
-    ].some((column) => message.includes(column))
-
-    if (!missingNewColumns) return first
-
-    const {
-      allow_repurchase_offers,
-      repurchase_metadata,
-      ean_code,
-      active_ingredient,
-      standardized_dosage,
-      pharmaceutical_form,
-      manufacturer,
-      normalized_product_name,
-      pharmacy_search_key,
-      product_mapping_status,
-      product_mapping_metadata,
-      ...fallbackPayload
-    } = payload
-
-    return supabase.from('medications').insert(fallbackPayload).select().single()
-  }
-
   async function handleAddMedication() {
     if (!user || !formData.name) {
       alert('Informe o nome do medicamento')
@@ -168,7 +131,7 @@ export default function Medications() {
     const eanCode = sanitizeEan(formData.ean_code)
     const standardizedDosage = formData.standardized_dosage || formData.dosage
     const normalizedProductName = formData.normalized_product_name || formData.name
-    const pharmacySearchKey = buildPharmacySearchKey({
+    const pharmacySearchKey = buildLocalPharmacySearchKey({
       name: normalizedProductName,
       active_ingredient: formData.active_ingredient,
       standardized_dosage: standardizedDosage,
@@ -210,14 +173,6 @@ export default function Medications() {
         repurchase_metadata: {
           consent_source: 'medication_form',
           consent_text: 'Quero receber lembretes de recompra e opcoes de farmacias parceiras para medicamentos que eu cadastrar.',
-          product_lookup: {
-            ean_code: eanCode || null,
-            active_ingredient: formData.active_ingredient || null,
-            standardized_dosage: standardizedDosage || null,
-            pharmaceutical_form: formData.pharmaceutical_form || null,
-            manufacturer: formData.manufacturer || null,
-            pharmacy_search_key: pharmacySearchKey || null,
-          },
           channels: {
             push: formData.notify_push,
             email: formData.notify_email,
@@ -227,7 +182,7 @@ export default function Medications() {
         is_active: true,
       }
 
-      const { data, error } = await insertMedication(payload)
+      const { data, error } = await supabase.from('medications').insert(payload).select().single()
       if (error) throw error
 
       await createMedicalEvent({
@@ -238,10 +193,7 @@ export default function Medications() {
           formData.dosage ? `Dosagem: ${formData.dosage}` : '',
           eanCode ? `EAN: ${eanCode}` : '',
           formData.active_ingredient ? `Substância: ${formData.active_ingredient}` : '',
-          frequencyText ? `Frequência: ${frequencyText}` : '',
-          formData.reminder_time ? `Horário: ${formData.reminder_time}` : '',
           formData.allow_repurchase_offers ? 'Reposição inteligente autorizada' : '',
-          formData.notify_caregivers ? 'Alertar familiares/cuidadores' : '',
         ].filter(Boolean).join(' · '),
         eventDate: formData.start_date || new Date().toISOString().slice(0, 10),
       })
@@ -256,11 +208,7 @@ export default function Medications() {
             targetName !== 'Eu' ? `Paciente: ${targetName}` : '',
             formData.dosage ? `Dosagem: ${formData.dosage}` : '',
             frequencyText ? `Frequência: ${frequencyText}` : '',
-            formData.notify_push ? 'Canal: push/local' : '',
-            formData.notify_email ? 'Canal: e-mail' : '',
-            formData.notify_calendar ? 'Canal: agenda/alarme' : '',
             formData.allow_repurchase_offers ? 'Reposição inteligente habilitada' : '',
-            formData.notify_caregivers ? 'Alertar cuidadores se não confirmar' : '',
           ].filter(Boolean).join(' · '),
           reminder_date: formData.start_date || new Date().toISOString().slice(0, 10),
           reminder_time: formData.reminder_time,
@@ -277,10 +225,7 @@ export default function Medications() {
       }
 
       if (formData.allow_repurchase_offers) {
-        await supabase
-          .from('profiles')
-          .update({ allow_medication_repurchase_offers: true })
-          .eq('id', user.id)
+        await supabase.from('profiles').update({ allow_medication_repurchase_offers: true }).eq('id', user.id)
       }
 
       setShowAddForm(false)
@@ -292,7 +237,7 @@ export default function Medications() {
       }
     } catch (error: any) {
       console.error('Error adding medication:', error)
-      alert(error.message || 'Erro ao adicionar medicamento. Rode SQL_FAMILIA_IDOSOS_FASE1.sql, SQL_HEALTHWALLET_REPOSICAO_V1.sql e SQL_HEALTHWALLET_EAN_FARMACIA_V1.sql no Supabase se ainda não rodou.')
+      alert(error.message || 'Erro ao adicionar medicamento. Confirme se os SQLs de medicamentos/reposição/EAN já foram rodados no Supabase.')
     }
   }
 
@@ -303,6 +248,7 @@ export default function Medications() {
     try {
       const now = new Date().toISOString()
       const statusText = status === 'taken' ? 'tomado' : status === 'delayed' ? 'adiado' : 'não tomado'
+
       await supabase.from('medication_confirmations').insert({
         user_id: user.id,
         medication_id: med.id,
@@ -360,16 +306,9 @@ export default function Medications() {
       }
 
       if (!med.allow_repurchase_offers) {
-        await supabase
-          .from('medications')
-          .update({ allow_repurchase_offers: true, updated_at: new Date().toISOString() })
-          .eq('id', med.id)
+        await supabase.from('medications').update({ allow_repurchase_offers: true, updated_at: new Date().toISOString() }).eq('id', med.id)
       }
-
-      await supabase
-        .from('profiles')
-        .update({ allow_medication_repurchase_offers: true })
-        .eq('id', user.id)
+      await supabase.from('profiles').update({ allow_medication_repurchase_offers: true }).eq('id', user.id)
 
       const { data: request, error } = await supabase
         .from('medication_repurchase_requests')
@@ -407,11 +346,7 @@ export default function Medications() {
 
       if (error) throw error
 
-      await supabase
-        .from('medications')
-        .update({ last_repurchase_requested_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('id', med.id)
-
+      await supabase.from('medications').update({ last_repurchase_requested_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', med.id)
       await supabase.from('automation_events').insert({
         event_type: 'medication_repurchase_requested',
         source: 'healthwallet_app',
@@ -421,17 +356,9 @@ export default function Medications() {
           medication_id: med.id,
           medication_name: med.name,
           dosage: med.dosage || null,
-          frequency: med.frequency || null,
-          stock_quantity: med.stock_quantity ?? null,
           estimated_stock_days: typeof stockDays === 'number' ? stockDays : null,
           target_name: med.target_name || 'Eu',
           product_lookup: productLookup,
-          ean_code: med.ean_code || null,
-          active_ingredient: med.active_ingredient || null,
-          standardized_dosage: med.standardized_dosage || med.dosage || null,
-          pharmaceutical_form: med.pharmaceutical_form || null,
-          manufacturer: med.manufacturer || null,
-          pharmacy_search_key: med.pharmacy_search_key || productLookup.fallback_key || null,
           consent_snapshot: consentSnapshot,
         },
         status: 'pending',
@@ -443,19 +370,62 @@ export default function Medications() {
         userId: user.id,
         type: 'medication_repurchase',
         title: `Reposição solicitada: ${med.name}`,
-        description: [
-          'Pedido de orçamento/reposição registrado para farmácia parceira autorizada.',
-          productLookup.ean_code ? `EAN: ${productLookup.ean_code}` : `Busca: ${productLookup.fallback_key || med.name}`,
-        ].filter(Boolean).join(' '),
+        description: productLookup.ean_code ? `EAN: ${productLookup.ean_code}` : `Busca: ${productLookup.fallback_key || med.name}`,
       })
 
       alert('Solicitação registrada. Vamos usar EAN quando houver; se não houver, usamos substância, dosagem e forma para a farmácia parceira localizar o produto.')
       loadData()
     } catch (error: any) {
       console.error('Error requesting repurchase:', error)
-      alert(error.message || 'Não foi possível registrar a reposição. Rode SQL_HEALTHWALLET_REPOSICAO_V1.sql e SQL_HEALTHWALLET_EAN_FARMACIA_V1.sql no Supabase e tente novamente.')
+      alert(error.message || 'Não foi possível registrar a reposição. Rode os SQLs de reposição/EAN no Supabase e tente novamente.')
     } finally {
       setRequestingId(null)
+    }
+  }
+
+  async function openIfoodForMedication(med: Medication) {
+    if (!user) return
+    const searchQuery = buildPharmacySearchQuery({
+      name: med.name,
+      medication_name: med.name,
+      active_ingredient: med.active_ingredient,
+      standardized_dosage: med.standardized_dosage || med.dosage,
+      pharmaceutical_form: med.pharmaceutical_form,
+      normalized_product_name: med.normalized_product_name,
+      pharmacy_search_key: med.pharmacy_search_key,
+    })
+
+    if (!searchQuery) {
+      alert('Inclua nome, substância ou dosagem para buscar no iFood.')
+      return
+    }
+
+    const destinationUrl = buildIfoodSearchUrl(searchQuery)
+    window.open(destinationUrl, '_blank', 'noopener,noreferrer')
+    setExternalOpeningId(med.id)
+
+    try {
+      await trackExternalPharmacyClick({
+        userId: user.id,
+        sourceContext: isLowStock(med) ? 'medication_low_stock' : 'medication_card',
+        item: med,
+        searchQuery,
+        destinationUrl,
+        medicationId: med.id,
+        metadata: {
+          stock_days: calculateStockDays(med.stock_quantity, med.pills_per_day),
+          has_ean: Boolean(med.ean_code),
+        },
+      })
+
+      await createMedicalEvent({
+        userId: user.id,
+        type: 'external_pharmacy_click',
+        title: `Busca externa: ${med.name}`,
+        description: `iFood: ${searchQuery}. O HealthWallet apenas abriu busca externa, sem vender ou prescrever.`,
+      })
+    } finally {
+      setExternalOpeningId(null)
     }
   }
 
@@ -481,7 +451,7 @@ export default function Medications() {
           <Pill className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">Medicamentos</h1>
-            <p className="text-white/80 text-sm">Horários, estoque, EAN, substância, recompra e confirmação Tomei/Adiar/Pulei.</p>
+            <p className="text-white/80 text-sm">Horários, estoque, EAN, substância, recompra, iFood e confirmação Tomei/Adiar/Pulei.</p>
           </div>
         </div>
       </div>
@@ -495,7 +465,7 @@ export default function Medications() {
       <section className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 space-y-2">
         <p><strong>Controle completo:</strong> cadastre remédio, dose, horários, estoque e quando precisa recomprar.</p>
         <p className="flex gap-2 items-center"><Barcode className="w-4 h-4" /> Para farmácias parceiras, usamos EAN quando houver. Sem EAN, usamos substância + dosagem + forma.</p>
-        <p className="flex gap-2 items-center"><Smartphone className="w-4 h-4" /> Push/e-mail ficam prontos para o n8n; agenda/alarme abre no calendário do celular.</p>
+        <p className="flex gap-2 items-center"><Store className="w-4 h-4" /> No MVP, “Ver no iFood” abre busca externa e mede intenção, sem vender diretamente.</p>
       </section>
 
       {lowStockMeds.length > 0 && (
@@ -504,12 +474,17 @@ export default function Medications() {
             <Package className="mt-0.5 h-5 w-5 text-orange-700" />
             <div>
               <p className="font-bold">Reposição inteligente</p>
-              <p>Você tem medicamento perto de acabar. Solicite orçamento apenas se quiser; o HealthWallet não vende nem prescreve.</p>
+              <p>Você tem medicamento perto de acabar. Você pode buscar no iFood ou solicitar cotação com parceiro.</p>
             </div>
           </div>
-          <button onClick={() => requestRepurchase(lowStockMeds[0])} disabled={requestingId === lowStockMeds[0].id} className="w-full rounded-xl bg-orange-600 py-3 font-semibold text-white disabled:opacity-60">
-            {requestingId === lowStockMeds[0].id ? 'Registrando...' : `Repor ${lowStockMeds[0].name}`}
-          </button>
+          <div className="grid grid-cols-1 gap-2">
+            <button onClick={() => openIfoodForMedication(lowStockMeds[0])} disabled={externalOpeningId === lowStockMeds[0].id} className="w-full rounded-xl border border-orange-300 bg-white py-3 font-semibold text-orange-700 disabled:opacity-60">
+              {externalOpeningId === lowStockMeds[0].id ? 'Abrindo...' : `Ver ${lowStockMeds[0].name} no iFood`}
+            </button>
+            <button onClick={() => requestRepurchase(lowStockMeds[0])} disabled={requestingId === lowStockMeds[0].id} className="w-full rounded-xl bg-orange-600 py-3 font-semibold text-white disabled:opacity-60">
+              {requestingId === lowStockMeds[0].id ? 'Registrando...' : `Cotar ${lowStockMeds[0].name}`}
+            </button>
+          </div>
         </section>
       )}
 
@@ -518,7 +493,7 @@ export default function Medications() {
       </button>
 
       {loading ? (
-        <div className="text-center py-12 text-muted-foreground">Carregando...</div>
+        <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>
       ) : medications.length === 0 ? (
         <div className="text-center py-12 bg-card rounded-xl border border-dashed">
           <Pill className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
@@ -528,118 +503,111 @@ export default function Medications() {
         </div>
       ) : (
         <div className="space-y-4">
-          {activeMeds.length > 0 && <MedGroup title={`Em uso (${activeMeds.length})`} meds={activeMeds} savingId={savingId} requestingId={requestingId} onConfirm={confirmMedication} onRepurchase={requestRepurchase} onCalendar={openCalendarReminder} onToggle={handleToggleActive} onDelete={handleDelete} />}
-          {inactiveMeds.length > 0 && <MedGroup title={`Inativos (${inactiveMeds.length})`} muted meds={inactiveMeds} savingId={savingId} requestingId={requestingId} onConfirm={confirmMedication} onRepurchase={requestRepurchase} onCalendar={openCalendarReminder} onToggle={handleToggleActive} onDelete={handleDelete} />}
+          {activeMeds.length > 0 && <MedGroup title={`Em uso (${activeMeds.length})`} meds={activeMeds} savingId={savingId} requestingId={requestingId} externalOpeningId={externalOpeningId} onConfirm={confirmMedication} onRepurchase={requestRepurchase} onIfood={openIfoodForMedication} onCalendar={openCalendarReminder} onToggle={handleToggleActive} onDelete={handleDelete} />}
+          {inactiveMeds.length > 0 && <MedGroup title={`Inativos (${inactiveMeds.length})`} muted meds={inactiveMeds} savingId={savingId} requestingId={requestingId} externalOpeningId={externalOpeningId} onConfirm={confirmMedication} onRepurchase={requestRepurchase} onIfood={openIfoodForMedication} onCalendar={openCalendarReminder} onToggle={handleToggleActive} onDelete={handleDelete} />}
         </div>
       )}
 
-      {showAddForm && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 px-3 sm:items-center" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))', paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
-          <div className="flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-background shadow-2xl">
-            <div className="p-4 border-b flex items-center justify-between">
-              <div><h2 className="font-bold">Adicionar Medicamento</h2><p className="text-xs text-muted-foreground">EAN, dose, horário, estoque e alertas</p></div>
-              <button onClick={() => setShowAddForm(false)} className="rounded-full p-2 text-muted-foreground hover:bg-muted">✕</button>
-            </div>
-
-            <div className="p-4 space-y-4 overflow-y-auto pb-6">
-              <div>
-                <label className="text-sm font-medium mb-1 block">Para quem?</label>
-                <select value={formData.target_family_member_id} onChange={(e) => setFormData({ ...formData, target_family_member_id: e.target.value })} className="w-full px-3 py-3 rounded-xl border border-border bg-background">
-                  <option value="self">Eu</option>
-                  {familyMembers.map((member) => <option key={member.id} value={member.id}>{member.name} {member.relationship ? `(${member.relationship})` : ''}</option>)}
-                </select>
-              </div>
-
-              <Input label="Nome do medicamento *" value={formData.name} onChange={(v: string) => setFormData({ ...formData, name: v })} placeholder="Ex: Losartana" />
-              <Input label="Dosagem visível" value={formData.dosage} onChange={(v: string) => setFormData({ ...formData, dosage: v })} placeholder="Ex: 50mg" />
-
-              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 space-y-3 text-sm text-blue-950">
-                <div className="flex items-start gap-2">
-                  <Barcode className="mt-0.5 h-4 w-4 text-blue-700" />
-                  <div>
-                    <p className="font-semibold">Mapeamento para farmácia parceira</p>
-                    <p>Preencha o EAN se tiver. Sem EAN, a busca usa substância + dosagem + forma.</p>
-                  </div>
-                </div>
-                <Input label="EAN / código de barras" value={formData.ean_code} onChange={(v: string) => setFormData({ ...formData, ean_code: v })} placeholder="13 dígitos, se houver" />
-                <Input label="Substância ativa" value={formData.active_ingredient} onChange={(v: string) => setFormData({ ...formData, active_ingredient: v })} placeholder="Ex: losartana potássica" />
-                <div className="grid grid-cols-2 gap-3">
-                  <Input label="Dosagem padronizada" value={formData.standardized_dosage} onChange={(v: string) => setFormData({ ...formData, standardized_dosage: v })} placeholder="Ex: 50 mg" />
-                  <Input label="Forma" value={formData.pharmaceutical_form} onChange={(v: string) => setFormData({ ...formData, pharmaceutical_form: v })} placeholder="Ex: comprimido" />
-                </div>
-                <Input label="Laboratório/fabricante" value={formData.manufacturer} onChange={(v: string) => setFormData({ ...formData, manufacturer: v })} placeholder="opcional" />
-                <Input label="Nome normalizado" value={formData.normalized_product_name} onChange={(v: string) => setFormData({ ...formData, normalized_product_name: v })} placeholder="opcional; se vazio, usa o nome digitado" />
-              </div>
-
-              <Input label="Frequência" value={formData.frequency} onChange={(v: string) => setFormData({ ...formData, frequency: v })} placeholder="Ex: 1x ao dia, 2x ao dia, de 8 em 8h..." />
-              <Input label="Dias" value={formData.reminder_days} onChange={(v: string) => setFormData({ ...formData, reminder_days: v })} placeholder="Todos os dias, seg/qua/sex, dias úteis..." />
-
-              <div>
-                <label className="text-sm font-medium mb-1 block">Horário principal</label>
-                <input type="time" value={formData.reminder_time} onChange={(e) => setFormData({ ...formData, reminder_time: e.target.value })} className="w-full px-3 py-3 rounded-xl border border-border bg-background" />
-                <p className="text-xs text-muted-foreground mt-1">Esse horário cria lembrete com confirmação.</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <DateInput label="Início" value={formData.start_date} onChange={(v: string) => setFormData({ ...formData, start_date: v })} />
-                <DateInput label="Fim" value={formData.end_date} onChange={(v: string) => setFormData({ ...formData, end_date: v })} />
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <NumberInput label="Estoque" value={formData.stock_quantity} onChange={(v: string) => setFormData({ ...formData, stock_quantity: v })} />
-                <NumberInput label="Uso/dia" value={formData.pills_per_day} onChange={(v: string) => setFormData({ ...formData, pills_per_day: v })} />
-                <NumberInput label="Recomprar" value={formData.stock_alert_threshold} onChange={(v: string) => setFormData({ ...formData, stock_alert_threshold: v })} />
-              </div>
-
-              <div className="grid grid-cols-1 gap-2">
-                <Check label="Alertar familiares/cuidadores" checked={formData.notify_caregivers} onChange={(v: boolean) => setFormData({ ...formData, notify_caregivers: v })} />
-                <Check label="Medicamento crítico" checked={formData.critical_medication} onChange={(v: boolean) => setFormData({ ...formData, critical_medication: v })} />
-              </div>
-
-              <div className="rounded-xl border bg-white p-3 space-y-2">
-                <p className="text-sm font-semibold">Canais do lembrete</p>
-                <div className="grid grid-cols-1 gap-2">
-                  <Check label="Push/local no app" checked={formData.notify_push} onChange={(v: boolean) => setFormData({ ...formData, notify_push: v })} />
-                  <Check label="E-mail via automação/n8n" checked={formData.notify_email} onChange={(v: boolean) => setFormData({ ...formData, notify_email: v })} />
-                  <Check label="Agenda/alarme do celular" checked={formData.notify_calendar} onChange={(v: boolean) => setFormData({ ...formData, notify_calendar: v })} />
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2 text-sm text-orange-900">
-                <div className="flex items-start gap-2">
-                  <Shield className="mt-0.5 h-4 w-4 text-orange-700" />
-                  <div>
-                    <p className="font-semibold">Reposição inteligente opcional</p>
-                    <p>Permita lembretes de recompra e opções de farmácias parceiras apenas para medicamentos cadastrados por você.</p>
-                  </div>
-                </div>
-                <Check label="Quero receber lembretes de recompra e opções de farmácias parceiras" checked={formData.allow_repurchase_offers} onChange={(v: boolean) => setFormData({ ...formData, allow_repurchase_offers: v })} />
-              </div>
-
-              <button onClick={handleAddMedication} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold">Salvar medicamento</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showAddForm && <MedicationForm formData={formData} setFormData={setFormData} familyMembers={familyMembers} onClose={() => setShowAddForm(false)} onSave={handleAddMedication} />}
     </div>
   )
 }
 
-function MedGroup({ title, meds, muted, savingId, requestingId, onConfirm, onRepurchase, onCalendar, onToggle, onDelete }: any) {
-  return <div className={muted ? 'opacity-70' : ''}><h2 className="text-sm font-semibold mb-2">{title}</h2><div className="space-y-2">{meds.map((med: Medication) => <MedicationCard key={med.id} med={med} active={med.is_active} saving={savingId === med.id} requesting={requestingId === med.id} onConfirm={(status: 'taken' | 'delayed' | 'skipped') => onConfirm(med, status)} onRepurchase={() => onRepurchase(med)} onCalendar={() => onCalendar(med)} onToggle={() => onToggle(med.id, med.is_active)} onDelete={() => onDelete(med.id)} />)}</div></div>
+function MedicationForm({ formData, setFormData, familyMembers, onClose, onSave }: any) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 px-3 sm:items-center" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))', paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
+      <div className="flex max-h-[88vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-background shadow-2xl">
+        <div className="p-4 border-b flex items-center justify-between">
+          <div><h2 className="font-bold">Adicionar Medicamento</h2><p className="text-xs text-muted-foreground">EAN, dose, horário, estoque e alertas</p></div>
+          <button onClick={onClose} className="rounded-full p-2 text-muted-foreground hover:bg-muted">✕</button>
+        </div>
+
+        <div className="p-4 space-y-4 overflow-y-auto pb-6">
+          <div>
+            <label className="text-sm font-medium mb-1 block">Para quem?</label>
+            <select value={formData.target_family_member_id} onChange={(e) => setFormData({ ...formData, target_family_member_id: e.target.value })} className="w-full px-3 py-3 rounded-xl border border-border bg-background">
+              <option value="self">Eu</option>
+              {familyMembers.map((member: FamilyMember) => <option key={member.id} value={member.id}>{member.name} {member.relationship ? `(${member.relationship})` : ''}</option>)}
+            </select>
+          </div>
+
+          <Input label="Nome do medicamento *" value={formData.name} onChange={(v: string) => setFormData({ ...formData, name: v })} placeholder="Ex: Losartana" />
+          <Input label="Dosagem visível" value={formData.dosage} onChange={(v: string) => setFormData({ ...formData, dosage: v })} placeholder="Ex: 50mg" />
+
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 space-y-3 text-sm text-blue-950">
+            <div className="flex items-start gap-2"><Barcode className="mt-0.5 h-4 w-4 text-blue-700" /><div><p className="font-semibold">Mapeamento para farmácia</p><p>Preencha EAN se tiver. Sem EAN, a busca usa substância + dosagem + forma.</p></div></div>
+            <Input label="EAN / código de barras" value={formData.ean_code} onChange={(v: string) => setFormData({ ...formData, ean_code: v })} placeholder="13 dígitos, se houver" />
+            <Input label="Substância ativa" value={formData.active_ingredient} onChange={(v: string) => setFormData({ ...formData, active_ingredient: v })} placeholder="Ex: losartana potássica" />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Dosagem padronizada" value={formData.standardized_dosage} onChange={(v: string) => setFormData({ ...formData, standardized_dosage: v })} placeholder="Ex: 50 mg" />
+              <Input label="Forma" value={formData.pharmaceutical_form} onChange={(v: string) => setFormData({ ...formData, pharmaceutical_form: v })} placeholder="Ex: comprimido" />
+            </div>
+            <Input label="Laboratório/fabricante" value={formData.manufacturer} onChange={(v: string) => setFormData({ ...formData, manufacturer: v })} placeholder="opcional" />
+            <Input label="Nome normalizado" value={formData.normalized_product_name} onChange={(v: string) => setFormData({ ...formData, normalized_product_name: v })} placeholder="opcional; se vazio, usa o nome digitado" />
+          </div>
+
+          <Input label="Frequência" value={formData.frequency} onChange={(v: string) => setFormData({ ...formData, frequency: v })} placeholder="Ex: 1x ao dia" />
+          <Input label="Dias" value={formData.reminder_days} onChange={(v: string) => setFormData({ ...formData, reminder_days: v })} placeholder="Todos os dias, seg/qua/sex..." />
+
+          <div><label className="text-sm font-medium mb-1 block">Horário principal</label><input type="time" value={formData.reminder_time} onChange={(e) => setFormData({ ...formData, reminder_time: e.target.value })} className="w-full px-3 py-3 rounded-xl border border-border bg-background" /><p className="text-xs text-muted-foreground mt-1">Esse horário cria lembrete com confirmação.</p></div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <DateInput label="Início" value={formData.start_date} onChange={(v: string) => setFormData({ ...formData, start_date: v })} />
+            <DateInput label="Fim" value={formData.end_date} onChange={(v: string) => setFormData({ ...formData, end_date: v })} />
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <NumberInput label="Estoque" value={formData.stock_quantity} onChange={(v: string) => setFormData({ ...formData, stock_quantity: v })} />
+            <NumberInput label="Uso/dia" value={formData.pills_per_day} onChange={(v: string) => setFormData({ ...formData, pills_per_day: v })} />
+            <NumberInput label="Recomprar" value={formData.stock_alert_threshold} onChange={(v: string) => setFormData({ ...formData, stock_alert_threshold: v })} />
+          </div>
+
+          <div className="grid grid-cols-1 gap-2">
+            <Check label="Alertar familiares/cuidadores" checked={formData.notify_caregivers} onChange={(v: boolean) => setFormData({ ...formData, notify_caregivers: v })} />
+            <Check label="Medicamento crítico" checked={formData.critical_medication} onChange={(v: boolean) => setFormData({ ...formData, critical_medication: v })} />
+          </div>
+
+          <div className="rounded-xl border bg-white p-3 space-y-2">
+            <p className="text-sm font-semibold">Canais do lembrete</p>
+            <Check label="Push/local no app" checked={formData.notify_push} onChange={(v: boolean) => setFormData({ ...formData, notify_push: v })} />
+            <Check label="E-mail via automação/n8n" checked={formData.notify_email} onChange={(v: boolean) => setFormData({ ...formData, notify_email: v })} />
+            <Check label="Agenda/alarme do celular" checked={formData.notify_calendar} onChange={(v: boolean) => setFormData({ ...formData, notify_calendar: v })} />
+          </div>
+
+          <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2 text-sm text-orange-900">
+            <div className="flex items-start gap-2"><Shield className="mt-0.5 h-4 w-4 text-orange-700" /><div><p className="font-semibold">Reposição inteligente opcional</p><p>Permita lembretes de recompra e opções de farmácias apenas para medicamentos cadastrados por você.</p></div></div>
+            <Check label="Quero receber lembretes de recompra e opções de farmácias parceiras" checked={formData.allow_repurchase_offers} onChange={(v: boolean) => setFormData({ ...formData, allow_repurchase_offers: v })} />
+          </div>
+
+          <button onClick={onSave} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold">Salvar medicamento</button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-function MedicationCard({ med, active, saving, requesting, onConfirm, onRepurchase, onCalendar, onToggle, onDelete }: any) {
+function MedGroup({ title, meds, muted, savingId, requestingId, externalOpeningId, onConfirm, onRepurchase, onIfood, onCalendar, onToggle, onDelete }: any) {
+  return <div className={muted ? 'opacity-70' : ''}><h2 className="text-sm font-semibold mb-2">{title}</h2><div className="space-y-2">{meds.map((med: Medication) => <MedicationCard key={med.id} med={med} active={med.is_active} saving={savingId === med.id} requesting={requestingId === med.id} openingExternal={externalOpeningId === med.id} onConfirm={(status: 'taken' | 'delayed' | 'skipped') => onConfirm(med, status)} onRepurchase={() => onRepurchase(med)} onIfood={() => onIfood(med)} onCalendar={() => onCalendar(med)} onToggle={() => onToggle(med.id, med.is_active)} onDelete={() => onDelete(med.id)} />)}</div></div>
+}
+
+function MedicationCard({ med, active, saving, requesting, openingExternal, onConfirm, onRepurchase, onIfood, onCalendar, onToggle, onDelete }: any) {
   const stockDays = calculateStockDays(med.stock_quantity, med.pills_per_day)
   const lowStock = isLowStock(med)
   const lookup = buildProductLookup(med)
+  const ifoodQuery = buildPharmacySearchQuery({
+    name: med.name,
+    medication_name: med.name,
+    active_ingredient: med.active_ingredient,
+    standardized_dosage: med.standardized_dosage || med.dosage,
+    pharmaceutical_form: med.pharmaceutical_form,
+    normalized_product_name: med.normalized_product_name,
+    pharmacy_search_key: med.pharmacy_search_key,
+  })
 
   return (
     <div className="bg-card rounded-xl border border-border p-4">
       <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${active ? 'bg-orange-100' : 'bg-gray-100'}`}>
-          <Pill className={`w-5 h-5 ${active ? 'text-orange-600' : 'text-gray-500'}`} />
-        </div>
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${active ? 'bg-orange-100' : 'bg-gray-100'}`}><Pill className={`w-5 h-5 ${active ? 'text-orange-600' : 'text-gray-500'}`} /></div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap"><p className="font-semibold">{med.name}</p>{med.critical_medication && <Badge text="Crítico" tone="red" />}{med.allow_repurchase_offers && <Badge text="Reposição" tone="orange" />}{med.ean_code && <Badge text="EAN" tone="blue" />}</div>
           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1"><Users className="w-3 h-3" />{med.target_name || 'Eu'}</p>
@@ -647,15 +615,17 @@ function MedicationCard({ med, active, saving, requesting, onConfirm, onRepurcha
           {(med.ean_code || lookup.fallback_key) && <p className="text-xs text-blue-700 mt-1 flex items-center gap-1"><Barcode className="w-3 h-3" /> {med.ean_code ? `EAN ${med.ean_code}` : lookup.fallback_key}</p>}
           {med.frequency && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Clock className="w-3 h-3" /> {med.frequency}</p>}
           {med.reminder_time && <p className="text-xs text-emerald-700 mt-1 flex items-center gap-1"><Bell className="w-3 h-3" /> Lembrete às {String(med.reminder_time).slice(0, 5)}</p>}
-          {(med.start_date || med.end_date) && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Calendar className="w-3 h-3" />{med.start_date ? formatDate(med.start_date) : 'Início não informado'}{med.end_date ? ` até ${formatDate(med.end_date)}` : ''}</p>}
           {med.notify_caregivers && <p className="text-xs text-blue-700 mt-1 flex items-center gap-1"><Mail className="w-3 h-3" /> Familiares/cuidadores acompanham este cuidado</p>}
           {typeof stockDays === 'number' && <div className={`mt-3 rounded-lg p-2 text-xs flex items-center gap-2 ${lowStock ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}><Package className="w-4 h-4" />Estoque estimado: {stockDays} dia(s){lowStock ? ' · precisa recomprar em breve' : ''}</div>}
           {med.last_taken_at && <p className="text-xs text-muted-foreground mt-2">Última confirmação: {new Date(med.last_taken_at).toLocaleString('pt-BR')}</p>}
           {med.last_repurchase_requested_at && <p className="text-xs text-orange-700 mt-2">Última solicitação de reposição: {new Date(med.last_repurchase_requested_at).toLocaleDateString('pt-BR')}</p>}
+
           {active && <div className="grid grid-cols-3 gap-2 mt-3"><button disabled={saving} onClick={() => onConfirm('taken')} className="py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50"><CheckCircle className="w-3 h-3" /> Tomei</button><button disabled={saving} onClick={() => onConfirm('delayed')} className="py-2 rounded-lg bg-amber-100 text-amber-700 text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50"><TimerReset className="w-3 h-3" /> Adiar</button><button disabled={saving} onClick={() => onConfirm('skipped')} className="py-2 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold disabled:opacity-50">Pulei</button></div>}
+
           <div className="grid grid-cols-1 gap-2 mt-2">
             {med.reminder_time && <button type="button" onClick={onCalendar} className="w-full rounded-lg border border-blue-200 py-2 text-xs font-semibold text-blue-700 flex items-center justify-center gap-1"><Calendar className="w-3 h-3" /> Abrir agenda/alarme</button>}
-            {active && <button type="button" onClick={onRepurchase} disabled={requesting} className={`w-full rounded-lg py-2 text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-60 ${lowStock ? 'bg-orange-600 text-white' : 'border border-orange-200 text-orange-700'}`}><ShoppingCart className="w-3 h-3" /> {requesting ? 'Registrando...' : lowStock ? 'Repor / solicitar orçamento' : 'Opções de reposição'}</button>}
+            {ifoodQuery && <button type="button" onClick={onIfood} disabled={openingExternal} className="w-full rounded-lg border border-red-200 bg-white py-2 text-xs font-semibold text-red-700 flex items-center justify-center gap-1 disabled:opacity-60"><Store className="w-3 h-3" /> {openingExternal ? 'Abrindo...' : 'Ver no iFood'} <ExternalLink className="w-3 h-3" /></button>}
+            {active && <button type="button" onClick={onRepurchase} disabled={requesting} className={`w-full rounded-lg py-2 text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-60 ${lowStock ? 'bg-orange-600 text-white' : 'border border-orange-200 text-orange-700'}`}><ShoppingCart className="w-3 h-3" /> {requesting ? 'Registrando...' : lowStock ? 'Cotar / solicitar orçamento' : 'Cotar com parceiro'}</button>}
           </div>
         </div>
         <div className="flex flex-col items-end gap-2"><button onClick={onToggle} className={`text-xs ${active ? 'text-emerald-600' : 'text-muted-foreground'}`}>{active ? 'Ativo' : 'Reativar'}</button><button onClick={onDelete} className="text-red-500"><Trash2 className="w-4 h-4" /></button></div>
@@ -711,32 +681,17 @@ function isLowStock(med: Medication) {
   return stockDays <= Number(med.stock_alert_threshold || 5)
 }
 
-function sanitizeEan(value: any) {
-  const digits = String(value || '').replace(/\D/g, '')
-  if (!digits) return ''
-  return digits.length >= 8 && digits.length <= 14 ? digits : digits
-}
-
 function normalizeText(value: any) {
   return String(value || '').trim().replace(/\s+/g, ' ')
 }
 
-function buildPharmacySearchKey(input: any) {
-  return [
-    input.active_ingredient,
-    input.standardized_dosage,
-    input.pharmaceutical_form,
-    input.manufacturer,
-  ]
-    .map(normalizeText)
-    .filter(Boolean)
-    .join(' | ')
-    || normalizeText(input.name)
+function buildLocalPharmacySearchKey(input: any) {
+  return [input.active_ingredient, input.standardized_dosage, input.pharmaceutical_form, input.manufacturer].map(normalizeText).filter(Boolean).join(' | ') || normalizeText(input.name)
 }
 
 function buildProductLookup(med: Medication) {
   const ean = sanitizeEan(med.ean_code)
-  const fallbackKey = med.pharmacy_search_key || buildPharmacySearchKey({
+  const fallbackKey = med.pharmacy_search_key || buildLocalPharmacySearchKey({
     name: med.normalized_product_name || med.name,
     active_ingredient: med.active_ingredient,
     standardized_dosage: med.standardized_dosage || med.dosage,
@@ -771,9 +726,4 @@ function openCalendarReminder(med: any) {
 
 function formatCalendarDate(date: Date) {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
-}
-
-function formatDate(date: string) {
-  if (!date) return ''
-  return new Date(date).toLocaleDateString('pt-BR')
 }
