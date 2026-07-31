@@ -3,21 +3,25 @@ import {
   AlertCircle,
   Barcode,
   CheckCircle,
+  ExternalLink,
   FileText,
   Loader2,
   Pill,
   ShoppingCart,
+  Store,
   Upload,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { createMedicalEvent } from '@/services/medicalTimeline'
+import { buildIfoodSearchUrl, buildPharmacySearchQuery, sanitizeEan, trackExternalPharmacyClick } from '@/services/pharmacyRedirect'
 
 const OCR_API_URL = 'https://healthwallet-ocr-api.onrender.com'
 
 type PharmaItem = {
   id?: string
   appointment_id?: string
+  medical_record_id?: string
   medication_name?: string
   ean_code?: string | null
   active_ingredient?: string | null
@@ -37,6 +41,7 @@ export default function Prescriptions() {
   const [uploading, setUploading] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [requestingKey, setRequestingKey] = useState<string | null>(null)
+  const [openingExternalKey, setOpeningExternalKey] = useState<string | null>(null)
   const [record, setRecord] = useState<any>(null)
   const [analysis, setAnalysis] = useState<any>(null)
   const [items, setItems] = useState<PharmaItem[]>([])
@@ -162,7 +167,7 @@ export default function Prescriptions() {
         }
       }
 
-      const pharmaItems = extractPharmaItemsFromAnalysis(payload)
+      const pharmaItems = extractPharmaItemsFromAnalysis(payload).map((item) => ({ ...item, source: 'uploaded_prescription', medical_record_id: saved.id }))
       const enriched = {
         ...payload,
         examType: 'Receita',
@@ -181,7 +186,7 @@ export default function Prescriptions() {
         type: 'prescription_uploaded',
         title: 'Receita enviada',
         description: pharmaItems.length > 0
-          ? `Receita salva com ${pharmaItems.length} item(ns) para conferência e cotação.`
+          ? `Receita salva com ${pharmaItems.length} item(ns) para conferência, iFood e cotação.`
           : 'Receita salva no cofre de saúde.',
       })
 
@@ -261,7 +266,7 @@ export default function Prescriptions() {
       const consentSnapshot = {
         consent_source: item.source === 'telemedicine' ? 'telemedicine_prescription_quote_button' : 'prescription_quote_button',
         consent_text: 'Usuario solicitou cotacao de compra/reposicao para item de receita. HealthWallet nao prescreve nem vende diretamente.',
-        medical_record_id: record?.id || null,
+        medical_record_id: record?.id || item.medical_record_id || null,
         appointment_id: item.appointment_id || null,
         product_lookup: lookup,
         timestamp: new Date().toISOString(),
@@ -308,17 +313,11 @@ export default function Prescriptions() {
         patient_user_id: user.id,
         payload: {
           repurchase_request_id: request.id,
-          medical_record_id: record?.id || null,
+          medical_record_id: record?.id || item.medical_record_id || null,
           appointment_id: item.appointment_id || null,
           source: item.source === 'telemedicine' ? 'telemedicine_prescription' : 'prescription_upload',
           medication_name: item.medication_name || item.active_ingredient || null,
           product_lookup: lookup,
-          ean_code: lookup.ean_code || null,
-          active_ingredient: item.active_ingredient || null,
-          standardized_dosage: item.standardized_dosage || null,
-          pharmaceutical_form: item.pharmaceutical_form || null,
-          manufacturer: item.manufacturer || null,
-          pharmacy_search_key: lookup.fallback_key || null,
           consent_snapshot: consentSnapshot,
         },
         status: 'pending',
@@ -341,6 +340,52 @@ export default function Prescriptions() {
     }
   }
 
+  async function openIfoodForItem(item: PharmaItem, index: number) {
+    if (!user) return
+
+    const searchQuery = buildPharmacySearchQuery({
+      medication_name: item.medication_name,
+      active_ingredient: item.active_ingredient,
+      standardized_dosage: item.standardized_dosage,
+      pharmaceutical_form: item.pharmaceutical_form,
+    })
+
+    if (!searchQuery) {
+      alert('Não há dados suficientes para buscar no iFood. Confira nome, substância ou dosagem.')
+      return
+    }
+
+    const key = `${index}-${item.ean_code || item.medication_name || item.active_ingredient}`
+    const destinationUrl = buildIfoodSearchUrl(searchQuery)
+    window.open(destinationUrl, '_blank', 'noopener,noreferrer')
+    setOpeningExternalKey(key)
+
+    try {
+      await trackExternalPharmacyClick({
+        userId: user.id,
+        sourceContext: item.source === 'telemedicine' ? 'teleconsultation_prescription' : 'uploaded_prescription',
+        item,
+        searchQuery,
+        destinationUrl,
+        medicalRecordId: record?.id || item.medical_record_id || null,
+        appointmentId: item.appointment_id || null,
+        metadata: {
+          has_ean: Boolean(item.ean_code),
+          source: item.source || 'prescription',
+        },
+      })
+
+      await createMedicalEvent({
+        userId: user.id,
+        type: 'external_pharmacy_click',
+        title: `Busca externa: ${item.medication_name || item.active_ingredient || 'Receita'}`,
+        description: `iFood: ${searchQuery}. O HealthWallet apenas abriu busca externa, sem vender ou prescrever.`,
+      })
+    } finally {
+      setOpeningExternalKey(null)
+    }
+  }
+
   return (
     <div className="space-y-5 pb-28">
       <section className="rounded-2xl bg-gradient-to-br from-blue-700 to-indigo-800 p-5 text-white">
@@ -348,20 +393,20 @@ export default function Prescriptions() {
           <FileText className="h-8 w-8" />
           <div>
             <h1 className="text-2xl font-bold">Receitas</h1>
-            <p className="text-sm text-white/80">Envie receita, salve no cofre e prepare cotação com farmácia parceira.</p>
+            <p className="text-sm text-white/80">Envie receita, salve no cofre, busque no iFood ou prepare cotação com farmácia parceira.</p>
           </div>
         </div>
       </section>
 
       <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 space-y-2">
         <p><strong>Como funciona:</strong> a IA tenta identificar EAN/código de barras. Sem EAN, monta uma busca por substância + dosagem + forma.</p>
-        <p>Você decide se quer cotar. O HealthWallet não vende, não prescreve e não altera a receita.</p>
+        <p>Você decide se quer buscar no iFood ou cotar com parceiro. O HealthWallet não vende, não prescreve e não altera a receita.</p>
       </section>
 
       {platformItems.length > 0 && (
         <section className="space-y-3">
           <h2 className="font-bold">Receitas da teleconsulta</h2>
-          {platformItems.map((item, index) => renderPrescriptionItem(item, index + 10000, requestingKey, requestQuote))}
+          {platformItems.map((item, index) => renderPrescriptionItem(item, index + 10000, requestingKey, openingExternalKey, requestQuote, openIfoodForItem))}
         </section>
       )}
 
@@ -380,9 +425,7 @@ export default function Prescriptions() {
           </div>
         ) : (
           <>
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-100">
-              <Upload className="h-8 w-8 text-blue-700" />
-            </div>
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-100"><Upload className="h-8 w-8 text-blue-700" /></div>
             <p className="font-semibold">Enviar receita própria</p>
             <p className="text-sm text-muted-foreground">PDF, JPG ou PNG. Pode ser foto da receita.</p>
           </>
@@ -393,51 +436,45 @@ export default function Prescriptions() {
         <Upload className="h-5 w-5" /> Enviar receita para análise
       </button>
 
-      {error && (
-        <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
-          <AlertCircle className="h-5 w-5 shrink-0" />
-          <p className="text-sm">{error}</p>
-        </div>
-      )}
+      {error && <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700"><AlertCircle className="h-5 w-5 shrink-0" /><p className="text-sm">{error}</p></div>}
 
-      {record && !error && (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
-          <CheckCircle className="h-5 w-5 shrink-0" />
-          <p className="text-sm">Receita salva no cofre: {record.file_name}</p>
-        </div>
-      )}
+      {record && !error && <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800"><CheckCircle className="h-5 w-5 shrink-0" /><p className="text-sm">Receita salva no cofre: {record.file_name}</p></div>}
 
-      {analysis?.summary && (
-        <section className="rounded-xl border bg-white p-4">
-          <h2 className="font-bold">Resumo da IA</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{analysis.summary}</p>
-        </section>
-      )}
+      {analysis?.summary && <section className="rounded-xl border bg-white p-4"><h2 className="font-bold">Resumo da IA</h2><p className="mt-2 text-sm text-muted-foreground">{analysis.summary}</p></section>}
 
       {items.length > 0 ? (
         <section className="space-y-3">
           <h2 className="font-bold">Itens encontrados para conferência</h2>
-          {items.map((item, index) => renderPrescriptionItem(item, index, requestingKey, requestQuote))}
+          {items.map((item, index) => renderPrescriptionItem(item, index, requestingKey, openingExternalKey, requestQuote, openIfoodForItem))}
         </section>
       ) : analysis ? (
-        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Não identifiquei medicamentos com segurança. A receita ficou salva no cofre; tente uma foto mais nítida ou confira manualmente com um profissional.
-        </section>
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Não identifiquei medicamentos com segurança. A receita ficou salva no cofre; tente uma foto mais nítida ou confira manualmente com um profissional.</section>
       ) : null}
     </div>
   )
 }
 
-function renderPrescriptionItem(item: PharmaItem, index: number, requestingKey: string | null, requestQuote: (item: PharmaItem, index: number) => void) {
+function renderPrescriptionItem(
+  item: PharmaItem,
+  index: number,
+  requestingKey: string | null,
+  openingExternalKey: string | null,
+  requestQuote: (item: PharmaItem, index: number) => void,
+  openIfoodForItem: (item: PharmaItem, index: number) => void,
+) {
   const lookup = buildProductLookup(item)
   const key = `${index}-${item.ean_code || item.medication_name || item.active_ingredient}`
+  const ifoodQuery = buildPharmacySearchQuery({
+    medication_name: item.medication_name,
+    active_ingredient: item.active_ingredient,
+    standardized_dosage: item.standardized_dosage,
+    pharmaceutical_form: item.pharmaceutical_form,
+  })
 
   return (
     <div key={key} className="rounded-xl border bg-white p-4 space-y-3">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
-          <Pill className="h-5 w-5 text-blue-700" />
-        </div>
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100"><Pill className="h-5 w-5 text-blue-700" /></div>
         <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-semibold">{item.medication_name || item.active_ingredient || 'Medicamento identificado'}</p>
@@ -445,16 +482,21 @@ function renderPrescriptionItem(item: PharmaItem, index: number, requestingKey: 
           </div>
           <p className="text-xs text-muted-foreground">{[item.standardized_dosage, item.pharmaceutical_form, item.manufacturer].filter(Boolean).join(' · ') || 'Dados incompletos'}</p>
           {item.instructions && <p className="mt-1 text-xs text-gray-600">{item.instructions}</p>}
-          <p className="mt-2 flex items-center gap-1 text-xs text-blue-700">
-            <Barcode className="h-3 w-3" />
-            {lookup.ean_code ? `EAN ${lookup.ean_code}` : `Busca: ${lookup.fallback_key || 'precisa conferência'}`}
-          </p>
+          <p className="mt-2 flex items-center gap-1 text-xs text-blue-700"><Barcode className="h-3 w-3" />{lookup.ean_code ? `EAN ${lookup.ean_code}` : `Busca: ${lookup.fallback_key || 'precisa conferência'}`}</p>
         </div>
       </div>
-      <button onClick={() => requestQuote(item, index)} disabled={requestingKey === key} className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 py-3 text-sm font-semibold text-white disabled:opacity-60">
-        {requestingKey === key ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
-        Cotar com farmácia parceira
-      </button>
+      <div className="grid grid-cols-1 gap-2">
+        {ifoodQuery && (
+          <button onClick={() => openIfoodForItem(item, index)} disabled={openingExternalKey === key} className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-white py-3 text-sm font-semibold text-red-700 disabled:opacity-60">
+            {openingExternalKey === key ? <Loader2 className="h-4 w-4 animate-spin" /> : <Store className="h-4 w-4" />}
+            Ver no iFood <ExternalLink className="h-4 w-4" />
+          </button>
+        )}
+        <button onClick={() => requestQuote(item, index)} disabled={requestingKey === key} className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 py-3 text-sm font-semibold text-white disabled:opacity-60">
+          {requestingKey === key ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
+          Cotar com farmácia parceira
+        </button>
+      </div>
     </div>
   )
 }
@@ -491,12 +533,6 @@ function normalizeItem(item: any): PharmaItem {
     confidence: Number(item.confidence || item.confidence_score || 0) || null,
     raw_text: normalizeText(item.raw_text || item.rawText),
   }
-}
-
-function sanitizeEan(value: any) {
-  const digits = String(value || '').replace(/\D/g, '')
-  if (!digits) return ''
-  return digits.length >= 8 && digits.length <= 14 ? digits : ''
 }
 
 function normalizeText(value: any) {
