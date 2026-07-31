@@ -208,6 +208,17 @@ export default function Dashboard() {
         </Link>
       )}
 
+      <Link to="/prescriptions" className="block rounded-2xl bg-gradient-to-br from-blue-700 to-indigo-800 p-4 text-white shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center"><FileText className="w-7 h-7" /></div>
+          <div className="flex-1">
+            <p className="font-bold text-lg">Receitas</p>
+            <p className="text-sm text-white/85">Enviar receita, salvar no cofre e cotar com farmácia parceira.</p>
+          </div>
+          <ShoppingCart className="w-5 h-5" />
+        </div>
+      </Link>
+
       <Link to="/emergency" className="block rounded-2xl bg-gradient-to-br from-red-600 to-orange-700 p-4 text-white shadow-sm">
         <div className="flex items-center gap-3"><div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center"><AlertTriangle className="w-7 h-7" /></div><div className="flex-1"><p className="font-bold text-lg">Ajuda Rápida</p><p className="text-sm text-white/85">Botão de emergência, contatos, localização e Passport crítico.</p></div></div>
       </Link>
@@ -254,6 +265,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3">
         <AppButton to="/upload" icon={Upload} label="Upload de Exame" color="bg-violet-600" />
+        <AppButton to="/prescriptions" icon={FileText} label="Receitas" color="bg-blue-700" />
         <AppButton to="/medications" icon={Pill} label="Medicamentos" color="bg-orange-600" />
         <AppButton to="/medscore" icon={TrendingUp} label="MedScore" color="bg-lime-600" />
         <AppButton to="/profile" icon={User} label="Meu Perfil" color="bg-emerald-600" />
