@@ -10,9 +10,11 @@ import {
   Loader2,
   Lock,
   MessageCircle,
+  Package,
   Pill,
   Share2,
   Shield,
+  ShoppingCart,
   Sparkles,
   Target,
   TrendingUp,
@@ -36,6 +38,7 @@ export default function Dashboard() {
   const [nextTelemedicine, setNextTelemedicine] = useState<any>(null)
   const [nextReminder, setNextReminder] = useState<any>(null)
   const [nextMedication, setNextMedication] = useState<any>(null)
+  const [lowStockMedication, setLowStockMedication] = useState<any>(null)
   const [lastExam, setLastExam] = useState<any>(null)
   const [scoreChange, setScoreChange] = useState(0)
   const [insights, setInsights] = useState<string[]>([])
@@ -97,7 +100,7 @@ export default function Dashboard() {
         supabase.from('patient_conditions').select('*').eq('user_id', user.id),
         supabase.from('medical_records').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
         supabase.from('medical_events').select('*').eq('user_id', user.id).gte('event_date', today).order('event_date', { ascending: true }).limit(5),
-        supabase.from('medications').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: false }).limit(5),
+        supabase.from('medications').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: false }).limit(10),
         supabase.from('health_scores').select('*').eq('user_id', user.id).order('calculated_at', { ascending: false }).limit(2),
         supabase.from('health_reminders').select('*').eq('user_id', user.id).eq('is_active', true).gte('reminder_date', today).order('reminder_date', { ascending: true }).order('reminder_time', { ascending: true }).limit(5),
         supabase.from('access_codes').select('*').eq('patient_id', user.id).eq('revoked', false).gt('expires_at', now),
@@ -107,9 +110,12 @@ export default function Dashboard() {
 
       const records = recordsRes.data || []
       const profile = profileRes.data || {}
+      const activeMeds = activeMedsRes.data || []
+      const lowStock = activeMeds.find((med: any) => isLowStock(med)) || null
 
       setProfileGender(profile.gender || '')
       setCareLinksSummary(careSummary)
+      setLowStockMedication(lowStock)
 
       const calculated = calculateMedScore(profile, records, conditionsRes.data || [])
 
@@ -133,7 +139,7 @@ export default function Dashboard() {
       setNextEvent(timelineRes.data?.[0] || null)
       setNextTelemedicine(telemedicineRes.data?.[0] || null)
       setNextReminder(remindersRes.data?.[0] || null)
-      setNextMedication(activeMedsRes.data?.[0] || null)
+      setNextMedication(activeMeds[0] || null)
       setLastExam(records[0] || null)
       setActiveShares(sharesRes.data?.length || 0)
 
@@ -142,7 +148,7 @@ export default function Dashboard() {
         : 0
 
       setScoreChange(delta)
-      setInsights(buildDashboardInsights(records, calculated, delta, activeMedsRes.data || [], sharesRes.data || [], telemedicineRes.data || [], careSummary))
+      setInsights(buildDashboardInsights(records, calculated, delta, activeMeds, sharesRes.data || [], telemedicineRes.data || [], careSummary, lowStock))
       setMedScore(calculated)
     } catch (error) {
       console.error('Error loading dashboard:', error)
@@ -188,6 +194,19 @@ export default function Dashboard() {
           </div>
         </div>
       </Link>
+
+      {lowStockMedication && (
+        <Link to="/medications" className="block rounded-2xl bg-gradient-to-br from-orange-600 to-amber-700 p-4 text-white shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center"><Package className="w-7 h-7" /></div>
+            <div className="flex-1">
+              <p className="font-bold text-lg">Reposição inteligente</p>
+              <p className="text-sm text-white/85">{lowStockMedication.name} pode acabar em {calculateStockDays(lowStockMedication.stock_quantity, lowStockMedication.pills_per_day)} dia(s).</p>
+            </div>
+            <ShoppingCart className="w-5 h-5" />
+          </div>
+        </Link>
+      )}
 
       <Link to="/emergency" className="block rounded-2xl bg-gradient-to-br from-red-600 to-orange-700 p-4 text-white shadow-sm">
         <div className="flex items-center gap-3"><div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center"><AlertTriangle className="w-7 h-7" /></div><div className="flex-1"><p className="font-bold text-lg">Ajuda Rápida</p><p className="text-sm text-white/85">Botão de emergência, contatos, localização e Passport crítico.</p></div></div>
@@ -263,13 +282,14 @@ function mergeById(items: any[]) {
   return Array.from(map.values())
 }
 
-function buildDashboardInsights(records: any[], medScore: any, scoreChange: number, medications: any[], shares: any[], telemedicine: any[], careLinks: { active: number; pending: number; total: number }) {
+function buildDashboardInsights(records: any[], medScore: any, scoreChange: number, medications: any[], shares: any[], telemedicine: any[], careLinks: { active: number; pending: number; total: number }, lowStockMedication?: any) {
   const insights: string[] = []
   insights.push(`Você enviou ${records.length} exame(s) até agora.`)
   if (scoreChange > 0) insights.push(`Seu MedScore subiu ${scoreChange} ponto(s) desde a última atualização.`)
   else if (scoreChange < 0) insights.push(`Seu MedScore caiu ${Math.abs(scoreChange)} ponto(s); vale revisar pontos de atenção.`)
   else insights.push('Seu MedScore está estável desde a última atualização.')
   if (medications.length > 0) insights.push(`Você tem ${medications.length} medicamento(s) ativo(s) cadastrado(s).`)
+  if (lowStockMedication) insights.push(`${lowStockMedication.name} pode precisar de reposição em breve.`)
   if (shares.length > 0) insights.push(`Você tem ${shares.length} compartilhamento(s) ativo(s) com profissionais.`)
   if (careLinks.active > 0) insights.push(`Você tem ${careLinks.active} profissional(is) com vínculo assistencial ativo.`)
   if (careLinks.pending > 0) insights.push(`Você tem ${careLinks.pending} solicitação(ões) de vínculo aguardando decisão.`)
@@ -286,6 +306,19 @@ function DailyCard({ icon: Icon, title, value, subtitle }: any) {
 
 function AppButton({ to, icon: Icon, label, color }: any) {
   return <Link to={to} className={`p-4 rounded-xl ${color} text-white font-semibold text-center flex flex-col items-center justify-center gap-2 min-h-[92px]`}><Icon className="w-5 h-5" /><span className="text-sm leading-tight">{label}</span></Link>
+}
+
+function calculateStockDays(stock: any, pillsPerDay: any) {
+  const s = Number(stock)
+  const p = Number(pillsPerDay)
+  if (!Number.isFinite(s) || !Number.isFinite(p) || p <= 0) return null
+  return Math.ceil(s / p)
+}
+
+function isLowStock(med: any) {
+  const stockDays = calculateStockDays(med.stock_quantity, med.pills_per_day)
+  if (typeof stockDays !== 'number') return false
+  return stockDays <= Number(med.stock_alert_threshold || 5)
 }
 
 function formatDate(date: string) {
