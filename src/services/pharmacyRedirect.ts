@@ -66,7 +66,7 @@ export async function trackExternalPharmacyClick(params: TrackParams) {
       user_id: params.userId,
       provider: params.provider || 'ifood_search',
       source_context: params.sourceContext,
-      medication_id: params.medicationId || item.medication_id || item.id || null,
+      medication_id: params.medicationId || item.medication_id || null,
       medical_record_id: params.medicalRecordId || item.medical_record_id || null,
       appointment_id: params.appointmentId || item.appointment_id || null,
       medication_name: item.medication_name || item.name || item.normalized_product_name || null,
@@ -78,6 +78,7 @@ export async function trackExternalPharmacyClick(params: TrackParams) {
       search_query: params.searchQuery,
       destination_url: params.destinationUrl,
       metadata: {
+        source_item_id: item.id || null,
         no_diagnosis: true,
         no_clinical_inference: true,
         external_redirect_only: true,
