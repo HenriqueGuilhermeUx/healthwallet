@@ -6,11 +6,11 @@ on:
       version_code:
         description: 'Android versionCode, must be higher than every version already uploaded to Google Play'
         required: true
-        default: '10005'
+        default: '10006'
       version_name:
         description: 'Android versionName shown in release metadata'
         required: true
-        default: '1.0.4'
+        default: '1.0.5'
   push:
     branches:
       - main
@@ -32,8 +32,8 @@ jobs:
     name: Build HealthWallet Android bundle
     runs-on: ubuntu-latest
     env:
-      ANDROID_VERSION_CODE: ${{ github.event.inputs.version_code || '10005' }}
-      ANDROID_VERSION_NAME: ${{ github.event.inputs.version_name || '1.0.4' }}
+      ANDROID_VERSION_CODE: ${{ github.event.inputs.version_code || '10006' }}
+      ANDROID_VERSION_NAME: ${{ github.event.inputs.version_name || '1.0.5' }}
 
     steps:
       - name: Checkout
