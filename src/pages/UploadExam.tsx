@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
-import { Upload, Camera, Loader2, CheckCircle, AlertCircle, Send } from 'lucide-react'
+import { Upload, Camera, Loader2, CheckCircle, AlertCircle, Send, Barcode, Pill } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { createMedicalEvent } from '@/services/medicalTimeline'
@@ -100,6 +101,21 @@ export default function UploadExam() {
           userId: user.id,
           fileUrl: publicUrl,
           fileName: file.name,
+          extractionHints: {
+            pharmaProductMapping: true,
+            preferredFields: [
+              'ean_code',
+              'medication_name',
+              'active_ingredient',
+              'standardized_dosage',
+              'pharmaceutical_form',
+              'manufacturer',
+              'quantity',
+              'instructions',
+            ],
+            instruction:
+              'Se o documento for receita, embalagem, nota ou orientação com medicamentos, extraia EAN/GTIN/código de barras quando houver. Quando não houver EAN, extraia substância ativa, dosagem padronizada e forma farmacêutica para busca em APIs de farmácia. Não recomendar medicamentos novos.',
+          },
           profile: {
             email: user.email,
             ...profile,
@@ -137,19 +153,19 @@ export default function UploadExam() {
         }
       }
 
-      await supabase
-        .from('medical_records')
-        .update({
-          status: 'processed',
-          exam_type: analysis.examType || 'Exame',
-          exam_date: analysis.examDate || null,
-          laboratory: analysis.laboratory || null,
-          ai_analysis: analysis.summary || '',
-          ai_result: analysis,
-          extracted_text: analysis.extractedText || null,
-          analyzed_at: new Date().toISOString(),
-        })
-        .eq('id', record.id)
+      const pharmaItems = extractPharmaItemsFromAnalysis(analysis)
+      analysis = {
+        ...analysis,
+        pharmaItems,
+        pharmacyMapping: {
+          status: pharmaItems.length > 0 ? 'candidate_items_extracted' : 'none_found',
+          strategy: 'ean_first_then_active_ingredient_dosage_form',
+          note: 'EAN é preferencial para farmácias parceiras. Sem EAN, usar substância + dosagem + forma.',
+        },
+      }
+
+      await updateMedicalRecordWithAnalysis(record.id, analysis)
+      await savePrescriptionMedicationItems(user.id, record.id, pharmaItems, analysis.extractedText)
 
       setResult(analysis)
 
@@ -157,7 +173,9 @@ export default function UploadExam() {
         {
           role: 'assistant',
           content:
-            'Pronto. Analisei seu exame. Agora você pode me perguntar sobre qualquer marcador, risco, próximos passos ou cuidados específicos.',
+            pharmaItems.length > 0
+              ? 'Pronto. Analisei o arquivo e também identifiquei possíveis medicamentos/EANs para futura reposição com farmácias parceiras. Você pode me perguntar sobre o conteúdo, mas o app não prescreve nem recomenda medicamentos.'
+              : 'Pronto. Analisei seu exame. Agora você pode me perguntar sobre qualquer marcador, risco, próximos passos ou cuidados específicos.',
         },
       ])
     } catch (err: any) {
@@ -165,6 +183,67 @@ export default function UploadExam() {
     } finally {
       setProcessing(false)
       setUploading(false)
+    }
+  }
+
+  async function updateMedicalRecordWithAnalysis(recordId: string, analysis: any) {
+    const payload = {
+      status: 'processed',
+      exam_type: analysis.examType || 'Exame',
+      exam_date: analysis.examDate || null,
+      laboratory: analysis.laboratory || null,
+      ai_analysis: analysis.summary || '',
+      ai_result: analysis,
+      extracted_text: analysis.extractedText || null,
+      extracted_pharma_items: analysis.pharmaItems || [],
+      analyzed_at: new Date().toISOString(),
+    }
+
+    const { error } = await supabase
+      .from('medical_records')
+      .update(payload)
+      .eq('id', recordId)
+
+    if (!error) return
+
+    const message = String(error.message || '').toLowerCase()
+    if (!message.includes('extracted_pharma_items')) throw error
+
+    const { extracted_pharma_items, ...fallbackPayload } = payload
+    await supabase
+      .from('medical_records')
+      .update(fallbackPayload)
+      .eq('id', recordId)
+  }
+
+  async function savePrescriptionMedicationItems(userId: string, recordId: string, pharmaItems: any[], rawText?: string) {
+    if (!pharmaItems.length) return
+
+    try {
+      await supabase.from('prescription_medication_items').insert(
+        pharmaItems.map((item) => ({
+          user_id: userId,
+          medical_record_id: recordId,
+          source_type: 'ocr_document',
+          medication_name: item.medication_name || item.name || null,
+          ean_code: item.ean_code || null,
+          active_ingredient: item.active_ingredient || null,
+          standardized_dosage: item.standardized_dosage || item.dosage || null,
+          pharmaceutical_form: item.pharmaceutical_form || null,
+          manufacturer: item.manufacturer || null,
+          quantity: item.quantity || null,
+          instructions: item.instructions || null,
+          confidence: item.confidence || null,
+          mapping_status: item.ean_code ? 'mapped_by_ean' : 'extracted',
+          raw_text: rawText || null,
+          metadata: {
+            source: 'healthwallet_ocr_analysis',
+            pharmacy_search_key: item.pharmacy_search_key || null,
+          },
+        }))
+      )
+    } catch (err) {
+      console.warn('Prescription medication items skipped:', err)
     }
   }
 
@@ -245,7 +324,7 @@ export default function UploadExam() {
       <div>
         <h1 className="text-xl font-bold">Enviar Exame</h1>
         <p className="text-sm text-muted-foreground">
-          Faça upload de seus exames para análise
+          Faça upload de exames, receitas ou documentos para análise
         </p>
       </div>
 
@@ -280,7 +359,7 @@ export default function UploadExam() {
             </div>
             <p className="font-semibold mb-1">Toque para escolher arquivo</p>
             <p className="text-sm text-muted-foreground">
-              PDF, JPG ou PNG. Você também pode tirar foto pela câmera.
+              PDF, JPG ou PNG. A IA tenta extrair exames e, quando houver, medicamentos/EAN de receitas.
             </p>
           </>
         )}
@@ -315,7 +394,7 @@ export default function UploadExam() {
           <Loader2 className="w-6 h-6 animate-spin text-blue-600 flex-shrink-0" />
           <div>
             <p className="font-medium text-blue-700">Processando com IA...</p>
-            <p className="text-sm text-blue-600">Analisando conteúdo do exame</p>
+            <p className="text-sm text-blue-600">Analisando exame/documento e buscando EAN quando existir</p>
           </div>
         </div>
       )}
@@ -324,8 +403,29 @@ export default function UploadExam() {
         <div className="bg-card rounded-xl border border-border p-4 space-y-4">
           <div className="flex items-center gap-2 text-emerald-600">
             <CheckCircle className="w-5 h-5" />
-            <p className="font-semibold">Exame processado!</p>
+            <p className="font-semibold">Arquivo processado!</p>
           </div>
+
+          {result.pharmaItems?.length > 0 && (
+            <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 space-y-3">
+              <div className="flex items-center gap-2 text-blue-900">
+                <Barcode className="w-5 h-5" />
+                <p className="font-semibold">Medicamentos/EAN encontrados</p>
+              </div>
+              <div className="space-y-2">
+                {result.pharmaItems.map((item: any, idx: number) => (
+                  <div key={idx} className="rounded-lg border border-blue-100 bg-white p-3 text-sm">
+                    <p className="font-semibold flex items-center gap-2"><Pill className="w-4 h-4 text-blue-700" /> {item.medication_name || item.name || item.active_ingredient || 'Medicamento'}</p>
+                    <p className="text-xs text-blue-800 mt-1">{item.ean_code ? `EAN: ${item.ean_code}` : `Busca: ${item.pharmacy_search_key || 'substância/dosagem a confirmar'}`}</p>
+                    {(item.active_ingredient || item.standardized_dosage || item.pharmaceutical_form) && (
+                      <p className="text-xs text-muted-foreground mt-1">{[item.active_ingredient, item.standardized_dosage, item.pharmaceutical_form].filter(Boolean).join(' · ')}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-blue-800">Esses dados servem para busca futura em farmácias parceiras. O HealthWallet não prescreve nem recomenda medicamentos.</p>
+            </div>
+          )}
 
           <div>
             <p className="text-sm font-medium mb-2">Resultado da análise:</p>
@@ -425,7 +525,7 @@ export default function UploadExam() {
 
           <div className="p-4 rounded-xl bg-purple-50 border border-purple-200 space-y-3">
             <p className="font-semibold text-purple-900">
-              Converse sobre este exame
+              Converse sobre este arquivo
             </p>
 
             <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
@@ -473,23 +573,102 @@ export default function UploadExam() {
             </div>
           </div>
 
-          <a
-            href="/exams"
+          <Link
+            to="/exams"
             className="block w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold text-center hover:bg-emerald-700 transition-colors"
           >
             Ver meus exames
-          </a>
+          </Link>
         </div>
       )}
 
       <div className="bg-muted/50 rounded-xl p-4">
         <p className="text-sm font-medium mb-2">Dicas:</p>
         <ul className="text-sm text-muted-foreground space-y-1">
-          <li>• Fotos de exames devem estar legíveis</li>
-          <li>• PDF é o formato ideal para laudos</li>
-          <li>• A IA analisa automaticamente valores de exames</li>
+          <li>• Fotos de exames ou receitas devem estar legíveis</li>
+          <li>• PDF é o formato ideal para laudos e documentos</li>
+          <li>• Quando houver medicamento, a IA tenta identificar EAN ou substância/dosagem/forma</li>
         </ul>
       </div>
     </div>
   )
+}
+
+function extractPharmaItemsFromAnalysis(analysis: any) {
+  const candidates = [
+    ...(Array.isArray(analysis?.pharmaItems) ? analysis.pharmaItems : []),
+    ...(Array.isArray(analysis?.medications) ? analysis.medications : []),
+    ...(Array.isArray(analysis?.prescriptionMedications) ? analysis.prescriptionMedications : []),
+    ...(Array.isArray(analysis?.prescription_items) ? analysis.prescription_items : []),
+  ]
+
+  const normalized = candidates
+    .map(normalizePharmaItem)
+    .filter((item: any) => item.ean_code || item.medication_name || item.active_ingredient)
+
+  const text = String(analysis?.extractedText || analysis?.rawText || '')
+  const eansFromText = extractEans(text).map((ean) => normalizePharmaItem({ ean_code: ean, raw_text: text }))
+
+  const map = new Map<string, any>()
+  ;[...normalized, ...eansFromText].forEach((item: any) => {
+    const key = item.ean_code || item.pharmacy_search_key || item.medication_name || Math.random().toString()
+    if (!map.has(key)) map.set(key, item)
+  })
+
+  return Array.from(map.values()).slice(0, 20)
+}
+
+function normalizePharmaItem(item: any) {
+  const medicationName = item.medication_name || item.name || item.product_name || item.brand || ''
+  const activeIngredient = item.active_ingredient || item.substance || item.substancia || item.ingredient || ''
+  const standardizedDosage = item.standardized_dosage || item.dosage || item.dose || item.concentration || ''
+  const pharmaceuticalForm = item.pharmaceutical_form || item.form || item.forma || ''
+  const manufacturer = item.manufacturer || item.laboratory || item.laboratorio || ''
+  const eanCode = sanitizeEan(item.ean_code || item.ean || item.gtin || item.barcode || '')
+  const pharmacySearchKey = buildPharmacySearchKey({
+    medication_name: medicationName,
+    active_ingredient: activeIngredient,
+    standardized_dosage: standardizedDosage,
+    pharmaceutical_form: pharmaceuticalForm,
+    manufacturer,
+  })
+
+  return {
+    medication_name: normalizeText(medicationName),
+    ean_code: eanCode || null,
+    active_ingredient: normalizeText(activeIngredient),
+    standardized_dosage: normalizeText(standardizedDosage),
+    pharmaceutical_form: normalizeText(pharmaceuticalForm),
+    manufacturer: normalizeText(manufacturer),
+    quantity: item.quantity || item.quantidade || null,
+    instructions: item.instructions || item.posology || item.posologia || null,
+    confidence: item.confidence || null,
+    pharmacy_search_key: pharmacySearchKey || null,
+  }
+}
+
+function extractEans(text: string) {
+  const matches = text.match(/\b\d{8,14}\b/g) || []
+  return Array.from(new Set(matches.map(sanitizeEan).filter((value) => value.length >= 8 && value.length <= 14)))
+}
+
+function sanitizeEan(value: any) {
+  return String(value || '').replace(/\D/g, '')
+}
+
+function normalizeText(value: any) {
+  return String(value || '').trim().replace(/\s+/g, ' ')
+}
+
+function buildPharmacySearchKey(input: any) {
+  return [
+    input.active_ingredient,
+    input.standardized_dosage,
+    input.pharmaceutical_form,
+    input.manufacturer,
+  ]
+    .map(normalizeText)
+    .filter(Boolean)
+    .join(' | ')
+    || normalizeText(input.medication_name)
 }
