@@ -13,6 +13,7 @@ import UploadExam from '@/pages/UploadExam'
 import ExamTranslator from '@/pages/ExamTranslator'
 import Medications from '@/pages/Medications'
 import Prescriptions from '@/pages/Prescriptions'
+import Genetics from '@/pages/Genetics'
 import Family from '@/pages/Family'
 import Profile from '@/pages/Profile'
 import Login from '@/pages/Login'
@@ -172,6 +173,7 @@ export default function App() {
             <Route path="/exams" element={<ProtectedPage><Exams /></ProtectedPage>} />
             <Route path="/upload" element={<ProtectedPage><UploadExam /></ProtectedPage>} />
             <Route path="/prescriptions" element={<ProtectedPage><Prescriptions /></ProtectedPage>} />
+            <Route path="/genetics" element={<ProtectedPage><Genetics /></ProtectedPage>} />
             <Route path="/translator" element={<ProtectedPage><ExamTranslator /></ProtectedPage>} />
             <Route path="/medications" element={<ProtectedPage><Medications /></ProtectedPage>} />
             <Route path="/family" element={<ProtectedPage><Family /></ProtectedPage>} />
