@@ -7,9 +7,15 @@
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#ffffff",
-  "theme_color": "#10b981",
+  "theme_color": "#0891B2",
 
   "icons": [
+    {
+      "src": "/icons/healthwallet-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
     {
       "src": "/icons/icon-192.png",
       "sizes": "192x192",
