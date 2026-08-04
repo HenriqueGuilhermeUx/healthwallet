@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="HealthWallet app icon">
+  <defs>
+    <linearGradient id="bg" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2DD4BF"/>
+      <stop offset="0.48" stop-color="#0891B2"/>
+      <stop offset="1" stop-color="#0F4C81"/>
+    </linearGradient>
+    <linearGradient id="heart" x1="164" y1="214" x2="342" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#0D9488"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#063B52" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M0 82C86 38 151 56 224 96C306 141 385 139 512 78V512H0V82Z" fill="#22D3EE" opacity="0.24"/>
+  <path d="M0 358C110 302 208 336 296 376C373 411 438 405 512 354V512H0V358Z" fill="#083B7A" opacity="0.34"/>
+
+  <g filter="url(#softShadow)">
+    <path d="M156 177L319 101C348 88 381 104 391 134L421 222L190 286L156 177Z" fill="#F8FAFC" opacity="0.96"/>
+    <path d="M151 189L362 148C395 142 426 166 430 200L441 287L190 306L151 189Z" fill="#14B8A6" opacity="0.9"/>
+    <rect x="104" y="178" width="296" height="222" rx="46" fill="#FFFFFF"/>
+    <rect x="327" y="253" width="92" height="70" rx="24" fill="#F8FAFC"/>
+    <circle cx="373" cy="288" r="18" fill="#0EA5A8"/>
+  </g>
+
+  <path d="M257 358C250 351 215 325 190 300C169 279 158 259 158 235C158 203 181 181 212 181C231 181 247 190 257 207C267 190 284 181 303 181C334 181 357 203 357 235C357 260 346 279 325 300C300 325 265 351 257 358Z" fill="url(#heart)"/>
+  <path d="M157 276H207L225 249L248 318L278 222L299 276H357" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
