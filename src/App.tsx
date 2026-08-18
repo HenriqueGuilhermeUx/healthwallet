@@ -36,6 +36,7 @@ import Telemedicine from '@/pages/Telemedicine'
 import TelemedicineAdmin from '@/pages/TelemedicineAdmin'
 import Emergency from '@/pages/Emergency'
 import CareLinks from '@/pages/CareLinks'
+import ClinicCheckin from '@/pages/ClinicCheckin'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -170,6 +171,7 @@ export default function App() {
             <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
             <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
             <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
+            <Route path="/clinic-checkin" element={<ProtectedPage><ClinicCheckin /></ProtectedPage>} />
             <Route path="/exams" element={<ProtectedPage><Exams /></ProtectedPage>} />
             <Route path="/upload" element={<ProtectedPage><UploadExam /></ProtectedPage>} />
             <Route path="/prescriptions" element={<ProtectedPage><Prescriptions /></ProtectedPage>} />
