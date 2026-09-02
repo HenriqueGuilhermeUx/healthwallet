@@ -10,6 +10,7 @@ import Dashboard from '@/pages/Dashboard'
 import HealthWallet from '@/pages/HealthWallet'
 import Exams from '@/pages/Exams'
 import UploadExam from '@/pages/UploadExam'
+import ExamInbox from '@/pages/ExamInbox'
 import ExamTranslator from '@/pages/ExamTranslator'
 import Medications from '@/pages/Medications'
 import Prescriptions from '@/pages/Prescriptions'
@@ -176,6 +177,7 @@ export default function App() {
             <Route path="/clinic-checkin" element={<ProtectedPage><ClinicCheckin /></ProtectedPage>} />
             <Route path="/exams" element={<ProtectedPage><Exams /></ProtectedPage>} />
             <Route path="/upload" element={<ProtectedPage><UploadExam /></ProtectedPage>} />
+            <Route path="/exam-inbox" element={<ProtectedPage><ExamInbox /></ProtectedPage>} />
             <Route path="/prescriptions" element={<ProtectedPage><Prescriptions /></ProtectedPage>} />
             <Route path="/genetics" element={<ProtectedPage><Genetics /></ProtectedPage>} />
             <Route path="/translator" element={<ProtectedPage><ExamTranslator /></ProtectedPage>} />
