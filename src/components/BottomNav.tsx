@@ -1,9 +1,10 @@
-import { Home, FileText, User, Mail, Video, ShieldCheck, QrCode } from 'lucide-react'
+import { Home, FileText, User, Mail, Video, ShieldCheck, QrCode, Watch } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 const navItems = [
   { icon: Home, label: 'Início', path: '/dashboard' },
   { icon: QrCode, label: 'Check-in', path: '/clinic-checkin' },
+  { icon: Watch, label: 'Dados', path: '/devices' },
   { icon: FileText, label: 'Exames', path: '/exams' },
   { icon: Video, label: 'Consulta', path: '/telemedicine' },
   { icon: ShieldCheck, label: 'Vínculos', path: '/care-links' },
@@ -29,7 +30,7 @@ export default function BottomNav() {
             <Link
               key={path}
               to={path}
-              className={`flex min-w-[42px] flex-col items-center gap-1 rounded-2xl px-1 py-2 transition-all ${
+              className={`flex min-w-[38px] flex-col items-center gap-1 rounded-2xl px-1 py-2 transition-all ${
                 isActive ? 'bg-emerald-50 text-emerald-600' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
