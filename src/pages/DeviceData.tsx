@@ -30,25 +30,32 @@ import {
   todayIsoDate,
   upsertDeviceDailySummary,
 } from '@/services/deviceData'
+import {
+  getNativeHealthAvailability,
+  getNativeProviderForPlatform,
+  openNativeHealthSettings,
+  showNativeHealthPrivacyPolicy,
+  syncNativeHealthData,
+} from '@/services/nativeHealthSync'
 
-const providerOptions: Array<{ provider: DeviceProvider; title: string; subtitle: string; enabled: boolean }> = [
+const providerOptions: Array<{ provider: DeviceProvider; title: string; subtitle: string; native: boolean }> = [
   {
     provider: 'health_connect',
     title: 'Android Health Connect',
-    subtitle: 'Ponte para smartwatches, pulseiras e apps Android.',
-    enabled: false,
+    subtitle: 'Sincronização automática com smartwatches, pulseiras e apps Android compatíveis.',
+    native: true,
   },
   {
     provider: 'apple_health',
     title: 'Apple Saúde',
-    subtitle: 'Ponte para iPhone, Apple Watch e apps compatíveis.',
-    enabled: false,
+    subtitle: 'Sincronização automática com iPhone, Apple Watch e apps compatíveis.',
+    native: true,
   },
   {
     provider: 'manual',
-    title: 'Registro manual / MVP',
-    subtitle: 'Use agora para validar score, histórico e compartilhamento.',
-    enabled: true,
+    title: 'Registro manual / contingência',
+    subtitle: 'Plano B para testes, pilotos assistidos e casos sem dispositivo conectado.',
+    native: false,
   },
 ]
 
@@ -68,24 +75,27 @@ export default function DeviceData() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [nativeSyncing, setNativeSyncing] = useState<DeviceProvider | null>(null)
+  const [autoSyncing, setAutoSyncing] = useState(false)
   const [connections, setConnections] = useState<any[]>([])
   const [summaries, setSummaries] = useState<any[]>([])
   const [consents, setConsents] = useState<any[]>([])
   const [careLinks, setCareLinks] = useState<any[]>([])
   const [form, setForm] = useState(emptyForm)
   const [systemNotice, setSystemNotice] = useState('')
+  const [nativeAvailability, setNativeAvailability] = useState<any>(null)
 
   useEffect(() => {
     load()
   }, [user])
 
-  async function load() {
+  async function load(allowAutoSync = true) {
     if (!user) return
     setLoading(true)
     setSystemNotice('')
 
     try {
-      const [deviceData, linksRes] = await Promise.all([
+      const [deviceData, linksRes, availability] = await Promise.all([
         loadDeviceData(user.id),
         supabase
           .from('professional_care_links')
@@ -93,6 +103,7 @@ export default function DeviceData() {
           .eq('patient_id', user.id)
           .eq('status', 'active')
           .order('updated_at', { ascending: false }),
+        getNativeHealthAvailability(),
       ])
 
       if (deviceData.error) {
@@ -100,10 +111,14 @@ export default function DeviceData() {
         setSystemNotice('Execute o SQL HEALTHWALLET_DEVICE_DATA_HUB_V1 no Supabase para ativar dispositivos, consentimento e score contextual.')
       }
 
-      setConnections(deviceData.connections || [])
+      const loadedConnections = deviceData.connections || []
+      setConnections(loadedConnections)
       setSummaries(deviceData.summaries || [])
       setConsents(deviceData.consents || [])
       setCareLinks(linksRes.data || [])
+      setNativeAvailability(availability)
+
+      if (allowAutoSync) void autoSyncIfDue(loadedConnections, availability)
     } catch (error) {
       console.warn('Device data loading skipped:', error)
       setSystemNotice('Os dados de dispositivos serão exibidos aqui após aplicar o SQL do Device Data Hub no Supabase.')
@@ -112,24 +127,95 @@ export default function DeviceData() {
     }
   }
 
+  async function autoSyncIfDue(loadedConnections: any[], availability: any) {
+    if (!user || !availability?.available) return
+
+    const provider = getNativeProviderForPlatform()
+    if (!provider) return
+
+    const activeConnection = loadedConnections.find((item) => item.provider === provider && item.status !== 'revoked')
+    if (!activeConnection) return
+
+    const key = `healthwallet_auto_sync_${user.id}_${provider}`
+    const last = Number(localStorage.getItem(key) || 0)
+    const sixHours = 6 * 60 * 60 * 1000
+    if (Date.now() - last < sixHours) return
+
+    setAutoSyncing(true)
+    try {
+      const result = await syncNativeHealthData(user.id, provider, { days: 7, requestAuthorization: false })
+      localStorage.setItem(key, String(Date.now()))
+      if (result.days_synced > 0) toast.success(`Sincronização automática atualizada: ${result.days_synced} dia(s)`)
+      await load(false)
+    } catch (error) {
+      console.warn('Automatic native sync skipped:', error)
+    } finally {
+      setAutoSyncing(false)
+    }
+  }
+
   async function handleConnect(provider: DeviceProvider) {
     if (!user) return
 
-    const option = providerOptions.find((item) => item.provider === provider)
-    const { error } = await connectDeviceProvider(user.id, provider)
-
-    if (error) {
-      toast.error('Não foi possível criar a conexão agora.')
+    if (provider === 'manual') {
+      const { error } = await connectDeviceProvider(user.id, provider)
+      if (error) toast.error('Não foi possível criar a conexão agora.')
+      else toast.success('Registro manual habilitado como contingência')
+      load()
       return
     }
 
-    if (option?.enabled) {
-      toast.success(`${getProviderLabel(provider)} conectado para o MVP`)
-    } else {
-      toast.success(`${getProviderLabel(provider)} preparado. A ponte nativa entra na próxima etapa.`)
+    setNativeSyncing(provider)
+    try {
+      const result = await syncNativeHealthData(user.id, provider as 'health_connect' | 'apple_health', {
+        days: 14,
+        requestAuthorization: true,
+        requestHistoryAccess: true,
+      })
+      toast.success(result.days_synced ? `Dispositivo conectado: ${result.days_synced} dia(s) sincronizado(s)` : 'Permissão concedida. Novos dados aparecerão após o dispositivo gerar leituras.')
+      load(false)
+    } catch (error: any) {
+      toast.error(error?.message || 'Não foi possível conectar a fonte nativa agora.')
+    } finally {
+      setNativeSyncing(null)
+    }
+  }
+
+  async function syncNow() {
+    if (!user) return
+
+    const provider = getNativeProviderForPlatform()
+    if (!provider) {
+      toast.error('Sincronização automática funciona no app instalado no celular.')
+      return
     }
 
-    load()
+    setNativeSyncing(provider)
+    try {
+      const result = await syncNativeHealthData(user.id, provider, { days: 14, requestAuthorization: true, requestHistoryAccess: true })
+      toast.success(result.days_synced ? `Sincronização concluída: ${result.days_synced} dia(s)` : 'Nenhum dado novo encontrado no período.')
+      load(false)
+    } catch (error: any) {
+      toast.error(error?.message || 'Não foi possível sincronizar agora.')
+    } finally {
+      setNativeSyncing(null)
+    }
+  }
+
+  async function openSettings() {
+    try {
+      await openNativeHealthSettings()
+    } catch {
+      toast.error('Configurações nativas disponíveis apenas no app instalado.')
+    }
+  }
+
+  async function openPrivacyPolicy() {
+    try {
+      await showNativeHealthPrivacyPolicy()
+    } catch {
+      toast.error('Política nativa disponível no app instalado.')
+    }
   }
 
   async function saveManualSummary() {
@@ -151,7 +237,7 @@ export default function DeviceData() {
         weight_kg: parseOptionalNumber(form.weight_kg),
         metadata: {
           source: 'manual_mvp',
-          note: 'Entrada manual usada para validar HealthWallet Device Data Hub e MedScore contextual.',
+          note: 'Entrada manual usada como contingência para validar HealthWallet Device Data Hub e MedScore contextual.',
         },
       }
 
@@ -217,6 +303,8 @@ export default function DeviceData() {
 
   const windowSummary = useMemo(() => summarizeDeviceWindow(summaries), [summaries])
   const latest = windowSummary.latest
+  const nativeProvider = getNativeProviderForPlatform()
+  const nativeProviderLabel = nativeProvider ? getProviderLabel(nativeProvider) : 'app instalado no celular'
 
   if (loading) {
     return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-emerald-600" /></div>
@@ -232,7 +320,7 @@ export default function DeviceData() {
           </div>
           <h1 className="text-2xl font-bold">Meus dispositivos</h1>
           <p className="text-white/85 text-sm mt-2">
-            Conecte dados de passos, sono, batimentos, pressão, peso e SpO2 para enriquecer seu histórico e refinar o MedScore.
+            Sincronize automaticamente passos, sono, batimentos, pressão, peso e SpO2 para enriquecer seu histórico e refinar o MedScore.
           </p>
         </div>
       </section>
@@ -250,6 +338,41 @@ export default function DeviceData() {
           <p>{systemNotice}</p>
         </section>
       )}
+
+      <section className="rounded-xl bg-white border p-4">
+        <div className="flex items-start gap-3">
+          <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center flex-shrink-0">
+            <RefreshCw className={`w-5 h-5 ${autoSyncing ? 'animate-spin' : ''}`} />
+          </div>
+          <div className="flex-1">
+            <h2 className="font-bold text-gray-900">Sincronização automática</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Fonte deste aparelho: {nativeProviderLabel}. O app atualiza os dados ao abrir a tela e você pode sincronizar agora.
+            </p>
+            {!nativeAvailability?.available && (
+              <p className="text-xs text-amber-700 mt-2">
+                {nativeAvailability?.reason || 'Instale o app no celular e autorize Apple Saúde ou Health Connect.'}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4">
+          <button
+            type="button"
+            onClick={syncNow}
+            disabled={Boolean(nativeSyncing)}
+            className="rounded-xl bg-emerald-600 py-3 font-semibold text-white disabled:opacity-60"
+          >
+            {nativeSyncing ? 'Sincronizando...' : 'Sincronizar agora'}
+          </button>
+          <button type="button" onClick={openSettings} className="rounded-xl border py-3 font-semibold text-gray-700">
+            Permissões
+          </button>
+          <button type="button" onClick={openPrivacyPolicy} className="rounded-xl border py-3 font-semibold text-gray-700">
+            Privacidade
+          </button>
+        </div>
+      </section>
 
       <section className="grid grid-cols-2 gap-3">
         <MetricCard icon={Activity} label="Passos 7d" value={formatNumber(windowSummary.avgSteps)} />
@@ -279,6 +402,8 @@ export default function DeviceData() {
         <div className="space-y-3">
           {providerOptions.map((option) => {
             const connected = connections.some((item) => item.provider === option.provider && item.status !== 'revoked')
+            const isCurrentNative = option.provider === nativeProvider
+            const disabledNative = option.native && !isCurrentNative
             return (
               <div key={option.provider} className="rounded-xl border p-3 flex items-start gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center flex-shrink-0">
@@ -290,16 +415,19 @@ export default function DeviceData() {
                     {connected && <CheckCircle className="w-4 h-4 text-emerald-600" />}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">{option.subtitle}</p>
-                  {!option.enabled && (
-                    <p className="text-[11px] text-amber-700 mt-1">Ponte nativa preparada para a próxima etapa técnica.</p>
+                  {disabledNative && (
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      Disponível no {option.provider === 'apple_health' ? 'iPhone' : 'Android'}.
+                    </p>
                   )}
                 </div>
                 <button
                   type="button"
                   onClick={() => handleConnect(option.provider)}
-                  className="text-xs rounded-lg bg-emerald-600 px-3 py-2 font-semibold text-white"
+                  disabled={Boolean(nativeSyncing) || disabledNative}
+                  className="text-xs rounded-lg bg-emerald-600 px-3 py-2 font-semibold text-white disabled:opacity-50"
                 >
-                  {connected ? 'Atualizar' : 'Conectar'}
+                  {nativeSyncing === option.provider ? 'Sincronizando' : connected ? 'Atualizar' : option.native ? 'Conectar' : 'Ativar'}
                 </button>
               </div>
             )
@@ -307,11 +435,14 @@ export default function DeviceData() {
         </div>
       </section>
 
-      <section className="bg-white rounded-xl border p-4">
-        <h2 className="font-bold mb-3 flex items-center gap-2">
-          <RefreshCw className="w-5 h-5 text-emerald-600" /> Registro manual para validar o MVP
-        </h2>
-        <div className="grid grid-cols-2 gap-3">
+      <details className="bg-white rounded-xl border p-4">
+        <summary className="font-bold cursor-pointer flex items-center gap-2">
+          <RefreshCw className="w-5 h-5 text-emerald-600" /> Registro manual de contingência
+        </summary>
+        <p className="text-sm text-muted-foreground mt-3">
+          O fluxo principal é automático. O registro manual fica apenas para pilotos acompanhados, suporte e casos sem dispositivo compatível.
+        </p>
+        <div className="grid grid-cols-2 gap-3 mt-4">
           <Field label="Data" type="date" value={form.summary_date} onChange={(value) => setForm({ ...form, summary_date: value })} />
           <Field label="Passos" value={form.steps} onChange={(value) => setForm({ ...form, steps: value })} />
           <Field label="Sono (horas)" value={form.sleep_hours} onChange={(value) => setForm({ ...form, sleep_hours: value })} />
@@ -328,9 +459,9 @@ export default function DeviceData() {
           disabled={saving}
           className="mt-4 w-full rounded-xl bg-emerald-600 py-3 font-semibold text-white disabled:opacity-60"
         >
-          {saving ? 'Salvando...' : 'Salvar e atualizar MedScore'}
+          {saving ? 'Salvando...' : 'Salvar contingência'}
         </button>
-      </section>
+      </details>
 
       <section className="bg-white rounded-xl border p-4">
         <h2 className="font-bold mb-3 flex items-center gap-2">
