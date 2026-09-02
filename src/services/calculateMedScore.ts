@@ -1,4 +1,30 @@
-export function calculateMedScore(profile: any, exams: any[] = [], conditions: any[] = []) {
+type DeviceSummary = {
+  summary_date?: string
+  steps?: number | null
+  sleep_minutes?: number | null
+  resting_heart_rate?: number | null
+  avg_heart_rate?: number | null
+  hrv_avg?: number | null
+  spo2_avg?: number | null
+  systolic_bp?: number | null
+  diastolic_bp?: number | null
+  weight_kg?: number | null
+  temperature_c?: number | null
+  active_calories?: number | null
+  activity_minutes?: number | null
+  device_context_score?: number | null
+  device_confidence?: number | null
+  score_factors?: any
+  last_sync_at?: string | null
+  sources?: string[]
+}
+
+export function calculateMedScore(
+  profile: any,
+  exams: any[] = [],
+  conditions: any[] = [],
+  deviceSummaries: DeviceSummary[] = []
+) {
   const items = exams.flatMap((exam) => exam.ai_result?.items || [])
 
   const metrics = {
@@ -16,13 +42,15 @@ export function calculateMedScore(profile: any, exams: any[] = [], conditions: a
   const lab = calculateLabScore(metrics)
   const risk = calculateRiskScore(profile, conditions)
   const completeness = calculateCompletenessScore(profile, exams, metrics)
+  const device = calculateDeviceScore(deviceSummaries)
 
-  const score = Math.max(0, Math.min(100, Math.round(lab.score + risk.score + completeness.score)))
-  const confidence = Math.max(0, Math.min(100, Math.round(completeness.confidence)))
+  const baseScore = lab.score + risk.score + completeness.score
+  const score = clamp(baseScore + device.adjustment)
+  const confidence = clamp(completeness.confidence + device.confidenceBoost)
 
-  const alerts = [...lab.alerts, ...risk.alerts]
+  const alerts = [...lab.alerts, ...risk.alerts, ...device.alerts]
   const missingExams = [...new Set([...lab.missingExams, ...completeness.missingExams])]
-  const recommendations = [...lab.recommendations, ...risk.recommendations, ...completeness.recommendations]
+  const recommendations = [...lab.recommendations, ...risk.recommendations, ...completeness.recommendations, ...device.recommendations]
 
   let level = 'Regular'
   let levelColor = 'yellow'
@@ -40,22 +68,28 @@ export function calculateMedScore(profile: any, exams: any[] = [], conditions: a
 
   return {
     score,
+    baseScore: clamp(baseScore),
     level,
     levelColor,
     confidence,
     alerts,
     missingExams,
     recommendations,
-    metrics,
+    metrics: {
+      ...metrics,
+      device: device.metrics,
+    },
+    device,
     breakdown: [
       { category: 'Laboratório', score: Math.round(lab.score), max: 40, icon: '🔬' },
       { category: 'Fatores de risco', score: Math.round(risk.score), max: 30, icon: '❤️' },
       { category: 'Completude', score: Math.round(completeness.score), max: 30, icon: '📋' },
+      { category: 'Dispositivos', score: Math.max(0, device.adjustment), max: 8, icon: '⌚' },
     ],
     cockpit: {
-      strengths: lab.strengths,
+      strengths: [...lab.strengths, ...device.strengths],
       needsAttention: alerts,
-      missingInfo: completeness.missingInfo,
+      missingInfo: [...completeness.missingInfo, ...device.missingInfo],
       nextActions: recommendations,
     },
   }
@@ -277,6 +311,147 @@ function calculateCompletenessScore(profile: any, exams: any[], metrics: any) {
   }
 }
 
+function calculateDeviceScore(deviceSummaries: DeviceSummary[] = []) {
+  const sorted = [...deviceSummaries]
+    .filter(Boolean)
+    .sort((a, b) => String(b.summary_date || '').localeCompare(String(a.summary_date || '')))
+
+  const last7 = sorted.slice(0, 7)
+  const latest = sorted[0] || null
+  const strengths: string[] = []
+  const alerts: string[] = []
+  const recommendations: string[] = []
+  const missingInfo: string[] = []
+
+  if (!last7.length) {
+    missingInfo.push('Dados de dispositivos')
+    recommendations.push('Conectar smartwatch, pulseira ou registrar dados básicos para refinar tendências do MedScore')
+    return {
+      adjustment: 0,
+      confidenceBoost: 0,
+      dataScore: 0,
+      dataConfidence: 0,
+      strengths,
+      alerts,
+      recommendations,
+      missingInfo,
+      metrics: {
+        hasDeviceData: false,
+        days: 0,
+      },
+    }
+  }
+
+  const avgSteps = avg(last7.map((item) => item.steps))
+  const avgSleepMinutes = avg(last7.map((item) => item.sleep_minutes))
+  const avgRestingHr = avg(last7.map((item) => item.resting_heart_rate))
+  const avgSpo2 = avg(last7.map((item) => item.spo2_avg))
+  const latestSystolic = latest?.systolic_bp ? Number(latest.systolic_bp) : null
+  const latestDiastolic = latest?.diastolic_bp ? Number(latest.diastolic_bp) : null
+  const deviceScore = avg(last7.map((item) => item.device_context_score)) || calculateFallbackDeviceScore(last7)
+  const deviceConfidence = avg(last7.map((item) => item.device_confidence)) || Math.min(70, last7.length * 10)
+
+  let adjustment = 0
+
+  if (avgSteps != null) {
+    if (avgSteps >= 7000) {
+      adjustment += 2
+      strengths.push('Bom volume médio de passos nos dados conectados')
+    } else if (avgSteps < 2500) {
+      adjustment -= 2
+      alerts.push('Baixo volume médio de passos registrado pelo dispositivo')
+    }
+  }
+
+  if (avgSleepMinutes != null) {
+    if (avgSleepMinutes >= 420 && avgSleepMinutes <= 540) {
+      adjustment += 2
+      strengths.push('Sono médio registrado em faixa consistente')
+    } else if (avgSleepMinutes < 300 || avgSleepMinutes > 660) {
+      adjustment -= 2
+      alerts.push('Sono médio registrado fora da faixa habitual')
+    }
+  }
+
+  if (avgRestingHr != null) {
+    if (avgRestingHr >= 45 && avgRestingHr <= 80) {
+      adjustment += 1
+      strengths.push('Frequência cardíaca de repouso registrada em faixa usual')
+    } else if (avgRestingHr > 95 || avgRestingHr < 40) {
+      adjustment -= 2
+      alerts.push('Frequência cardíaca de repouso merece interpretação profissional')
+    }
+  }
+
+  if (avgSpo2 != null) {
+    if (avgSpo2 >= 95) adjustment += 1
+    else if (avgSpo2 < 92) {
+      adjustment -= 2
+      alerts.push('SpO2 registrada abaixo do habitual nos dados conectados')
+    }
+  }
+
+  if ((latestSystolic && latestSystolic >= 140) || (latestDiastolic && latestDiastolic >= 90)) {
+    adjustment -= 2
+    alerts.push('Pressão arterial registrada merece revisão profissional')
+  }
+
+  if (last7.length >= 5) {
+    adjustment += 1
+    strengths.push('Boa cobertura de dados de dispositivos nos últimos dias')
+  }
+
+  if (!strengths.length) strengths.push('Dados de dispositivos conectados ao HealthWallet')
+  if (!alerts.length) alerts.push('Nenhum alerta principal de tendência de dispositivo no momento')
+  recommendations.push('Usar dados de dispositivos como contexto complementar, não como diagnóstico')
+
+  return {
+    adjustment: Math.max(-8, Math.min(8, adjustment)),
+    confidenceBoost: Math.min(15, Math.round(deviceConfidence / 8)),
+    dataScore: clamp(deviceScore),
+    dataConfidence: clamp(deviceConfidence),
+    strengths,
+    alerts,
+    recommendations,
+    missingInfo,
+    metrics: {
+      hasDeviceData: true,
+      days: last7.length,
+      avgSteps,
+      avgSleepMinutes,
+      avgRestingHr,
+      avgSpo2,
+      latestSystolic,
+      latestDiastolic,
+      latestWeightKg: latest?.weight_kg || null,
+      latestDate: latest?.summary_date || null,
+      latestSyncAt: latest?.last_sync_at || null,
+      sources: latest?.sources || [],
+    },
+  }
+}
+
+function calculateFallbackDeviceScore(items: DeviceSummary[]) {
+  const values = [
+    avg(items.map((item) => item.steps)) ? 60 : null,
+    avg(items.map((item) => item.sleep_minutes)) ? 60 : null,
+    avg(items.map((item) => item.resting_heart_rate)) ? 60 : null,
+    avg(items.map((item) => item.spo2_avg)) ? 60 : null,
+  ].filter((value) => value !== null) as number[]
+
+  if (!values.length) return 0
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+}
+
+function avg(values: Array<number | string | null | undefined>) {
+  const parsed = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0)
+
+  if (!parsed.length) return null
+  return Math.round(parsed.reduce((sum, value) => sum + value, 0) / parsed.length)
+}
+
 function getValue(items: any[], names: string[]) {
   const found = items.find((item: any) =>
     names.some((name) =>
@@ -291,4 +466,8 @@ function getValue(items: any[], names: string[]) {
 
 function toNumber(value: any) {
   return Number(String(value || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
+}
+
+function clamp(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)))
 }
