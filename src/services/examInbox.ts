@@ -44,7 +44,7 @@ export type HealthDocumentInboxItem = {
   updated_at?: string
 }
 
-const DEFAULT_DOMAIN = import.meta.env.VITE_HEALTHWALLET_INBOUND_DOMAIN || 'exames.healthwallet.pro'
+const DEFAULT_DOMAIN = import.meta.env.VITE_HEALTHWALLET_INBOUND_DOMAIN || 'exames.mydatamed.com'
 
 export async function ensureInboundEmailAddress(userId: string) {
   return supabase.rpc('ensure_health_inbound_email_address', {
