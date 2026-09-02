@@ -21,6 +21,9 @@ const scopeLabels: Record<string, string> = {
   timeline: 'Linha do tempo',
   passport: 'Passport / emergência',
   medscore: 'MedScore',
+  device_data: 'Dados de dispositivos',
+  daily_summaries: 'Resumo diário de dispositivos',
+  medscore_context: 'Contexto para MedScore',
   documents: 'Documentos recebidos',
   family: 'Família/dependentes',
 }
@@ -259,58 +262,67 @@ export default function CareLinks() {
               </div>
             </div>
 
-            {item.request_note && <p className="text-sm text-gray-700 rounded-xl bg-gray-50 border p-3">{item.request_note}</p>}
-
-            <div>
-              <p className="text-xs font-semibold text-gray-500 mb-2">Escopo solicitado</p>
-              <div className="grid grid-cols-2 gap-2">
-                {scopeItems(item.requested_scope || item.scope).map((label) => (
-                  <div key={label} className="rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-900 px-3 py-2 text-xs flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3" /> {label}
-                  </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Escopo autorizado</p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(item.scope || item.requested_scope || {}).filter(([, allowed]) => Boolean(allowed)).map(([key]) => (
+                  <span key={key} className="text-xs rounded-full bg-white border px-2 py-1 text-slate-700">
+                    {scopeLabels[key] || key}
+                  </span>
                 ))}
               </div>
             </div>
 
-            {item.status === 'pending' && (
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => reject(item)} className="rounded-xl border border-red-200 text-red-600 py-2 text-sm font-medium flex items-center justify-center gap-1">
-                  <XCircle className="w-4 h-4" /> Recusar
-                </button>
-                <button onClick={() => approve(item)} className="rounded-xl bg-emerald-600 text-white py-2 text-sm font-medium flex items-center justify-center gap-1">
-                  <CheckCircle className="w-4 h-4" /> Aprovar
-                </button>
-              </div>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {item.status === 'pending' && (
+                <>
+                  <button onClick={() => approve(item)} className="flex-1 rounded-xl bg-emerald-600 text-white py-3 text-sm font-semibold flex items-center justify-center gap-2">
+                    <CheckCircle className="w-4 h-4" /> Aprovar
+                  </button>
+                  <button onClick={() => reject(item)} className="flex-1 rounded-xl bg-red-50 text-red-700 py-3 text-sm font-semibold flex items-center justify-center gap-2">
+                    <XCircle className="w-4 h-4" /> Recusar
+                  </button>
+                </>
+              )}
 
-            {item.status === 'active' && (
-              <button onClick={() => revoke(item)} className="w-full rounded-xl border border-red-200 text-red-600 py-2 text-sm font-medium flex items-center justify-center gap-1">
-                <XCircle className="w-4 h-4" /> Revogar vínculo
-              </button>
-            )}
+              {item.status === 'active' && (
+                <>
+                  <button onClick={() => revoke(item)} className="flex-1 rounded-xl bg-red-50 text-red-700 py-3 text-sm font-semibold flex items-center justify-center gap-2">
+                    <XCircle className="w-4 h-4" /> Revogar
+                  </button>
+                  <button onClick={() => emitAutomationEvent('care_link_patient_message_requested', item)} className="flex-1 rounded-xl bg-blue-50 text-blue-700 py-3 text-sm font-semibold flex items-center justify-center gap-2">
+                    <MessageCircle className="w-4 h-4" /> Mensagem
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         ))}
-      </section>
-
-      <section className="rounded-xl bg-white border border-border p-4 space-y-2">
-        <div className="flex items-center gap-2 font-bold text-gray-900"><FileText className="w-5 h-5 text-emerald-600" /> Como funciona</div>
-        <p className="text-sm text-muted-foreground">O vínculo assistencial permite acompanhamento contínuo autorizado. Ele não substitui consentimentos específicos, receitas, laudos ou documentos que exijam assinatura própria.</p>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground"><MessageCircle className="w-4 h-4" /> SmartBots, Staff, DocWallet, NextGen e n8n podem apoiar agenda, lembretes, documentos, planos e automações.</div>
       </section>
     </div>
   )
 }
 
-function Stat({ label, value }: any) {
-  return <div className="bg-white rounded-xl border border-border p-3 text-center"><p className="text-2xl font-bold text-emerald-700">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div>
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl bg-white border p-3 text-center">
+      <p className="text-xl font-bold text-emerald-700">{value}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
+    </div>
+  )
 }
 
-function StatusBadge({ status }: any) {
-  const cls = status === 'active' ? 'bg-emerald-100 text-emerald-700' : status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
-  const label: Record<string, string> = { active: 'Ativo', pending: 'Pendente', rejected: 'Recusado', revoked: 'Revogado', expired: 'Expirado', cancelled: 'Cancelado' }
-  return <span className={`text-xs rounded-full px-2 py-0.5 ${cls}`}>{label[status] || status}</span>
-}
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    pending: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+    rejected: 'bg-red-50 text-red-700 border-red-200',
+    revoked: 'bg-slate-50 text-slate-700 border-slate-200',
+  }
 
-function scopeItems(scope: any) {
-  return Object.keys(scope || {}).filter((key) => scope[key]).map((key) => scopeLabels[key] || key)
+  return (
+    <span className={`text-[11px] rounded-full border px-2 py-0.5 ${map[status] || map.pending}`}>
+      {status === 'active' ? 'ativo' : status === 'pending' ? 'pendente' : status === 'rejected' ? 'recusado' : status === 'revogado' ? 'revogado' : status}
+    </span>
+  )
 }
