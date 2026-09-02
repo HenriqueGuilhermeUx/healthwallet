@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload, Plus, ChevronRight, FileText, Clock, CheckCircle, AlertCircle, Eye } from 'lucide-react'
+import { Upload, Plus, ChevronRight, FileText, Clock, CheckCircle, AlertCircle, Eye, Mail } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 
@@ -77,6 +77,17 @@ export default function Exams() {
             <p className="text-xs opacity-80">PDF, foto ou imagem</p>
           </div>
         </Link>
+
+        <Link
+          to="/exam-inbox"
+          className="flex items-center gap-3 rounded-2xl bg-emerald-600 p-4 text-white shadow-sm"
+        >
+          <Mail className="h-6 w-6" />
+          <div>
+            <p className="font-semibold">Receber por e-mail</p>
+            <p className="text-xs opacity-80">Encaminhe DASA, Fleury, laudos e anexos para sua carteira</p>
+          </div>
+        </Link>
       </div>
 
       {loading ? (
@@ -88,14 +99,22 @@ export default function Exams() {
           <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <h3 className="font-semibold mb-2">Nenhum exame</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Envie seus primeiros exames para análise
+            Envie seus primeiros exames por upload, foto ou e-mail
           </p>
-          <Link
-            to="/upload"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" /> Enviar exame
-          </Link>
+          <div className="flex flex-col gap-2 items-center">
+            <Link
+              to="/upload"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" /> Enviar exame
+            </Link>
+            <Link
+              to="/exam-inbox"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium"
+            >
+              <Mail className="w-4 h-4" /> Receber por e-mail
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -174,7 +193,7 @@ export default function Exams() {
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
         <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0" />
         <p className="text-xs text-blue-800">
-          A análise automática por IA será aplicada aos exames enviados. Você não precisa colar laudos manualmente.
+          Você pode enviar manualmente, fotografar ou encaminhar documentos por e-mail. Tudo recebido por e-mail fica pendente até sua aprovação.
         </p>
       </div>
     </div>
