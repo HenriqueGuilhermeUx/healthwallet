@@ -8,6 +8,8 @@ const manifestPath = path.join(root, 'android', 'app', 'src', 'main', 'AndroidMa
 const packagePath = path.join(root, 'package.json')
 const resPath = path.join(root, 'android', 'app', 'src', 'main', 'res')
 
+const ANDROID_COMPILE_SDK = 36
+const ANDROID_TARGET_SDK = 36
 const MIN_SDK_FOR_HEALTH_CONNECT = 26
 
 function replaceIfExists(filePath, replacer) {
@@ -114,8 +116,8 @@ function writeHealthWalletLauncherIcons() {
 
 replaceIfExists(variablesPath, (content) => {
   return content
-    .replace(/compileSdkVersion\s*=\s*\d+/g, 'compileSdkVersion = 35')
-    .replace(/targetSdkVersion\s*=\s*\d+/g, 'targetSdkVersion = 35')
+    .replace(/compileSdkVersion\s*=\s*\d+/g, `compileSdkVersion = ${ANDROID_COMPILE_SDK}`)
+    .replace(/targetSdkVersion\s*=\s*\d+/g, `targetSdkVersion = ${ANDROID_TARGET_SDK}`)
     .replace(/minSdkVersion\s*=\s*\d+/g, `minSdkVersion = ${MIN_SDK_FOR_HEALTH_CONNECT}`)
 })
 
@@ -174,4 +176,4 @@ replaceIfExists(buildGradlePath, (content) => {
   return next
 })
 
-console.log(`Android project patched for HealthWallet release build. versionCode=${androidVersionCode}, versionName=${androidVersionName}, minSdk=${MIN_SDK_FOR_HEALTH_CONNECT}, launcherIcon=healthwallet-v2`)
+console.log(`Android project patched for HealthWallet release build. versionCode=${androidVersionCode}, versionName=${androidVersionName}, compileSdk=${ANDROID_COMPILE_SDK}, targetSdk=${ANDROID_TARGET_SDK}, minSdk=${MIN_SDK_FOR_HEALTH_CONNECT}, launcherIcon=healthwallet-v2`)
