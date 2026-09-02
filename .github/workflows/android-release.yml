@@ -6,11 +6,11 @@ on:
       version_code:
         description: 'Android versionCode, must be higher than every version already uploaded to Google Play'
         required: true
-        default: '10014'
+        default: '10015'
       version_name:
         description: 'Android versionName shown in release metadata'
         required: true
-        default: '1.0.13'
+        default: '1.0.14'
   push:
     branches:
       - main
@@ -32,8 +32,8 @@ jobs:
     name: Build HealthWallet Android bundle
     runs-on: ubuntu-latest
     env:
-      ANDROID_VERSION_CODE: ${{ github.event.inputs.version_code || '10014' }}
-      ANDROID_VERSION_NAME: ${{ github.event.inputs.version_name || '1.0.13' }}
+      ANDROID_VERSION_CODE: ${{ github.event.inputs.version_code || '10015' }}
+      ANDROID_VERSION_NAME: ${{ github.event.inputs.version_name || '1.0.14' }}
 
     steps:
       - name: Checkout
@@ -59,6 +59,11 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36
+        run: |
+          sdkmanager --install "platforms;android-36"
+          sdkmanager --list_installed | grep "platforms;android-36"
 
       - name: Check required secrets
         run: |
