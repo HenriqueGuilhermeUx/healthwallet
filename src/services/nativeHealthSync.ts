@@ -49,18 +49,17 @@ type SyncOptions = {
   requestHistoryAccess?: boolean
 }
 
-const READ_TYPES: HealthDataType[] = [
-  'steps',
-  'sleep',
-  'heartRate',
-  'restingHeartRate',
-  'oxygenSaturation',
-  'heartRateVariability',
-  'bloodPressure',
-  'weight',
-  'calories',
-  'exerciseTime',
-]
+// Google Play Health Connect review safe release:
+// Android currently requests and reads only steps. Other wellness metrics remain
+// available through manual entry and can be added to Health Connect later with
+// a dedicated in-app dashboard, demo video and expanded permission declaration.
+const ANDROID_READ_TYPES: HealthDataType[] = ['steps']
+const IOS_READ_TYPES: HealthDataType[] = ['steps']
+
+function getReadTypesForProvider(provider: NativeSyncProvider): HealthDataType[] {
+  if (provider === 'health_connect') return ANDROID_READ_TYPES
+  return IOS_READ_TYPES
+}
 
 export function getNativeProviderForPlatform(): NativeSyncProvider | null {
   const platform = Capacitor.getPlatform()
@@ -128,13 +127,15 @@ export async function syncNativeHealthData(userId: string, provider?: NativeSync
     throw new Error(availability?.reason || 'Fonte nativa de saúde indisponível neste aparelho.')
   }
 
+  const readTypes = getReadTypesForProvider(nativeProvider)
+
   if (options.requestAuthorization !== false) {
     await Health.requestAuthorization({
-      read: READ_TYPES,
+      read: readTypes,
       requestHistoryAccess: options.requestHistoryAccess ?? true,
     } as any)
   } else if (Health.checkAuthorization) {
-    const status = await Health.checkAuthorization({ read: READ_TYPES })
+    const status = await Health.checkAuthorization({ read: readTypes })
     const authorized = Array.isArray(status?.readAuthorized) ? status.readAuthorized : []
     if (!authorized.length) throw new Error('Autorize o acesso aos dados de saúde antes da sincronização automática.')
   }
@@ -153,9 +154,10 @@ export async function syncNativeHealthData(userId: string, provider?: NativeSync
       metadata: {
         ...(summary.metadata || {}),
         source_app: 'healthwallet_mobile',
-        sync_mode: 'native_automatic',
+        sync_mode: 'native_automatic_steps_only',
         provider: nativeProvider,
         platform: Capacitor.getPlatform(),
+        health_connect_permissions: nativeProvider === 'health_connect' ? ['READ_STEPS'] : ['steps'],
       },
     })
 
@@ -187,38 +189,19 @@ async function readDailySummaries(Health: NativeHealthModule, days: number): Pro
     const end = endOfLocalDay(start)
     const summaryDate = toIsoDate(start)
 
-    const [steps, sleep, avgHeartRate, restingHeartRate, spo2, hrv, calories, activityMinutes, weight, bp] = await Promise.all([
-      readAggregate(Health, 'steps', start, end, 'sum'),
-      readAggregate(Health, 'sleep', start, end, 'sum'),
-      readAggregate(Health, 'heartRate', start, end, 'average'),
-      readAggregate(Health, 'restingHeartRate', start, end, 'average'),
-      readAggregate(Health, 'oxygenSaturation', start, end, 'average'),
-      readAggregate(Health, 'heartRateVariability', start, end, 'average'),
-      readAggregate(Health, 'calories', start, end, 'sum'),
-      readAggregate(Health, 'exerciseTime', start, end, 'sum'),
-      readLatestSampleValue(Health, 'weight', start, end),
-      readLatestBloodPressure(Health, start, end),
-    ])
+    const steps = await readAggregate(Health, 'steps', start, end, 'sum')
 
     const summary: DeviceDailySummaryInput = {
       user_id: '',
       summary_date: summaryDate,
       sources: [],
       steps: normalizeInteger(steps),
-      sleep_minutes: normalizeSleepMinutes(sleep),
-      avg_heart_rate: normalizeNumber(avgHeartRate),
-      resting_heart_rate: normalizeNumber(restingHeartRate),
-      hrv_avg: normalizeNumber(hrv),
-      spo2_avg: normalizeSpo2(spo2),
-      systolic_bp: normalizeNumber(bp?.systolic),
-      diastolic_bp: normalizeNumber(bp?.diastolic),
-      weight_kg: normalizeNumber(weight),
-      active_calories: normalizeNumber(calories),
-      activity_minutes: normalizeNumber(activityMinutes),
       metadata: {
         day_start: start.toISOString(),
         day_end: end.toISOString(),
         native_read: true,
+        native_scope: 'steps_only',
+        user_benefit: 'Mostrar passos diários na carteira pessoal de saúde e permitir compartilhamento consentido como contexto de bem-estar.',
       },
     }
 
@@ -263,40 +246,6 @@ async function readAggregate(
   return null
 }
 
-async function readLatestSampleValue(Health: NativeHealthModule, dataType: HealthDataType, start: Date, end: Date) {
-  try {
-    if (!Health.readSamples) return null
-    const result = await Health.readSamples({
-      dataType,
-      startDate: start.toISOString(),
-      endDate: end.toISOString(),
-      limit: 50,
-    })
-    const sample = latestSample(result?.samples || [])
-    return sample?.value ?? null
-  } catch (error) {
-    console.warn(`Native health latest sample skipped for ${dataType}:`, error)
-    return null
-  }
-}
-
-async function readLatestBloodPressure(Health: NativeHealthModule, start: Date, end: Date) {
-  try {
-    if (!Health.readSamples) return null
-    const result = await Health.readSamples({
-      dataType: 'bloodPressure',
-      startDate: start.toISOString(),
-      endDate: end.toISOString(),
-      limit: 50,
-    })
-    const sample = latestSample(result?.samples || [])
-    return sample?.systolic || sample?.diastolic ? { systolic: sample.systolic, diastolic: sample.diastolic } : null
-  } catch (error) {
-    console.warn('Native health blood pressure skipped:', error)
-    return null
-  }
-}
-
 function reduceSamples(samples: HealthSample[], mode: 'sum' | 'average') {
   const values = samples
     .map((item) => Number(item.value))
@@ -305,10 +254,6 @@ function reduceSamples(samples: HealthSample[], mode: 'sum' | 'average') {
   if (!values.length) return null
   if (mode === 'sum') return values.reduce((sum, value) => sum + value, 0)
   return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function latestSample(samples: HealthSample[]) {
-  return [...samples].sort((a, b) => String(b.endDate || b.startDate || '').localeCompare(String(a.endDate || a.startDate || '')))[0]
 }
 
 function startOfLocalDay(offsetDaysFromToday: number) {
@@ -341,33 +286,6 @@ function normalizeInteger(value: unknown) {
   return parsed == null ? null : Math.round(parsed)
 }
 
-function normalizeSleepMinutes(value: unknown) {
-  const parsed = normalizeNumber(value)
-  if (parsed == null) return null
-  if (parsed <= 24) return Math.round(parsed * 60)
-  if (parsed > 24 * 60) return Math.round(parsed / 60)
-  return Math.round(parsed)
-}
-
-function normalizeSpo2(value: unknown) {
-  const parsed = normalizeNumber(value)
-  if (parsed == null) return null
-  return parsed <= 1 ? Math.round(parsed * 1000) / 10 : Math.round(parsed * 10) / 10
-}
-
 function hasAnyMetric(summary: DeviceDailySummaryInput) {
-  return [
-    summary.steps,
-    summary.sleep_minutes,
-    summary.resting_heart_rate,
-    summary.avg_heart_rate,
-    summary.hrv_avg,
-    summary.spo2_avg,
-    summary.systolic_bp,
-    summary.diastolic_bp,
-    summary.weight_kg,
-    summary.temperature_c,
-    summary.active_calories,
-    summary.activity_minutes,
-  ].some((value) => normalizeNumber(value) !== null)
+  return normalizeNumber(summary.steps) !== null
 }
