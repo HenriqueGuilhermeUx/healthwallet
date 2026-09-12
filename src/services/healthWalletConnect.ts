@@ -1,3 +1,5 @@
+import { AppLauncher } from '@capacitor/app-launcher'
+import { Capacitor } from '@capacitor/core'
 import { supabase } from '@/lib/supabase'
 
 export type HealthWalletConnectProfile = 'minimal' | 'full'
@@ -60,6 +62,16 @@ function buildConnectUrl(data: Required<Pick<IssueResponse, 'code' | 'state'>> &
   return url.toString()
 }
 
+async function openConnectApp(url: string) {
+  if (Capacitor.isNativePlatform()) {
+    const result = await AppLauncher.openUrl({ url })
+    if (!result.completed) throw new Error('O HealthWallet Connect não está disponível neste aparelho.')
+    return
+  }
+
+  window.location.assign(url)
+}
+
 export async function launchHealthWalletConnect(options: LaunchHealthWalletConnectOptions = {}) {
   const profile: HealthWalletConnectProfile = options.profile === 'minimal' ? 'minimal' : 'full'
   const metrics = profile === 'minimal'
@@ -93,7 +105,7 @@ export async function launchHealthWalletConnect(options: LaunchHealthWalletConne
     return_to: data.return_to || returnTo,
   })
 
-  window.location.assign(connectUrl)
+  await openConnectApp(connectUrl)
 
   return {
     state: data.state || state,
