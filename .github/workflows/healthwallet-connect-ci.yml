@@ -6,10 +6,24 @@ on:
       - feature/healthwallet-connect
     paths:
       - 'healthwallet-connect/**'
+      - 'src/App.tsx'
+      - 'src/pages/DeviceData.tsx'
+      - 'src/services/healthWalletConnect.ts'
+      - 'scripts/patch-healthwallet-connect-return.mjs'
+      - 'supabase/functions/healthwallet-connect-handoff/**'
+      - 'SQL_HEALTHWALLET_CONNECT_HANDOFF_V1.sql'
+      - 'package.json'
       - '.github/workflows/healthwallet-connect-ci.yml'
   pull_request:
     paths:
       - 'healthwallet-connect/**'
+      - 'src/App.tsx'
+      - 'src/pages/DeviceData.tsx'
+      - 'src/services/healthWalletConnect.ts'
+      - 'scripts/patch-healthwallet-connect-return.mjs'
+      - 'supabase/functions/healthwallet-connect-handoff/**'
+      - 'SQL_HEALTHWALLET_CONNECT_HANDOFF_V1.sql'
+      - 'package.json'
       - '.github/workflows/healthwallet-connect-ci.yml'
   workflow_dispatch:
 
@@ -18,7 +32,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  connect-android:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -48,11 +62,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build web app
+      - name: Build Connect web app
         run: npm run build
         env:
           VITE_SUPABASE_URL: https://example.supabase.co
           VITE_SUPABASE_ANON_KEY: ci-placeholder-key
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet.example
 
       - name: Add Android project
         run: npx cap add android
@@ -62,6 +77,15 @@ jobs:
         env:
           VITE_SUPABASE_URL: https://example.supabase.co
           VITE_SUPABASE_ANON_KEY: ci-placeholder-key
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet.example
+
+      - name: Audit Connect handoff deep link
+        shell: bash
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          grep -q 'android:scheme="healthwallet-connect"' "$MANIFEST" || (echo "healthwallet-connect scheme missing" && exit 1)
+          grep -q 'android:host="handoff"' "$MANIFEST" || (echo "handoff host missing" && exit 1)
+          echo "Connect deep link audit passed."
 
       - name: Build Android minimal debug
         run: cd android && ./gradlew assembleDebug --stacktrace
@@ -86,6 +110,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: https://example.supabase.co
           VITE_SUPABASE_ANON_KEY: ci-placeholder-key
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet.example
 
       - name: Build Android full debug
         run: cd android && ./gradlew clean assembleDebug --stacktrace
@@ -118,3 +143,32 @@ jobs:
             exit 1
           fi
           echo "Full permission audit passed."
+
+  healthwallet-web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Install HealthWallet dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build HealthWallet branch
+        run: pnpm exec tsc -b && pnpm exec vite build
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-placeholder-key
+
+      - name: Validate return deep-link patch script
+        run: node --check scripts/patch-healthwallet-connect-return.mjs
