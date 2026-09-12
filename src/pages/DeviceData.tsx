@@ -37,6 +37,7 @@ import {
   showNativeHealthPrivacyPolicy,
   syncNativeHealthData,
 } from '@/services/nativeHealthSync'
+import { launchHealthWalletConnect } from '@/services/healthWalletConnect'
 
 const providerOptions: Array<{ provider: DeviceProvider; title: string; subtitle: string; native: boolean }> = [
   {
@@ -77,6 +78,7 @@ export default function DeviceData() {
   const [saving, setSaving] = useState(false)
   const [nativeSyncing, setNativeSyncing] = useState<DeviceProvider | null>(null)
   const [autoSyncing, setAutoSyncing] = useState(false)
+  const [openingConnect, setOpeningConnect] = useState(false)
   const [connections, setConnections] = useState<any[]>([])
   const [summaries, setSummaries] = useState<any[]>([])
   const [consents, setConsents] = useState<any[]>([])
@@ -86,6 +88,24 @@ export default function DeviceData() {
   const [nativeAvailability, setNativeAvailability] = useState<any>(null)
 
   useEffect(() => {
+    const rawReturn = sessionStorage.getItem('healthwallet_connect_return')
+    if (rawReturn) {
+      sessionStorage.removeItem('healthwallet_connect_return')
+      try {
+        const result = JSON.parse(rawReturn)
+        if (result?.status === 'success') {
+          const days = Number(result?.days_synced || 0)
+          toast.success(days > 0
+            ? `HealthWallet Connect atualizado: ${days} dia(s) sincronizado(s)`
+            : 'HealthWallet Connect concluído com sucesso')
+        } else {
+          toast.error(result?.message || 'O HealthWallet Connect não concluiu a sincronização.')
+        }
+      } catch {
+        toast.success('Retorno do HealthWallet Connect recebido')
+      }
+    }
+
     load()
   }, [user])
 
@@ -199,6 +219,18 @@ export default function DeviceData() {
       toast.error(error?.message || 'Não foi possível sincronizar agora.')
     } finally {
       setNativeSyncing(null)
+    }
+  }
+
+  async function openAdvancedConnect() {
+    if (!user) return
+    setOpeningConnect(true)
+    try {
+      await launchHealthWalletConnect({ profile: 'full', days: 30 })
+    } catch (error: any) {
+      console.warn('HealthWallet Connect launch failed:', error)
+      toast.error(error?.message || 'Não foi possível abrir o HealthWallet Connect agora.')
+      setOpeningConnect(false)
     }
   }
 
@@ -372,6 +404,32 @@ export default function DeviceData() {
             Privacidade
           </button>
         </div>
+      </section>
+
+      <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+        <div className="flex items-start gap-3">
+          <div className="w-11 h-11 rounded-xl bg-white text-cyan-700 flex items-center justify-center flex-shrink-0">
+            <Smartphone className="w-5 h-5" />
+          </div>
+          <div className="flex-1">
+            <p className="text-xs font-bold uppercase tracking-wide text-cyan-700">HealthWallet Connect</p>
+            <h2 className="font-bold text-gray-900 mt-1">Dados avançados, sem novo login</h2>
+            <p className="text-sm text-gray-700 mt-1">
+              Autorize sono, batimentos, SpO2, HRV, pressão, peso, calorias e atividade. O Connect sincroniza e traz você de volta automaticamente.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={openAdvancedConnect}
+          disabled={openingConnect}
+          className="mt-4 w-full rounded-xl bg-cyan-700 py-3 font-semibold text-white disabled:opacity-60"
+        >
+          {openingConnect ? 'Abrindo conexão segura...' : 'Conectar dados avançados'}
+        </button>
+        <p className="text-[11px] text-cyan-900/70 mt-2 text-center">
+          A autorização continua sob seu controle no Health Connect ou Apple Saúde.
+        </p>
       </section>
 
       <section className="grid grid-cols-2 gap-3">
