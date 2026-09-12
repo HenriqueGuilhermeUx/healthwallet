@@ -79,13 +79,14 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ci-placeholder-key
           VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet.example
 
-      - name: Audit Connect handoff deep link
+      - name: Audit Connect app-to-app links
         shell: bash
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          grep -q 'android:scheme="healthwallet-connect"' "$MANIFEST" || (echo "healthwallet-connect scheme missing" && exit 1)
+          grep -q 'android:scheme="healthwallet-connect"' "$MANIFEST" || (echo "healthwallet-connect input scheme missing" && exit 1)
           grep -q 'android:host="handoff"' "$MANIFEST" || (echo "handoff host missing" && exit 1)
-          echo "Connect deep link audit passed."
+          grep -q '<data android:scheme="healthwallet" />' "$MANIFEST" || (echo "healthwallet return target query missing" && exit 1)
+          echo "Connect app-to-app link audit passed."
 
       - name: Build Android minimal debug
         run: cd android && ./gradlew assembleDebug --stacktrace
@@ -170,5 +171,39 @@ jobs:
           VITE_SUPABASE_URL: https://example.supabase.co
           VITE_SUPABASE_ANON_KEY: ci-placeholder-key
 
-      - name: Validate return deep-link patch script
-        run: node --check scripts/patch-healthwallet-connect-return.mjs
+      - name: Validate HealthWallet return Manifest patch
+        shell: bash
+        run: |
+          mkdir -p android/app/src/main
+          cat > android/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="HealthWallet">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          node scripts/patch-healthwallet-connect-return.mjs
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          grep -q 'android:scheme="healthwallet" android:host="connect-complete"' "$MANIFEST" || (echo "HealthWallet return scheme missing" && exit 1)
+          grep -q '<data android:scheme="healthwallet-connect" />' "$MANIFEST" || (echo "Connect target query missing" && exit 1)
+          echo "HealthWallet return Manifest patch passed."
+
+  handoff-edge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check handoff Edge Function
+        run: deno check supabase/functions/healthwallet-connect-handoff/index.ts
