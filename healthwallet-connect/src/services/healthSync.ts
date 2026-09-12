@@ -150,28 +150,32 @@ export async function syncHealthData(userId: string, metrics: HealthMetric[], da
   let synced = 0
 
   for (const summary of summaries) {
+    const { data: existing, error: existingError } = await supabase
+      .from('health_daily_summaries')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('summary_date', summary.summary_date)
+      .maybeSingle()
+
+    if (existingError) throw existingError
+
+    const merged = mergeSummary(existing, summary)
+    const sources = Array.from(new Set([...(Array.isArray(existing?.sources) ? existing.sources : []), provider]))
+
     const payload = {
       user_id: userId,
       summary_date: summary.summary_date,
-      sources: [provider],
-      steps: nullable(summary.steps),
-      sleep_minutes: nullable(summary.sleep_minutes),
-      resting_heart_rate: nullable(summary.resting_heart_rate),
-      avg_heart_rate: nullable(summary.avg_heart_rate),
-      hrv_avg: nullable(summary.hrv_avg),
-      spo2_avg: nullable(summary.spo2_avg),
-      systolic_bp: nullable(summary.systolic_bp),
-      diastolic_bp: nullable(summary.diastolic_bp),
-      weight_kg: nullable(summary.weight_kg),
-      active_calories: nullable(summary.active_calories),
-      activity_minutes: nullable(summary.activity_minutes),
-      data_points: countMetrics(summary),
+      sources,
+      ...merged,
+      data_points: countMetrics({ summary_date: summary.summary_date, ...merged }),
       metadata: {
+        ...(existing?.metadata || {}),
         source_app: 'healthwallet_connect',
         provider,
         patient_controlled: true,
         selected_metrics: metrics,
         sync_version: 1,
+        merge_safe: true,
       },
       last_sync_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -267,6 +271,28 @@ async function readDailySummaries(plugin: HealthPlugin, metrics: HealthMetric[],
   }
 
   return output
+}
+
+function mergeSummary(existing: any, incoming: DailySummary) {
+  return {
+    steps: preferIncoming(incoming.steps, existing?.steps),
+    sleep_minutes: preferIncoming(incoming.sleep_minutes, existing?.sleep_minutes),
+    resting_heart_rate: preferIncoming(incoming.resting_heart_rate, existing?.resting_heart_rate),
+    avg_heart_rate: preferIncoming(incoming.avg_heart_rate, existing?.avg_heart_rate),
+    hrv_avg: preferIncoming(incoming.hrv_avg, existing?.hrv_avg),
+    spo2_avg: preferIncoming(incoming.spo2_avg, existing?.spo2_avg),
+    systolic_bp: preferIncoming(incoming.systolic_bp, existing?.systolic_bp),
+    diastolic_bp: preferIncoming(incoming.diastolic_bp, existing?.diastolic_bp),
+    weight_kg: preferIncoming(incoming.weight_kg, existing?.weight_kg),
+    active_calories: preferIncoming(incoming.active_calories, existing?.active_calories),
+    activity_minutes: preferIncoming(incoming.activity_minutes, existing?.activity_minutes),
+  }
+}
+
+function preferIncoming(incoming: unknown, existing: unknown) {
+  const fresh = nullable(incoming)
+  if (fresh !== null) return fresh
+  return nullable(existing)
 }
 
 async function readMetric(
