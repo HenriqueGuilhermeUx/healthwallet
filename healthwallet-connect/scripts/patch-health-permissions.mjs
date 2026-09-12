@@ -59,6 +59,25 @@ function ensurePermission(content, permission, attrs = '') {
   return content.replace(/(<manifest[^>]*>)/, `$1\n${line}`)
 }
 
+function ensureHandoffIntentFilter(content) {
+  if (content.includes('android:scheme="healthwallet-connect"')) return content
+
+  const intentFilter = `
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="healthwallet-connect" android:host="handoff" />
+            </intent-filter>`
+
+  const mainActivity = /(<activity\b[^>]*android:name=["']\.MainActivity["'][^>]*>)([\s\S]*?)(<\/activity>)/
+  if (!mainActivity.test(content)) {
+    throw new Error('Could not find MainActivity while registering HealthWallet Connect handoff deep link.')
+  }
+
+  return content.replace(mainActivity, (_match, open, body, close) => `${open}${body}${intentFilter}\n        ${close}`)
+}
+
 if (!fs.existsSync(manifestPath)) {
   console.warn('AndroidManifest.xml not found; skipping Health Connect permission profile.')
   process.exit(0)
@@ -75,5 +94,7 @@ const remove = knownPermissions.filter((permission) => !keep.includes(permission
 for (const permission of keep) manifest = ensurePermission(manifest, permission)
 for (const permission of remove) manifest = ensurePermission(manifest, permission, ' tools:node="remove"')
 
+manifest = ensureHandoffIntentFilter(manifest)
+
 fs.writeFileSync(manifestPath, manifest)
-console.log(`HealthWallet Connect Health Connect profile applied: ${profile}. Read permissions: ${keep.join(', ')}`)
+console.log(`HealthWallet Connect profile applied: ${profile}. Read permissions: ${keep.join(', ')}. Deep link: healthwallet-connect://handoff`)
