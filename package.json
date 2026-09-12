@@ -15,8 +15,8 @@
     "android:init": "pnpm build && npx cap add android",
     "android:sync": "pnpm build && npx cap sync android",
     "android:open": "pnpm android:sync && npx cap open android",
-    "android:apk": "pnpm android:sync && cd android && ./gradlew assembleDebug",
-    "android:aab": "pnpm android:sync && node scripts/patch-capacitor-android.mjs && cd android && ./gradlew bundleRelease"
+    "android:apk": "pnpm android:sync && node scripts/patch-capacitor-android.mjs && node scripts/patch-healthwallet-connect-return.mjs && cd android && ./gradlew assembleDebug",
+    "android:aab": "pnpm android:sync && node scripts/patch-capacitor-android.mjs && node scripts/patch-healthwallet-connect-return.mjs && cd android && ./gradlew bundleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
