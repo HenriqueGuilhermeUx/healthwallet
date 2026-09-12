@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, Check, ChevronRight, HeartPulse, LogOut, RefreshCw, ShieldCheck, Smartphone } from 'lucide-react'
 import { supabase } from './lib/supabase'
 import {
@@ -9,8 +9,19 @@ import {
   requestHealthAccess,
   syncHealthData,
 } from './services/healthSync'
+import {
+  ConnectHandoff,
+  getInitialHandoff,
+  redeemHandoff,
+  returnToHealthWallet,
+  subscribeToHandoffs,
+} from './services/handoff'
 
 type Availability = Awaited<ReturnType<typeof getHealthAvailability>>
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
 
 export default function App() {
   const [userId, setUserId] = useState<string | null>(null)
@@ -23,15 +34,85 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [lastSync, setLastSync] = useState<string | null>(null)
+  const [handoff, setHandoff] = useState<ConnectHandoff | null>(null)
+  const [handoffBusy, setHandoffBusy] = useState(false)
+  const [handoffError, setHandoffError] = useState('')
+  const autoRunKey = useRef<string | null>(null)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setUserId(data.session?.user.id || null))
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user.id || null)
+    let active = true
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (active) setUserId(data.session?.user.id || null)
     })
-    getHealthAvailability().then(setAvailability)
-    return () => listener.subscription.unsubscribe()
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) setUserId(session?.user.id || null)
+    })
+
+    getHealthAvailability().then((result) => {
+      if (active) setAvailability(result)
+    })
+
+    return () => {
+      active = false
+      listener.subscription.unsubscribe()
+    }
   }, [])
+
+  useEffect(() => {
+    let active = true
+
+    async function consumeIncomingHandoff(incoming: ConnectHandoff) {
+      if (!active) return
+
+      setHandoff(incoming)
+      setSelected(incoming.metrics)
+      setHandoffError('')
+
+      if (!incoming.code) return
+
+      try {
+        setHandoffBusy(true)
+        setMessage('Conectando com sua HealthWallet…')
+        const redeemed = await redeemHandoff(incoming)
+        if (!active) return
+        setHandoff(redeemed)
+        setSelected(redeemed.metrics)
+        setMessage('Conta reconhecida. Preparando a sincronização…')
+      } catch (error: any) {
+        if (!active) return
+        const text = error?.message || 'Não foi possível validar a conexão segura.'
+        setHandoffError(text)
+        setMessage(text)
+      } finally {
+        if (active) setHandoffBusy(false)
+      }
+    }
+
+    getInitialHandoff().then((incoming) => {
+      if (incoming) void consumeIncomingHandoff(incoming)
+    })
+
+    const unsubscribe = subscribeToHandoffs((incoming) => {
+      void consumeIncomingHandoff(incoming)
+    })
+
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!handoff?.autostart || handoffBusy || handoffError || !userId || !availability?.available) return
+
+    const key = `${handoff.state || 'no-state'}:${userId}:${handoff.profile}:${handoff.metrics.join(',')}:${handoff.days}`
+    if (autoRunKey.current === key) return
+    autoRunKey.current = key
+
+    void runHandoffSync(handoff, userId)
+  }, [handoff, handoffBusy, handoffError, userId, availability])
 
   const providerName = useMemo(() => providerLabel(availability?.provider || null), [availability])
 
@@ -67,20 +148,81 @@ export default function App() {
     }
   }
 
+  async function runHandoffSync(activeHandoff: ConnectHandoff, activeUserId: string) {
+    try {
+      setBusy(true)
+      setMessage(`Autorizando ${providerLabel(availability?.provider || null)} e sincronizando seus dados…`)
+      const result = await syncHealthData(activeUserId, activeHandoff.metrics, activeHandoff.days)
+      const now = new Date()
+      setLastSync(now.toLocaleString())
+      setMessage(`${result.daysSynced} dia(s) sincronizado(s). Voltando para sua HealthWallet…`)
+      await delay(500)
+      returnToHealthWallet(activeHandoff, {
+        status: 'success',
+        provider: result.provider,
+        daysSynced: result.daysSynced,
+      })
+    } catch (error: any) {
+      const text = error?.message || 'Não foi possível sincronizar agora.'
+      setMessage(text)
+      setHandoffError(text)
+      autoRunKey.current = null
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function sync() {
     if (!userId) return
     try {
       setBusy(true)
       setMessage('Lendo seus dados autorizados e atualizando sua HealthWallet…')
-      const result = await syncHealthData(userId, selected, 30)
+      const result = await syncHealthData(userId, selected, handoff?.days || 30)
       const now = new Date()
       setLastSync(now.toLocaleString())
       setMessage(`${result.daysSynced} dia(s) sincronizado(s) com sua HealthWallet.`)
+
+      if (handoff) {
+        await delay(400)
+        returnToHealthWallet(handoff, {
+          status: 'success',
+          provider: result.provider,
+          daysSynced: result.daysSynced,
+        })
+      }
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível sincronizar agora.')
     } finally {
       setBusy(false)
     }
+  }
+
+  function backToHealthWallet() {
+    if (!handoff) return
+    returnToHealthWallet(handoff, {
+      status: handoffError ? 'error' : 'success',
+      provider: availability?.provider,
+      message: handoffError || undefined,
+    })
+  }
+
+  if (handoffBusy || (handoff?.autostart && userId && busy)) {
+    return (
+      <main className="shell auth-shell">
+        <section className="card auth-card bridge-card">
+          <div className="brand-mark"><RefreshCw className="spin" size={28} /></div>
+          <p className="eyebrow">HealthWallet</p>
+          <h1>Conectando seus dados</h1>
+          <p className="lead">{message || 'Abrindo a conexão segura com seus dados de saúde…'}</p>
+          <div className="bridge-steps" aria-label="Etapas da conexão">
+            <span className="active">1. Conta</span>
+            <span className={userId ? 'active' : ''}>2. Permissão</span>
+            <span>3. Sincronização</span>
+          </div>
+          <p className="fine-print">Não feche esta tela durante a autorização do sistema.</p>
+        </section>
+      </main>
+    )
   }
 
   if (!userId) {
@@ -90,13 +232,20 @@ export default function App() {
           <div className="brand-mark"><HeartPulse size={28} /></div>
           <p className="eyebrow">HealthWallet</p>
           <h1>Connect</h1>
-          <p className="lead">Conecte seus dados de saúde à sua carteira, sempre sob seu controle.</p>
+          <p className="lead">
+            {handoffError
+              ? 'A conexão automática expirou. Entre com a mesma conta da HealthWallet para continuar.'
+              : 'Conecte seus dados de saúde à sua carteira, sempre sob seu controle.'}
+          </p>
           <form onSubmit={login} className="form-stack">
             <label>E-mail<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
             <label>Senha<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
-            {authError && <p className="error">{authError}</p>}
+            {(authError || handoffError) && <p className="error">{authError || handoffError}</p>}
             <button className="primary" disabled={authBusy}>{authBusy ? 'Entrando…' : 'Entrar com minha HealthWallet'}</button>
           </form>
+          {handoff?.returnTo && (
+            <button className="link-button" type="button" onClick={backToHealthWallet}>Voltar para a HealthWallet</button>
+          )}
           <p className="fine-print">Use a mesma conta do HealthWallet. O Connect não vende dados e não realiza diagnóstico.</p>
         </section>
       </main>
@@ -112,6 +261,16 @@ export default function App() {
         </div>
         <button className="icon-button" onClick={logout} aria-label="Sair"><LogOut size={20} /></button>
       </header>
+
+      {handoff && (
+        <section className="card handoff-card">
+          <RefreshCw className={busy ? 'spin' : ''} size={22} />
+          <div>
+            <strong>Conexão iniciada pela HealthWallet</strong>
+            <p>{handoffError || 'As escolhas vieram da sua carteira e serão devolvidas automaticamente após a sincronização.'}</p>
+          </div>
+        </section>
+      )}
 
       <section className="hero card">
         <div className="hero-icon"><Smartphone size={30} /></div>
@@ -163,6 +322,9 @@ export default function App() {
           {busy ? <RefreshCw className="spin" size={18} /> : <RefreshCw size={18} />}
           Sincronizar com minha HealthWallet
         </button>
+        {handoff?.returnTo && (
+          <button className="link-button" type="button" onClick={backToHealthWallet}>Voltar sem sincronizar</button>
+        )}
       </section>
 
       {(message || lastSync) && (
