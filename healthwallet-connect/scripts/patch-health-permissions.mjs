@@ -59,6 +59,20 @@ function ensurePermission(content, permission, attrs = '') {
   return content.replace(/(<manifest[^>]*>)/, `$1\n${line}`)
 }
 
+function ensureSchemeQuery(content, scheme) {
+  const marker = `<data android:scheme="${scheme}" />`
+  if (content.includes(marker)) return content
+
+  const intent = `        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            ${marker}\n        </intent>`
+
+  if (content.includes('</queries>')) {
+    return content.replace('</queries>', `${intent}\n    </queries>`)
+  }
+
+  const queries = `    <queries>\n${intent}\n    </queries>\n\n`
+  return content.replace(/\s*<application/, `\n${queries}    <application`)
+}
+
 function ensureHandoffIntentFilter(content) {
   if (content.includes('android:scheme="healthwallet-connect"')) return content
 
@@ -95,6 +109,7 @@ for (const permission of keep) manifest = ensurePermission(manifest, permission)
 for (const permission of remove) manifest = ensurePermission(manifest, permission, ' tools:node="remove"')
 
 manifest = ensureHandoffIntentFilter(manifest)
+manifest = ensureSchemeQuery(manifest, 'healthwallet')
 
 fs.writeFileSync(manifestPath, manifest)
-console.log(`HealthWallet Connect profile applied: ${profile}. Read permissions: ${keep.join(', ')}. Deep link: healthwallet-connect://handoff`)
+console.log(`HealthWallet Connect profile applied: ${profile}. Read permissions: ${keep.join(', ')}. Deep link: healthwallet-connect://handoff. Return target: healthwallet://`)
