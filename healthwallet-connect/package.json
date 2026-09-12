@@ -20,6 +20,7 @@
   "dependencies": {
     "@capacitor/android": "^7.4.3",
     "@capacitor/app": "7.1.2",
+    "@capacitor/app-launcher": "^7.0.4",
     "@capacitor/core": "^7.4.3",
     "@capacitor/ios": "^7.4.3",
     "@capgo/capacitor-health": "^7.0.0",
