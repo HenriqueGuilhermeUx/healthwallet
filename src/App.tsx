@@ -1,8 +1,10 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import { Toaster } from 'sonner'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { App as CapacitorApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 
 // Pages
 import Landing from '@/pages/Landing'
@@ -153,11 +155,70 @@ function ProtectedPage({ children }: { children: React.ReactNode }) {
   )
 }
 
+function ConnectReturnBridge() {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+
+    let disposed = false
+    let removeListener: (() => void | Promise<void>) | null = null
+
+    function handleUrl(rawUrl?: string | null) {
+      if (!rawUrl) return
+
+      try {
+        const url = new URL(rawUrl)
+        if (url.protocol !== 'healthwallet:' || url.hostname !== 'connect-complete') return
+
+        const payload = {
+          status: url.searchParams.get('connect_status') || 'success',
+          state: url.searchParams.get('state') || null,
+          provider: url.searchParams.get('provider') || null,
+          days_synced: Number(url.searchParams.get('days_synced') || 0),
+          message: url.searchParams.get('message') || null,
+          received_at: new Date().toISOString(),
+        }
+
+        sessionStorage.setItem('healthwallet_connect_return', JSON.stringify(payload))
+        navigate('/devices')
+      } catch (error) {
+        console.warn('HealthWallet Connect return URL ignored:', error)
+      }
+    }
+
+    CapacitorApp.getLaunchUrl()
+      .then((launch) => {
+        if (!disposed) handleUrl(launch?.url)
+      })
+      .catch(() => undefined)
+
+    Promise.resolve(CapacitorApp.addListener('appUrlOpen', ({ url }) => handleUrl(url)))
+      .then((handle) => {
+        if (disposed) {
+          void handle.remove()
+          return
+        }
+        removeListener = () => handle.remove()
+      })
+      .catch(() => undefined)
+
+    return () => {
+      disposed = true
+      if (removeListener) void removeListener()
+    }
+  }, [navigate])
+
+  return null
+}
+
 export default function App() {
   return (
     <AppErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
+          <ConnectReturnBridge />
+
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<Landing />} />
