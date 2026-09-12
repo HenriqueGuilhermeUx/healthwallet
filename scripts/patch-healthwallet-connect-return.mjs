@@ -7,6 +7,20 @@ if (!fs.existsSync(manifestPath)) {
   throw new Error('AndroidManifest.xml not found. Run cap sync android before patching HealthWallet Connect return URL.')
 }
 
+function ensureSchemeQuery(content, scheme) {
+  const marker = `<data android:scheme="${scheme}" />`
+  if (content.includes(marker)) return content
+
+  const intent = `        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            ${marker}\n        </intent>`
+
+  if (content.includes('</queries>')) {
+    return content.replace('</queries>', `${intent}\n    </queries>`)
+  }
+
+  const queries = `    <queries>\n${intent}\n    </queries>\n\n`
+  return content.replace(/\s*<application/, `\n${queries}    <application`)
+}
+
 let manifest = fs.readFileSync(manifestPath, 'utf8')
 
 if (!manifest.includes('android:scheme="healthwallet"')) {
@@ -24,7 +38,9 @@ if (!manifest.includes('android:scheme="healthwallet"')) {
   }
 
   manifest = manifest.replace(mainActivity, (_match, open, body, close) => `${open}${body}${intentFilter}\n        ${close}`)
-  fs.writeFileSync(manifestPath, manifest)
 }
 
-console.log('HealthWallet Connect return deep link registered: healthwallet://connect-complete')
+manifest = ensureSchemeQuery(manifest, 'healthwallet-connect')
+fs.writeFileSync(manifestPath, manifest)
+
+console.log('HealthWallet Connect return deep link registered: healthwallet://connect-complete; launch target query: healthwallet-connect://')
