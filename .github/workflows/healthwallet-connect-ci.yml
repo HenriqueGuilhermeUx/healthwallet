@@ -63,5 +63,58 @@ jobs:
           VITE_SUPABASE_URL: https://example.supabase.co
           VITE_SUPABASE_ANON_KEY: ci-placeholder-key
 
-      - name: Build Android debug
+      - name: Build Android minimal debug
         run: cd android && ./gradlew assembleDebug --stacktrace
+
+      - name: Audit minimal merged Health Connect permissions
+        shell: bash
+        run: |
+          MERGED_MANIFEST="$(find android/app/build/intermediates -path '*merged*manifest*' -name AndroidManifest.xml | head -n 1)"
+          test -n "$MERGED_MANIFEST" || (echo "Merged AndroidManifest.xml not found" && exit 1)
+          echo "Auditing $MERGED_MANIFEST"
+          grep -q 'android.permission.health.READ_STEPS' "$MERGED_MANIFEST" || (echo "READ_STEPS missing" && exit 1)
+          EXTRA="$(grep -oE 'android\.permission\.health\.[A-Z_]+' "$MERGED_MANIFEST" | sort -u | grep -v '^android.permission.health.READ_STEPS$' || true)"
+          if [ -n "$EXTRA" ]; then
+            echo "Unexpected Health Connect permissions in minimal build:"
+            echo "$EXTRA"
+            exit 1
+          fi
+          echo "Minimal permission audit passed: READ_STEPS only."
+
+      - name: Sync Android full profile
+        run: npm run android:sync:full
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-placeholder-key
+
+      - name: Build Android full debug
+        run: cd android && ./gradlew clean assembleDebug --stacktrace
+
+      - name: Audit full merged Health Connect permissions
+        shell: bash
+        run: |
+          MERGED_MANIFEST="$(find android/app/build/intermediates -path '*merged*manifest*' -name AndroidManifest.xml | head -n 1)"
+          test -n "$MERGED_MANIFEST" || (echo "Merged AndroidManifest.xml not found" && exit 1)
+          REQUIRED=(
+            READ_STEPS
+            READ_SLEEP
+            READ_HEART_RATE
+            READ_RESTING_HEART_RATE
+            READ_OXYGEN_SATURATION
+            READ_HEART_RATE_VARIABILITY
+            READ_BLOOD_PRESSURE
+            READ_WEIGHT
+            READ_ACTIVE_CALORIES_BURNED
+            READ_EXERCISE
+            READ_EXERCISE_SESSION
+          )
+          for PERMISSION in "${REQUIRED[@]}"; do
+            grep -q "android.permission.health.${PERMISSION}" "$MERGED_MANIFEST" || (echo "Missing ${PERMISSION} in full build" && exit 1)
+          done
+          FORBIDDEN="$(grep -oE 'android\.permission\.health\.(WRITE_[A-Z_]+|READ_STEPS_CADENCE|READ_DISTANCE)' "$MERGED_MANIFEST" | sort -u || true)"
+          if [ -n "$FORBIDDEN" ]; then
+            echo "Forbidden Health Connect permissions found in full build:"
+            echo "$FORBIDDEN"
+            exit 1
+          fi
+          echo "Full permission audit passed."
