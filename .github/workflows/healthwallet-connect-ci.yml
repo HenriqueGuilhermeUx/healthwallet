@@ -206,4 +206,4 @@ jobs:
           deno-version: v2.x
 
       - name: Type-check handoff Edge Function
-        run: deno check supabase/functions/healthwallet-connect-handoff/index.ts
+        run: deno check --node-modules-dir=auto supabase/functions/healthwallet-connect-handoff/index.ts
