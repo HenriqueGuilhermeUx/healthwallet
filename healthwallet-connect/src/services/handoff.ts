@@ -1,4 +1,5 @@
 import { App } from '@capacitor/app'
+import { AppLauncher } from '@capacitor/app-launcher'
 import { Capacitor } from '@capacitor/core'
 import { supabase } from '../lib/supabase'
 import { HealthMetric, METRICS } from './healthSync'
@@ -162,7 +163,7 @@ export async function redeemHandoff(handoff: ConnectHandoff): Promise<ConnectHan
   }
 }
 
-export function returnToHealthWallet(
+export async function returnToHealthWallet(
   handoff: ConnectHandoff,
   result: { status: 'success' | 'error'; provider?: string | null; daysSynced?: number; message?: string }
 ) {
@@ -175,7 +176,14 @@ export function returnToHealthWallet(
     if (result.provider) url.searchParams.set('provider', result.provider)
     if (typeof result.daysSynced === 'number') url.searchParams.set('days_synced', String(result.daysSynced))
     if (result.message) url.searchParams.set('message', result.message.slice(0, 180))
-    window.location.assign(url.toString())
+
+    const target = url.toString()
+    if (Capacitor.isNativePlatform()) {
+      const opened = await AppLauncher.openUrl({ url: target })
+      return opened.completed
+    }
+
+    window.location.assign(target)
     return true
   } catch {
     return false
