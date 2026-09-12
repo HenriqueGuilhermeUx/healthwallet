@@ -1,0 +1,178 @@
+name: HealthWallet Connect Backend Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/healthwallet-connect
+    paths:
+      - 'SQL_HEALTHWALLET_CONNECT_HANDOFF_V1.sql'
+      - 'supabase/functions/healthwallet-connect-handoff/**'
+      - '.github/workflows/healthwallet-connect-deploy.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: healthwallet-connect-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SUPABASE_PROJECT_REF: qcxdvygbinqkxuahlrrn
+  SUPABASE_FUNCTION_NAME: healthwallet-connect-handoff
+
+jobs:
+  deploy:
+    name: Deploy secure handoff backend
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check deployment credential
+        shell: bash
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "Missing repository secret: SUPABASE_ACCESS_TOKEN"
+            echo "Add a Supabase Personal Access Token with access to project $SUPABASE_PROJECT_REF."
+            exit 1
+          fi
+
+      - name: Install pinned Supabase CLI
+        shell: bash
+        run: |
+          curl -fsSL \
+            https://github.com/supabase/cli/releases/download/v2.117.0/supabase_2.117.0_linux_amd64.deb \
+            -o /tmp/supabase.deb
+          sudo dpkg -i /tmp/supabase.deb
+          supabase --version
+
+      - name: Apply secure handoff SQL
+        shell: bash
+        run: |
+          jq -n --rawfile query SQL_HEALTHWALLET_CONNECT_HANDOFF_V1.sql '{query: $query}' > /tmp/handoff-sql.json
+
+          STATUS=$(curl -sS \
+            -o /tmp/handoff-sql-response.json \
+            -w '%{http_code}' \
+            --request POST \
+            "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \
+            --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/handoff-sql.json)
+
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "201" ]; then
+            echo "Supabase SQL request failed with HTTP $STATUS"
+            cat /tmp/handoff-sql-response.json
+            exit 1
+          fi
+
+          echo "HealthWallet Connect handoff schema applied."
+
+      - name: Verify RLS and client isolation
+        shell: bash
+        run: |
+          cat > /tmp/verify.sql <<'SQL'
+          do $$
+          declare
+            rls_enabled boolean;
+          begin
+            select c.relrowsecurity
+              into rls_enabled
+              from pg_class c
+              join pg_namespace n on n.oid = c.relnamespace
+             where n.nspname = 'public'
+               and c.relname = 'health_connect_handoffs';
+
+            if rls_enabled is distinct from true then
+              raise exception 'health_connect_handoffs RLS is not enabled';
+            end if;
+
+            if has_table_privilege('anon', 'public.health_connect_handoffs', 'SELECT')
+               or has_table_privilege('anon', 'public.health_connect_handoffs', 'INSERT')
+               or has_table_privilege('anon', 'public.health_connect_handoffs', 'UPDATE')
+               or has_table_privilege('anon', 'public.health_connect_handoffs', 'DELETE') then
+              raise exception 'anon still has privileges on health_connect_handoffs';
+            end if;
+
+            if has_table_privilege('authenticated', 'public.health_connect_handoffs', 'SELECT')
+               or has_table_privilege('authenticated', 'public.health_connect_handoffs', 'INSERT')
+               or has_table_privilege('authenticated', 'public.health_connect_handoffs', 'UPDATE')
+               or has_table_privilege('authenticated', 'public.health_connect_handoffs', 'DELETE') then
+              raise exception 'authenticated still has privileges on health_connect_handoffs';
+            end if;
+
+            if not has_table_privilege('service_role', 'public.health_connect_handoffs', 'SELECT,INSERT,UPDATE,DELETE') then
+              raise exception 'service_role does not have required handoff privileges';
+            end if;
+          end $$;
+          SQL
+
+          jq -n --rawfile query /tmp/verify.sql '{query: $query}' > /tmp/verify.json
+          STATUS=$(curl -sS \
+            -o /tmp/verify-response.json \
+            -w '%{http_code}' \
+            --request POST \
+            "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \
+            --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data-binary @/tmp/verify.json)
+
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "201" ]; then
+            echo "Handoff security verification failed with HTTP $STATUS"
+            cat /tmp/verify-response.json
+            exit 1
+          fi
+
+          echo "RLS and role isolation verified."
+
+      - name: Deploy Edge Function without gateway JWT verification
+        shell: bash
+        run: |
+          supabase functions deploy "$SUPABASE_FUNCTION_NAME" \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --no-verify-jwt
+
+      - name: Verify deployed Edge Function
+        shell: bash
+        run: |
+          STATUS=$(curl -sS \
+            -o /tmp/function-response.json \
+            -w '%{http_code}' \
+            --request POST \
+            "https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/${SUPABASE_FUNCTION_NAME}" \
+            --header 'Content-Type: application/json' \
+            --data '{"action":"redeem","code":"too-short"}')
+
+          BODY=$(cat /tmp/function-response.json)
+          echo "Function returned HTTP $STATUS"
+
+          if [ "$STATUS" != "400" ]; then
+            echo "$BODY"
+            exit 1
+          fi
+
+          echo "$BODY" | jq -e '.error == "invalid_handoff"' >/dev/null
+          echo "Public redeem path is reachable and rejects malformed handoffs."
+
+      - name: Check Supabase security advisors
+        shell: bash
+        run: |
+          STATUS=$(curl -sS \
+            -o /tmp/security-advisors.json \
+            -w '%{http_code}' \
+            --request GET \
+            "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/advisors/security" \
+            --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            --header 'Content-Type: application/json')
+
+          if [ "$STATUS" != "200" ]; then
+            echo "Security advisor request failed with HTTP $STATUS"
+            cat /tmp/security-advisors.json
+            exit 1
+          fi
+
+          echo "Supabase security advisors fetched successfully."
