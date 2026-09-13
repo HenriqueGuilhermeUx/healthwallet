@@ -66,8 +66,8 @@ jobs:
           grep -q 'android.health.connect.action.MANAGE_HEALTH_PERMISSIONS' "$PLUGIN" || (echo "Health permissions intent missing" && exit 1)
           echo "Native diagnostic bridge audit passed."
 
-      - name: Build Connect web app
-        run: npm run build
+      - name: Build Connect web assets
+        run: npx vite build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
@@ -76,12 +76,11 @@ jobs:
       - name: Add Android project
         run: npx cap add android
 
-      - name: Sync Android full profile
-        run: npm run android:sync:full
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet1.netlify.app
+      - name: Sync Android full profile without rebuilding web
+        run: |
+          npx cap sync android
+          node scripts/patch-android-sdk.mjs
+          node scripts/patch-health-permissions.mjs full
 
       - name: Build Android diagnostic debug
         run: cd android && ./gradlew clean assembleDebug --stacktrace
