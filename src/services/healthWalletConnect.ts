@@ -29,6 +29,11 @@ const FULL_METRICS: HealthWalletConnectMetric[] = [
   'exerciseTime',
 ]
 
+const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/+$/, '')
+const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '')
+const HANDOFF_FUNCTION = 'healthwallet-connect-handoff'
+const CONNECT_SCHEME = 'healthwallet-connect://handoff'
+
 export type LaunchHealthWalletConnectOptions = {
   profile?: HealthWalletConnectProfile
   metrics?: HealthWalletConnectMetric[]
@@ -43,6 +48,7 @@ type IssueResponse = {
   days?: number
   return_to?: string
   expires_at?: string
+  error?: string
 }
 
 function clampDays(value: number | undefined) {
@@ -50,8 +56,19 @@ function clampDays(value: number | undefined) {
   return Math.max(1, Math.min(90, Math.round(value || 30)))
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  }) as Promise<T>
+}
+
 function buildConnectUrl(data: Required<Pick<IssueResponse, 'code' | 'state'>> & IssueResponse) {
-  const url = new URL('healthwallet-connect://handoff')
+  const url = new URL(CONNECT_SCHEME)
   url.searchParams.set('code', data.code)
   url.searchParams.set('state', data.state)
   url.searchParams.set('profile', data.profile === 'full' ? 'full' : 'minimal')
@@ -62,10 +79,83 @@ function buildConnectUrl(data: Required<Pick<IssueResponse, 'code' | 'state'>> &
   return url.toString()
 }
 
+async function issueHandoff(body: Record<string, unknown>): Promise<IssueResponse> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Configuração do HealthWallet incompleta. Atualize o app de teste.')
+  }
+
+  const { data: sessionData, error: sessionError } = await withTimeout(
+    supabase.auth.getSession(),
+    4000,
+    'Sua sessão demorou para responder. Feche e abra o HealthWallet Test e tente novamente.',
+  )
+
+  if (sessionError || !sessionData.session?.access_token) {
+    throw new Error('Sua sessão expirou. Entre novamente no HealthWallet Test.')
+  }
+
+  const controller = new AbortController()
+  const abortTimer = setTimeout(() => controller.abort(), 8000)
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/${HANDOFF_FUNCTION}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+
+    const payload = await response.json().catch(() => ({})) as IssueResponse
+
+    if (!response.ok) {
+      if (payload.error === 'unauthorized' || response.status === 401) {
+        throw new Error('Sua sessão não pôde ser validada. Saia e entre novamente no HealthWallet Test.')
+      }
+      throw new Error('Não foi possível preparar a conexão segura com o HealthWallet Connect.')
+    }
+
+    return payload
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error('A conexão segura demorou demais para responder. Tente novamente em alguns segundos.')
+    }
+    throw error
+  } finally {
+    clearTimeout(abortTimer)
+  }
+}
+
 async function openConnectApp(url: string) {
   if (Capacitor.isNativePlatform()) {
-    const result = await AppLauncher.openUrl({ url })
-    if (!result.completed) throw new Error('O HealthWallet Connect não está disponível neste aparelho.')
+    const availability = await withTimeout(
+      AppLauncher.canOpenUrl({ url: CONNECT_SCHEME }),
+      3000,
+      'Não foi possível verificar o HealthWallet Connect neste aparelho.',
+    )
+
+    if (!availability.value) {
+      throw new Error('O HealthWallet Connect não está instalado ou não está disponível neste aparelho.')
+    }
+
+    try {
+      const result = await withTimeout(
+        AppLauncher.openUrl({ url }),
+        4000,
+        'A abertura do HealthWallet Connect demorou demais.',
+      )
+
+      if (result.completed) return
+    } catch (error) {
+      // Android/WebView fallback below. The native launcher can occasionally
+      // stall even when the target custom scheme is correctly registered.
+      console.warn('Native Connect launcher fallback:', error)
+    }
+
+    window.location.assign(url)
     return
   }
 
@@ -81,18 +171,15 @@ export async function launchHealthWalletConnect(options: LaunchHealthWalletConne
   const state = crypto.randomUUID()
   const returnTo = 'healthwallet://connect-complete'
 
-  const { data, error } = await supabase.functions.invoke<IssueResponse>('healthwallet-connect-handoff', {
-    body: {
-      action: 'issue',
-      profile,
-      metrics,
-      days,
-      return_to: returnTo,
-      state,
-    },
+  const data = await issueHandoff({
+    action: 'issue',
+    profile,
+    metrics,
+    days,
+    return_to: returnTo,
+    state,
   })
 
-  if (error) throw new Error(error.message || 'Não foi possível preparar o HealthWallet Connect.')
   if (!data?.code) throw new Error('O HealthWallet Connect não retornou um código de conexão.')
 
   const connectUrl = buildConnectUrl({
