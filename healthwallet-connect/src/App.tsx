@@ -23,6 +23,17 @@ function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: number | undefined
+  const timeout = new Promise<T>((resolve) => {
+    timer = window.setTimeout(() => resolve(fallback), ms)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) window.clearTimeout(timer)
+  })
+}
+
 export default function App() {
   const [userId, setUserId] = useState<string | null>(null)
   const [email, setEmail] = useState('')
@@ -38,6 +49,7 @@ export default function App() {
   const [handoffBusy, setHandoffBusy] = useState(false)
   const [handoffError, setHandoffError] = useState('')
   const autoRunKey = useRef<string | null>(null)
+  const consumedHandoffKey = useRef<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -50,7 +62,16 @@ export default function App() {
       if (active) setUserId(session?.user.id || null)
     })
 
-    getHealthAvailability().then((result) => {
+    const provider = providerLabel(null)
+    withTimeout(
+      getHealthAvailability(),
+      5000,
+      {
+        available: false,
+        provider: null,
+        reason: `${provider} demorou para responder. Você pode tentar novamente em instantes.`,
+      },
+    ).then((result) => {
       if (active) setAvailability(result)
     })
 
@@ -65,6 +86,15 @@ export default function App() {
 
     async function consumeIncomingHandoff(incoming: ConnectHandoff) {
       if (!active) return
+
+      const key = incoming.code
+        ? `code:${incoming.code}`
+        : incoming.state
+          ? `state:${incoming.state}`
+          : null
+
+      if (key && consumedHandoffKey.current === key) return
+      if (key) consumedHandoffKey.current = key
 
       setHandoff(incoming)
       setSelected(incoming.metrics)
@@ -135,12 +165,29 @@ export default function App() {
       : [...current, metric])
   }
 
+  async function refreshAvailability() {
+    setMessage('Verificando a fonte de saúde deste aparelho…')
+    const provider = providerLabel(null)
+    const result = await withTimeout(
+      getHealthAvailability(),
+      5000,
+      {
+        available: false,
+        provider: null,
+        reason: `${provider} demorou para responder.`,
+      },
+    )
+    setAvailability(result)
+    setMessage(result.available ? 'Fonte de saúde disponível.' : result.reason || 'Fonte de saúde indisponível.')
+  }
+
   async function authorize() {
     try {
       setBusy(true)
       setMessage('Solicitando as permissões que você selecionou…')
       await requestHealthAccess(selected)
       setMessage('Permissões atualizadas. Você pode sincronizar agora.')
+      await refreshAvailability()
     } catch (error: any) {
       setMessage(error?.message || 'Não foi possível atualizar as permissões.')
     } finally {
@@ -157,7 +204,7 @@ export default function App() {
       setLastSync(now.toLocaleString())
       setMessage(`${result.daysSynced} dia(s) sincronizado(s). Voltando para sua HealthWallet…`)
       await delay(500)
-      returnToHealthWallet(activeHandoff, {
+      await returnToHealthWallet(activeHandoff, {
         status: 'success',
         provider: result.provider,
         daysSynced: result.daysSynced,
@@ -184,7 +231,7 @@ export default function App() {
 
       if (handoff) {
         await delay(400)
-        returnToHealthWallet(handoff, {
+        await returnToHealthWallet(handoff, {
           status: 'success',
           provider: result.provider,
           daysSynced: result.daysSynced,
@@ -199,7 +246,7 @@ export default function App() {
 
   function backToHealthWallet() {
     if (!handoff) return
-    returnToHealthWallet(handoff, {
+    void returnToHealthWallet(handoff, {
       status: handoffError ? 'error' : 'success',
       provider: availability?.provider,
       message: handoffError || undefined,
@@ -234,7 +281,7 @@ export default function App() {
           <h1>Connect</h1>
           <p className="lead">
             {handoffError
-              ? 'A conexão automática expirou. Entre com a mesma conta da HealthWallet para continuar.'
+              ? 'A conexão automática não pôde ser concluída. Entre com a mesma conta da HealthWallet para continuar.'
               : 'Conecte seus dados de saúde à sua carteira, sempre sob seu controle.'}
           </p>
           <form onSubmit={login} className="form-stack">
@@ -281,6 +328,12 @@ export default function App() {
         </div>
         <span className={availability?.available ? 'status ok' : 'status'}>{availability?.available ? 'Disponível' : 'Atenção'}</span>
       </section>
+
+      {!availability?.available && (
+        <button className="secondary" type="button" onClick={refreshAvailability} disabled={busy}>
+          Verificar Health Connect novamente <ChevronRight size={18} />
+        </button>
+      )}
 
       <section className="section-head">
         <div>
