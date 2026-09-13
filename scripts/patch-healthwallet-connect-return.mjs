@@ -118,7 +118,7 @@ public class ${pluginClass} extends Plugin {
     fs.writeFileSync(mainActivityPath, mainActivity)
   }
 
-  console.log(`Targeted Android launcher registered for ${CONNECT_PACKAGE}.`)
+  console.log('Targeted Android launcher registered for br.com.healthwallet.connect.')
 }
 
 let manifest = fs.readFileSync(manifestPath, 'utf8')
