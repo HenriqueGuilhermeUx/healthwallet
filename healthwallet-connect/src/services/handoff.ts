@@ -1,6 +1,7 @@
 import { App } from '@capacitor/app'
 import { AppLauncher } from '@capacitor/app-launcher'
 import { Capacitor } from '@capacitor/core'
+import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { HealthMetric, METRICS } from './healthSync'
 
@@ -23,6 +24,7 @@ type RedeemResponse = {
   days?: number
   return_to?: string
   state?: string
+  error?: string
 }
 
 const ALL_METRICS = METRICS.map((metric) => metric.id)
@@ -62,6 +64,32 @@ function isAllowedReturnUrl(value: string | null) {
   } catch {
     return false
   }
+}
+
+function redeemErrorMessage(code?: string) {
+  if (code === 'invalid_or_expired_handoff') return 'Esta conexão segura já foi usada ou expirou. Volte à HealthWallet e abra o Connect novamente.'
+  if (code === 'handoff_redeem_failed') return 'O Connect não conseguiu resgatar a conexão segura no banco. Tente novamente pela HealthWallet.'
+  if (code === 'handoff_user_unavailable') return 'A conta foi reconhecida, mas não foi possível preparar a sessão do Connect.'
+  if (code === 'handoff_session_failed') return 'A conta foi reconhecida, mas a sessão automática do Connect não pôde ser criada.'
+  if (code === 'handoff_token_unavailable') return 'A sessão foi preparada, mas o token temporário não ficou disponível.'
+  if (code === 'invalid_handoff') return 'O código de conexão recebido é inválido.'
+  return 'Não foi possível validar a conexão segura com a HealthWallet.'
+}
+
+async function parseInvokeError(error: unknown) {
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const payload = await error.context.json() as RedeemResponse
+      if (payload?.error) return redeemErrorMessage(payload.error)
+    } catch {
+      // Fall back to the SDK error below.
+    }
+  }
+
+  const message = String((error as any)?.message || '').trim()
+  return message && message !== 'Edge Function returned a non-2xx status code'
+    ? message
+    : 'Não foi possível validar a conexão segura com a HealthWallet.'
 }
 
 export function parseHandoffUrl(rawUrl?: string | null): ConnectHandoff | null {
@@ -135,8 +163,8 @@ export async function redeemHandoff(handoff: ConnectHandoff): Promise<ConnectHan
     body: { action: 'redeem', code: handoff.code },
   })
 
-  if (error) throw new Error(error.message || 'Não foi possível validar a conexão segura com a HealthWallet.')
-  if (!data?.token_hash) throw new Error('Código de conexão inválido ou expirado.')
+  if (error) throw new Error(await parseInvokeError(error))
+  if (!data?.token_hash) throw new Error(redeemErrorMessage(data?.error))
 
   const { error: authError } = await supabase.auth.verifyOtp({
     token_hash: data.token_hash,
