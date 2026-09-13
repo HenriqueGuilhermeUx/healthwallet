@@ -1,0 +1,135 @@
+name: HealthWallet Connect V8 Smoke
+
+on:
+  push:
+    branches:
+      - feature/healthwallet-connect
+    paths:
+      - 'healthwallet-connect/**'
+      - '.github/workflows/healthwallet-connect-v8-smoke.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: healthwallet-connect-v8-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-connect-v8:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: healthwallet-connect
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36
+        run: sdkmanager --install "platforms;android-36"
+
+      - name: Check runtime configuration
+        run: |
+          test -n "$VITE_SUPABASE_URL" || (echo "Missing VITE_SUPABASE_URL" && exit 1)
+          test -n "$VITE_SUPABASE_ANON_KEY" || (echo "Missing VITE_SUPABASE_ANON_KEY" && exit 1)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Install Capacitor 8 dependencies
+        run: npm install
+
+      - name: Audit modern native stack
+        shell: bash
+        run: |
+          node -e "const p=require('./node_modules/@capacitor/core/package.json'); if(!p.version.startsWith('8.')) throw new Error('Capacitor core is not v8: '+p.version); console.log('Capacitor core', p.version)"
+          node -e "const p=require('./node_modules/@capgo/capacitor-health/package.json'); if(!p.version.startsWith('8.')) throw new Error('Health plugin is not v8: '+p.version); console.log('Capgo health', p.version)"
+          grep -q "androidx.health.connect:connect-client:1.1.0" node_modules/@capgo/capacitor-health/android/build.gradle || (echo "Modern Health Connect client 1.1.0 missing" && exit 1)
+          grep -q "compileSdk = 36" node_modules/@capgo/capacitor-health/android/build.gradle || (echo "Plugin compileSdk 36 missing" && exit 1)
+          echo "Modern Capacitor/Health Connect stack audit passed."
+
+      - name: Build Connect web assets
+        run: npx vite build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet1.netlify.app
+
+      - name: Add Android project
+        run: npx cap add android
+
+      - name: Sync Capacitor 8 Android
+        run: npx cap sync android
+
+      - name: Apply HealthWallet Connect Android policy
+        run: |
+          node scripts/patch-android-sdk.mjs
+          node scripts/patch-health-permissions.mjs full
+
+      - name: Audit app manifest before build
+        shell: bash
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          grep -q 'android:scheme="healthwallet-connect"' "$MANIFEST" || (echo "handoff scheme missing" && exit 1)
+          grep -q 'android:host="handoff"' "$MANIFEST" || (echo "handoff host missing" && exit 1)
+          grep -q '<data android:scheme="healthwallet" />' "$MANIFEST" || (echo "return query missing" && exit 1)
+          grep -q 'android.permission.health.READ_STEPS' "$MANIFEST" || (echo "READ_STEPS missing" && exit 1)
+          echo "App manifest audit passed."
+
+      - name: Build Capacitor 8 full debug APK
+        run: cd android && ./gradlew clean assembleDebug --stacktrace
+
+      - name: Audit merged read-only Health Connect permissions
+        shell: bash
+        run: |
+          MERGED_MANIFEST="$(find android/app/build/intermediates -path '*merged*manifest*' -name AndroidManifest.xml | head -n 1)"
+          test -n "$MERGED_MANIFEST" || (echo "Merged AndroidManifest.xml not found" && exit 1)
+          REQUIRED=(
+            READ_STEPS
+            READ_SLEEP
+            READ_HEART_RATE
+            READ_RESTING_HEART_RATE
+            READ_OXYGEN_SATURATION
+            READ_HEART_RATE_VARIABILITY
+            READ_BLOOD_PRESSURE
+            READ_WEIGHT
+            READ_ACTIVE_CALORIES_BURNED
+            READ_EXERCISE
+          )
+          for PERMISSION in "${REQUIRED[@]}"; do
+            grep -q "android.permission.health.${PERMISSION}" "$MERGED_MANIFEST" || (echo "Missing ${PERMISSION}" && exit 1)
+          done
+          WRITE_PERMS="$(grep -oE 'android\.permission\.health\.WRITE_[A-Z_]+' "$MERGED_MANIFEST" | sort -u || true)"
+          if [ -n "$WRITE_PERMS" ]; then
+            echo "Forbidden write permissions found:"
+            echo "$WRITE_PERMS"
+            exit 1
+          fi
+          EXTRA_READS="$(grep -oE 'android\.permission\.health\.READ_[A-Z_]+' "$MERGED_MANIFEST" | sort -u | grep -vE '^android.permission.health.READ_(STEPS|SLEEP|HEART_RATE|RESTING_HEART_RATE|OXYGEN_SATURATION|HEART_RATE_VARIABILITY|BLOOD_PRESSURE|WEIGHT|ACTIVE_CALORIES_BURNED|EXERCISE)$' || true)"
+          if [ -n "$EXTRA_READS" ]; then
+            echo "Unexpected read permissions found:"
+            echo "$EXTRA_READS"
+            exit 1
+          fi
+          echo "Capacitor 8 full APK permission audit passed."
+
+      - name: Upload HealthWallet Connect V8 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthwallet-connect-v8-full-debug-apk
+          path: healthwallet-connect/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
