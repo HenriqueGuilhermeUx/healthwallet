@@ -72,9 +72,20 @@ const emptyForm = {
   weight_kg: '',
 }
 
+function withUiTimeout<T>(promise: PromiseLike<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
+  })
+
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  }) as Promise<T>
+}
+
 export default function DeviceData() {
-  const { user } = useAuth()
-  const [loading, setLoading] = useState(true)
+  const { user, loading: authLoading } = useAuth()
+  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [nativeSyncing, setNativeSyncing] = useState<DeviceProvider | null>(null)
   const [autoSyncing, setAutoSyncing] = useState(false)
@@ -106,44 +117,99 @@ export default function DeviceData() {
       }
     }
 
-    load()
-  }, [user])
+    if (authLoading) return
+
+    if (!user) {
+      setLoading(false)
+      setSystemNotice('Sua sessão não está disponível. Entre novamente no HealthWallet Test para carregar seus dados.')
+      return
+    }
+
+    void load()
+  }, [user?.id, authLoading])
 
   async function load(allowAutoSync = true) {
-    if (!user) return
+    if (!user) {
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setSystemNotice('')
+    let loadedConnections: any[] = []
 
     try {
-      const [deviceData, linksRes, availability] = await Promise.all([
+      const deviceData = await withUiTimeout(
         loadDeviceData(user.id),
-        supabase
-          .from('professional_care_links')
-          .select('*')
-          .eq('patient_id', user.id)
-          .eq('status', 'active')
-          .order('updated_at', { ascending: false }),
-        getNativeHealthAvailability(),
-      ])
+        5000,
+        'A leitura dos dados de dispositivos demorou demais.',
+      )
 
       if (deviceData.error) {
         console.warn('Device data tables unavailable:', deviceData.error.message)
-        setSystemNotice('Execute o SQL HEALTHWALLET_DEVICE_DATA_HUB_V1 no Supabase para ativar dispositivos, consentimento e score contextual.')
+        setSystemNotice('Alguns dados de dispositivos não responderam agora. Você ainda pode usar o HealthWallet Connect normalmente.')
       }
 
-      const loadedConnections = deviceData.connections || []
+      loadedConnections = deviceData.connections || []
       setConnections(loadedConnections)
       setSummaries(deviceData.summaries || [])
       setConsents(deviceData.consents || [])
-      setCareLinks(linksRes.data || [])
-      setNativeAvailability(availability)
-
-      if (allowAutoSync) void autoSyncIfDue(loadedConnections, availability)
     } catch (error) {
       console.warn('Device data loading skipped:', error)
-      setSystemNotice('Os dados de dispositivos serão exibidos aqui após aplicar o SQL do Device Data Hub no Supabase.')
+      setSystemNotice('Os dados de dispositivos demoraram para responder, mas a tela continua disponível. Tente atualizar depois.')
     } finally {
       setLoading(false)
+    }
+
+    void loadSecondaryData(loadedConnections, allowAutoSync)
+  }
+
+  async function loadSecondaryData(loadedConnections: any[], allowAutoSync: boolean) {
+    if (!user) return
+
+    const linksQuery = supabase
+      .from('professional_care_links')
+      .select('*')
+      .eq('patient_id', user.id)
+      .eq('status', 'active')
+      .order('updated_at', { ascending: false })
+
+    const [linksResult, availabilityResult] = await Promise.allSettled([
+      withUiTimeout(
+        Promise.resolve(linksQuery),
+        4000,
+        'Os vínculos profissionais demoraram para responder.',
+      ),
+      withUiTimeout(
+        getNativeHealthAvailability(),
+        3000,
+        'O Health Connect demorou para responder.',
+      ),
+    ])
+
+    if (linksResult.status === 'fulfilled') {
+      setCareLinks(linksResult.value.data || [])
+    } else {
+      console.warn('Professional care links loading skipped:', linksResult.reason)
+      setCareLinks([])
+    }
+
+    const availability = availabilityResult.status === 'fulfilled'
+      ? availabilityResult.value
+      : {
+          available: false,
+          provider: getNativeProviderForPlatform(),
+          reason: 'O Health Connect não respondeu a tempo. Você pode continuar usando a tela e tentar novamente depois.',
+        }
+
+    if (availabilityResult.status === 'rejected') {
+      console.warn('Native health availability loading skipped:', availabilityResult.reason)
+    }
+
+    setNativeAvailability(availability)
+
+    if (allowAutoSync && availability?.available) {
+      void autoSyncIfDue(loadedConnections, availability)
     }
   }
 
@@ -230,6 +296,7 @@ export default function DeviceData() {
     } catch (error: any) {
       console.warn('HealthWallet Connect launch failed:', error)
       toast.error(error?.message || 'Não foi possível abrir o HealthWallet Connect agora.')
+    } finally {
       setOpeningConnect(false)
     }
   }
@@ -246,7 +313,7 @@ export default function DeviceData() {
     try {
       await showNativeHealthPrivacyPolicy()
     } catch {
-      toast.error('Política nativa disponível no app instalado.')
+      toast.error('Política nativa disponível apenas no app instalado.')
     }
   }
 
@@ -338,10 +405,6 @@ export default function DeviceData() {
   const nativeProvider = getNativeProviderForPlatform()
   const nativeProviderLabel = nativeProvider ? getProviderLabel(nativeProvider) : 'app instalado no celular'
 
-  if (loading) {
-    return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-emerald-600" /></div>
-  }
-
   return (
     <div className="space-y-5 pb-24">
       <section className="rounded-2xl bg-gradient-to-br from-slate-900 via-emerald-900 to-teal-800 p-5 text-white relative overflow-hidden">
@@ -364,6 +427,13 @@ export default function DeviceData() {
         </p>
       </section>
 
+      {loading && (
+        <section className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-900 flex items-center gap-3">
+          <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" />
+          <p>Atualizando seus dados em segundo plano. Você já pode usar esta tela.</p>
+        </section>
+      )}
+
       {systemNotice && (
         <section className="rounded-xl bg-yellow-50 border border-yellow-200 p-4 text-sm text-yellow-900 flex gap-2">
           <AlertTriangle className="w-5 h-5 flex-shrink-0" />
@@ -383,7 +453,7 @@ export default function DeviceData() {
             </p>
             {!nativeAvailability?.available && (
               <p className="text-xs text-amber-700 mt-2">
-                {nativeAvailability?.reason || 'Instale o app no celular e autorize Apple Saúde ou Health Connect.'}
+                {nativeAvailability?.reason || 'Verificando Health Connect em segundo plano...'}
               </p>
             )}
           </div>
@@ -422,7 +492,7 @@ export default function DeviceData() {
         <button
           type="button"
           onClick={openAdvancedConnect}
-          disabled={openingConnect}
+          disabled={openingConnect || !user}
           className="mt-4 w-full rounded-xl bg-cyan-700 py-3 font-semibold text-white disabled:opacity-60"
         >
           {openingConnect ? 'Abrindo conexão segura...' : 'Conectar dados avançados'}
