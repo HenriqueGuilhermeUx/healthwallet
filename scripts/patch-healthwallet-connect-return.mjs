@@ -21,6 +21,106 @@ function ensureSchemeQuery(content, scheme) {
   return content.replace(/\s*<application/, `\n${queries}    <application`)
 }
 
+function findFile(root, filename) {
+  if (!fs.existsSync(root)) return null
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name)
+    if (entry.isDirectory()) {
+      const nested = findFile(full, filename)
+      if (nested) return nested
+    } else if (entry.name === filename) {
+      return full
+    }
+  }
+  return null
+}
+
+function installTargetedLauncherPlugin() {
+  const javaRoot = path.join(process.cwd(), 'android', 'app', 'src', 'main', 'java')
+  const mainActivityPath = findFile(javaRoot, 'MainActivity.java')
+  if (!mainActivityPath) {
+    console.log('MainActivity.java not found; skipping targeted launcher plugin patch.')
+    return
+  }
+
+  let mainActivity = fs.readFileSync(mainActivityPath, 'utf8')
+  const packageMatch = mainActivity.match(/^package\s+([\w.]+);/m)
+  if (!packageMatch) throw new Error('Could not determine MainActivity Java package.')
+
+  const packageName = packageMatch[1]
+  const pluginClass = 'HealthWalletConnectLauncherPlugin'
+  const pluginPath = path.join(path.dirname(mainActivityPath), `${pluginClass}.java`)
+
+  const pluginSource = `package ${packageName};
+
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.net.Uri;
+
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+@CapacitorPlugin(name = "HealthWalletConnectLauncher")
+public class ${pluginClass} extends Plugin {
+    private static final String CONNECT_PACKAGE = "br.com.healthwallet.connect";
+
+    @PluginMethod
+    public void open(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null || url.trim().isEmpty()) {
+            call.reject("Missing HealthWallet Connect URL");
+            return;
+        }
+
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.setPackage(CONNECT_PACKAGE);
+            getActivity().startActivity(intent);
+
+            JSObject result = new JSObject();
+            result.put("completed", true);
+            call.resolve(result);
+        } catch (ActivityNotFoundException error) {
+            call.reject("HealthWallet Connect is not installed");
+        } catch (Exception error) {
+            call.reject("Could not open HealthWallet Connect", error);
+        }
+    }
+}
+`
+
+  fs.writeFileSync(pluginPath, pluginSource)
+
+  if (!mainActivity.includes(`${pluginClass}.class`)) {
+    if (!mainActivity.includes('import android.os.Bundle;')) {
+      mainActivity = mainActivity.replace(/(package\s+[\w.]+;\s*)/, '$1\nimport android.os.Bundle;\n')
+    }
+
+    if (mainActivity.includes('super.onCreate(savedInstanceState);')) {
+      mainActivity = mainActivity.replace(
+        'super.onCreate(savedInstanceState);',
+        `registerPlugin(${pluginClass}.class);\n        super.onCreate(savedInstanceState);`,
+      )
+    } else {
+      const classPattern = /(public\s+class\s+MainActivity\s+extends\s+BridgeActivity\s*\{)/
+      if (!classPattern.test(mainActivity)) {
+        throw new Error('Could not patch MainActivity with targeted HealthWallet Connect launcher.')
+      }
+      mainActivity = mainActivity.replace(
+        classPattern,
+        `$1\n    @Override\n    public void onCreate(Bundle savedInstanceState) {\n        registerPlugin(${pluginClass}.class);\n        super.onCreate(savedInstanceState);\n    }`,
+      )
+    }
+
+    fs.writeFileSync(mainActivityPath, mainActivity)
+  }
+
+  console.log(`Targeted Android launcher registered for ${CONNECT_PACKAGE}.`)
+}
+
 let manifest = fs.readFileSync(manifestPath, 'utf8')
 
 if (!manifest.includes('android:scheme="healthwallet"')) {
@@ -42,5 +142,6 @@ if (!manifest.includes('android:scheme="healthwallet"')) {
 
 manifest = ensureSchemeQuery(manifest, 'healthwallet-connect')
 fs.writeFileSync(manifestPath, manifest)
+installTargetedLauncherPlugin()
 
 console.log('HealthWallet Connect return deep link registered: healthwallet://connect-complete; launch target query: healthwallet-connect://')
