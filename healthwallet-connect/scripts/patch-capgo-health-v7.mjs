@@ -7,9 +7,8 @@ const androidRoot = path.join(pluginRoot, 'android')
 const sourceRoot = path.join(androidRoot, 'src', 'main', 'java', 'app', 'capgo', 'plugin', 'health')
 const dataTypeFile = path.join(sourceRoot, 'HealthDataType.kt')
 const managerFile = path.join(sourceRoot, 'HealthManager.kt')
-const gradleFile = path.join(androidRoot, 'build.gradle')
 
-for (const file of [dataTypeFile, managerFile, gradleFile]) {
+for (const file of [dataTypeFile, managerFile]) {
   if (!fs.existsSync(file)) {
     throw new Error(`@capgo/capacitor-health v7 backport target not found: ${file}`)
   }
@@ -62,11 +61,7 @@ const saveWithReadOnlyAdvanced = `${saveHeartRateBlock}\n            HealthDataT
 manager = replaceOnce(manager, saveHeartRateBlock, saveWithReadOnlyAdvanced, 'read-only advanced save branches')
 fs.writeFileSync(managerFile, manager)
 
-let gradle = fs.readFileSync(gradleFile, 'utf8')
-gradle = gradle.replace(
-  "implementation 'androidx.health.connect:connect-client:1.1.0-alpha10'",
-  "implementation 'androidx.health.connect:connect-client:1.1.0'",
-)
-fs.writeFileSync(gradleFile, gradle)
-
-console.log('HealthWallet Connect: patched @capgo/capacitor-health 7.2.15 with advanced read-only Android Health Connect support.')
+// Keep the v7 plugin's original Health Connect client (1.1.0-alpha10).
+// Stable 1.1.0 requires compileSdk 36 and AGP 8.9.1+, which would widen
+// the Android toolchain change beyond this isolated Connect backport.
+console.log('HealthWallet Connect: patched @capgo/capacitor-health 7.2.15 with advanced read-only Android Health Connect support while preserving the v7-compatible Health Connect client.')
