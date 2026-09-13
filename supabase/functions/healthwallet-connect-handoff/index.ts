@@ -156,7 +156,6 @@ async function issue(req: Request, body: RequestBody) {
   const expiresAt = new Date(Date.now() + 2 * 60 * 1000).toISOString()
   const admin = adminClient()
 
-  // Best-effort cleanup of stale rows for this user before issuing a fresh code.
   await admin
     .from('health_connect_handoffs')
     .delete()
@@ -190,6 +189,16 @@ async function issue(req: Request, body: RequestBody) {
   })
 }
 
+async function releaseClaim(admin: ReturnType<typeof adminClient>, codeHash: string, claimedAt: string) {
+  const { error } = await admin
+    .from('health_connect_handoffs')
+    .update({ redeemed_at: null })
+    .eq('code_hash', codeHash)
+    .eq('redeemed_at', claimedAt)
+
+  if (error) console.error('healthwallet-connect handoff claim release failed', error)
+}
+
 async function redeem(body: RequestBody) {
   const code = cleanText(body.code, 220)
   if (code.length < 32) return json({ error: 'invalid_handoff' }, 400)
@@ -198,8 +207,6 @@ async function redeem(body: RequestBody) {
   const admin = adminClient()
   const now = new Date().toISOString()
 
-  // Atomic enough for the single-row one-time exchange: only an unused, unexpired
-  // row can be updated and returned. A second redemption receives no row.
   const { data: handoff, error: redeemError } = await admin
     .from('health_connect_handoffs')
     .update({ redeemed_at: now })
@@ -221,6 +228,7 @@ async function redeem(body: RequestBody) {
 
   if (userError || !email) {
     console.error('healthwallet-connect user lookup failed', userError)
+    await releaseClaim(admin, codeHash, now)
     return json({ error: 'handoff_user_unavailable' }, 500)
   }
 
@@ -231,10 +239,11 @@ async function redeem(body: RequestBody) {
 
   if (linkError || !generated) {
     console.error('healthwallet-connect magic link generation failed', linkError)
+    await releaseClaim(admin, codeHash, now)
     return json({ error: 'handoff_session_failed' }, 500)
   }
 
-  const properties = generated.properties as Record<string, unknown>
+  const properties = generated.properties as Record<string, unknown> | null
   let tokenHash = cleanText(properties?.hashed_token ?? properties?.hashedToken, 500)
 
   if (!tokenHash) {
@@ -251,6 +260,7 @@ async function redeem(body: RequestBody) {
 
   if (!tokenHash) {
     console.error('healthwallet-connect generateLink returned no token hash')
+    await releaseClaim(admin, codeHash, now)
     return json({ error: 'handoff_token_unavailable' }, 500)
   }
 
