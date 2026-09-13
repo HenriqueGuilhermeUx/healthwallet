@@ -15,6 +15,25 @@ export type HealthMetric =
 
 export type NativeProvider = 'health_connect' | 'apple_health'
 
+export type HealthConnectDiagnostics = {
+  packageName?: string
+  manufacturer?: string
+  model?: string
+  androidSdk?: number
+  healthConnectSdkStatus?: number
+  healthConnectSdkStatusLabel?: string
+  permissionIntentAction?: string
+  permissionIntentResolvable?: boolean
+  managePermissionsIntentResolvable?: boolean
+  settingsIntentResolvable?: boolean
+  requestedPermissionCount?: number
+  requestedPermissions?: string[]
+  manifestHealthPermissions?: string[]
+  missingManifestPermissions?: string[]
+  allRequestedPermissionsDeclared?: boolean
+  error?: string
+}
+
 export const METRICS: Array<{
   id: HealthMetric
   label: string
@@ -61,6 +80,8 @@ type HealthPlugin = {
     endDate: string
     limit?: number
   }) => Promise<{ samples?: HealthSample[] }>
+  getHealthConnectDiagnostics?: (options: { read?: HealthMetric[]; write?: HealthMetric[] }) => Promise<HealthConnectDiagnostics>
+  openHealthPermissions?: () => Promise<{ route?: string }>
   openHealthConnectSettings?: () => Promise<void>
 }
 
@@ -104,11 +125,6 @@ export async function getHealthAvailability() {
     return { available: false, provider: null, reason: 'Abra o HealthWallet Connect instalado no celular.' }
   }
 
-  // On some Android/Samsung combinations the plugin availability probe can stay
-  // pending even though Health Connect itself is usable. Do not let that
-  // diagnostic call block the permission flow. requestAuthorization is the
-  // authoritative runtime check on Android and will surface a real system error
-  // if Health Connect cannot be used.
   if (provider === 'health_connect') {
     return {
       available: true,
@@ -134,7 +150,10 @@ export async function getHealthAvailability() {
 
 async function requestAuthorizationWithPlugin(plugin: HealthPlugin, metrics: HealthMetric[]) {
   try {
-    return await plugin.requestAuthorization({ read: metrics, requestHistoryAccess: true })
+    // We currently sync at most 30 days in the handoff flow, so do not ask for
+    // Android's separate historical-data permission here. Keeping this request
+    // to the selected data types only makes the permission sheet easier to debug.
+    return await plugin.requestAuthorization({ read: metrics })
   } catch (error: any) {
     const nativeMessage = String(error?.message || '').trim()
     if (currentProvider() === 'health_connect') {
@@ -152,6 +171,35 @@ export async function requestHealthAccess(metrics: HealthMetric[]) {
   return requestAuthorizationWithPlugin(plugin, metrics)
 }
 
+export async function getHealthDiagnostics(metrics: HealthMetric[]): Promise<HealthConnectDiagnostics> {
+  if (currentProvider() !== 'health_connect') {
+    return { error: 'Diagnóstico nativo disponível somente no Android/Health Connect.' }
+  }
+
+  const plugin = await loadPlugin()
+  if (!plugin.getHealthConnectDiagnostics) {
+    return { error: 'Este build não contém a ponte nativa de diagnóstico.' }
+  }
+
+  return plugin.getHealthConnectDiagnostics({ read: metrics })
+}
+
+export async function openHealthPermissionManager() {
+  const plugin = await loadPlugin()
+  if (currentProvider() !== 'health_connect') return { route: 'unsupported' }
+
+  if (plugin.openHealthPermissions) {
+    return plugin.openHealthPermissions()
+  }
+
+  if (plugin.openHealthConnectSettings) {
+    await plugin.openHealthConnectSettings()
+    return { route: 'health_connect_settings' }
+  }
+
+  throw new Error('Este build não consegue abrir as permissões do Health Connect diretamente.')
+}
+
 export async function openHealthSettings() {
   const plugin = await loadPlugin()
   if (currentProvider() === 'health_connect' && plugin.openHealthConnectSettings) {
@@ -159,7 +207,26 @@ export async function openHealthSettings() {
   }
 }
 
-export async function syncHealthData(userId: string, metrics: HealthMetric[], days = 30) {
+export async function probeHealthAccess(metric: HealthMetric) {
+  const plugin = await loadPlugin()
+  if (!plugin.readSamples) throw new Error('Leitura nativa não está disponível neste build.')
+  const end = new Date()
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
+  const result = await plugin.readSamples({
+    dataType: metric,
+    startDate: start.toISOString(),
+    endDate: end.toISOString(),
+    limit: 1,
+  })
+  return { ok: true, sampleCount: result?.samples?.length || 0 }
+}
+
+export async function syncHealthData(
+  userId: string,
+  metrics: HealthMetric[],
+  days = 30,
+  options: { skipAuthorization?: boolean } = {},
+) {
   if (!userId) throw new Error('Usuário não autenticado.')
   if (!metrics.length) throw new Error('Selecione os dados que deseja sincronizar.')
 
@@ -168,16 +235,17 @@ export async function syncHealthData(userId: string, metrics: HealthMetric[], da
 
   const plugin = await loadPlugin()
 
-  // Apple Health availability is reliable and can remain a preflight check.
-  // Android intentionally skips isAvailable() because that probe can hang on
-  // otherwise compatible devices; the authorization request below becomes the
-  // runtime source of truth.
   if (provider === 'apple_health') {
     const availability = await plugin.isAvailable()
     if (!availability?.available) throw new Error(availability?.reason || 'Apple Saúde indisponível.')
   }
 
-  await requestAuthorizationWithPlugin(plugin, metrics)
+  if (options.skipAuthorization && provider === 'health_connect') {
+    await probePluginRead(plugin, metrics[0])
+  } else {
+    await requestAuthorizationWithPlugin(plugin, metrics)
+  }
+
   await upsertConnection(userId, provider, metrics)
 
   const safeDays = Math.max(1, Math.min(90, days))
@@ -231,6 +299,18 @@ export async function syncHealthData(userId: string, metrics: HealthMetric[], da
     .eq('provider', provider)
 
   return { provider, daysRequested: safeDays, daysSynced: synced, metrics }
+}
+
+async function probePluginRead(plugin: HealthPlugin, metric: HealthMetric) {
+  if (!plugin.readSamples) throw new Error('Leitura nativa não está disponível neste build.')
+  const end = new Date()
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
+  await plugin.readSamples({
+    dataType: metric,
+    startDate: start.toISOString(),
+    endDate: end.toISOString(),
+    limit: 1,
+  })
 }
 
 async function upsertConnection(userId: string, provider: NativeProvider, metrics: HealthMetric[]) {
