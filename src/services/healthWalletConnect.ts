@@ -129,6 +129,33 @@ async function issueHandoff(body: Record<string, unknown>): Promise<IssueRespons
   }
 }
 
+function openViaWebViewFallback(url: string) {
+  return new Promise<void>((resolve, reject) => {
+    let finished = false
+
+    const cleanup = () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+
+    const complete = (success: boolean) => {
+      if (finished) return
+      finished = true
+      cleanup()
+      if (success) resolve()
+      else reject(new Error('O HealthWallet Connect não abriu. Confirme se ele está instalado e tente novamente.'))
+    }
+
+    const onVisibilityChange = () => {
+      if (document.hidden) complete(true)
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.location.assign(url)
+
+    setTimeout(() => complete(document.hidden), 1800)
+  })
+}
+
 async function openConnectApp(url: string) {
   if (Capacitor.isNativePlatform()) {
     const availability = await withTimeout(
@@ -150,12 +177,10 @@ async function openConnectApp(url: string) {
 
       if (result.completed) return
     } catch (error) {
-      // Android/WebView fallback below. The native launcher can occasionally
-      // stall even when the target custom scheme is correctly registered.
       console.warn('Native Connect launcher fallback:', error)
     }
 
-    window.location.assign(url)
+    await openViaWebViewFallback(url)
     return
   }
 
