@@ -61,6 +61,19 @@ jobs:
           grep -q "compileSdk = 36" node_modules/@capgo/capacitor-health/android/build.gradle || (echo "Plugin compileSdk 36 missing" && exit 1)
           echo "Modern Capacitor/Health Connect stack audit passed."
 
+      - name: Audit batch sync v2 engine
+        shell: bash
+        run: |
+          SYNC="src/services/healthSync.ts"
+          grep -q "sync_version: 2" "$SYNC" || (echo "Batch sync v2 marker missing" && exit 1)
+          grep -q "read_strategy: 'range_aggregate_with_sample_fallback'" "$SYNC" || (echo "Range aggregation strategy missing" && exit 1)
+          if grep -q "await probePluginRead" "$SYNC"; then
+            echo "Blocking readSamples probe is still present"
+            exit 1
+          fi
+          grep -q "queryAggregated" "$SYNC" || (echo "Aggregate Health Connect path missing" && exit 1)
+          echo "Batch sync v2 audit passed: no blocking pre-sync read probe."
+
       - name: Build Connect web assets
         run: npx vite build
         env:
@@ -126,10 +139,10 @@ jobs:
           fi
           echo "Capacitor 8 full APK permission audit passed."
 
-      - name: Upload HealthWallet Connect V8 APK
+      - name: Upload HealthWallet Connect V8 Sync2 APK
         uses: actions/upload-artifact@v4
         with:
-          name: healthwallet-connect-v8-full-debug-apk
+          name: healthwallet-connect-v8-sync2-debug-apk
           path: healthwallet-connect/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
