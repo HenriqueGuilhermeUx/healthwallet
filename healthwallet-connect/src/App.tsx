@@ -1,10 +1,14 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, Check, ChevronRight, HeartPulse, LogOut, RefreshCw, ShieldCheck, Smartphone } from 'lucide-react'
+import { Activity, AlertTriangle, Bug, Check, ChevronRight, ExternalLink, HeartPulse, LogOut, RefreshCw, ShieldCheck, Smartphone } from 'lucide-react'
 import { supabase } from './lib/supabase'
 import {
   getHealthAvailability,
+  getHealthDiagnostics,
+  HealthConnectDiagnostics,
   HealthMetric,
   METRICS,
+  openHealthPermissionManager,
+  probeHealthAccess,
   providerLabel,
   requestHealthAccess,
   syncHealthData,
@@ -34,6 +38,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
   })
 }
 
+function withRejectingTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: number | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = window.setTimeout(() => reject(new Error(message)), ms)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) window.clearTimeout(timer)
+  })
+}
+
 export default function App() {
   const [userId, setUserId] = useState<string | null>(null)
   const [email, setEmail] = useState('')
@@ -48,6 +63,8 @@ export default function App() {
   const [handoff, setHandoff] = useState<ConnectHandoff | null>(null)
   const [handoffBusy, setHandoffBusy] = useState(false)
   const [handoffError, setHandoffError] = useState('')
+  const [diagnostics, setDiagnostics] = useState<HealthConnectDiagnostics | null>(null)
+  const [permissionRecovery, setPermissionRecovery] = useState(false)
   const autoRunKey = useRef<string | null>(null)
   const consumedHandoffKey = useRef<string | null>(null)
 
@@ -99,6 +116,8 @@ export default function App() {
       setHandoff(incoming)
       setSelected(incoming.metrics)
       setHandoffError('')
+      setPermissionRecovery(false)
+      setDiagnostics(null)
 
       if (!incoming.code) return
 
@@ -181,15 +200,61 @@ export default function App() {
     setMessage(result.available ? 'Fonte de saúde disponível.' : result.reason || 'Fonte de saúde indisponível.')
   }
 
+  async function captureDiagnostics(metrics: HealthMetric[]) {
+    try {
+      setMessage('Diagnóstico 1/3: verificando Health Connect e Manifest…')
+      const result = await withRejectingTimeout(
+        getHealthDiagnostics(metrics),
+        5000,
+        'O diagnóstico nativo do Health Connect não respondeu em 5 segundos.',
+      )
+      setDiagnostics(result)
+      return result
+    } catch (error: any) {
+      const fallback = { error: error?.message || 'Falha ao executar o diagnóstico nativo.' }
+      setDiagnostics(fallback)
+      return fallback
+    }
+  }
+
+  async function requestPermissionWithDiagnostics(metrics: HealthMetric[]) {
+    const diagnostic = await captureDiagnostics(metrics)
+    if (diagnostic.healthConnectSdkStatusLabel && diagnostic.healthConnectSdkStatusLabel !== 'available') {
+      throw new Error(`Health Connect não está disponível: ${diagnostic.healthConnectSdkStatusLabel}.`)
+    }
+    if (diagnostic.allRequestedPermissionsDeclared === false) {
+      throw new Error('O APK não declarou todas as permissões selecionadas no Manifest.')
+    }
+    if (diagnostic.permissionIntentResolvable === false) {
+      setPermissionRecovery(true)
+      throw new Error('O Android não encontrou uma Activity capaz de abrir o pedido de permissões do Health Connect.')
+    }
+
+    setMessage('Diagnóstico 2/3: abrindo a tela nativa de permissões…')
+    try {
+      return await withRejectingTimeout(
+        requestHealthAccess(metrics),
+        9000,
+        'O pedido nativo de permissão foi enviado, mas o Android não devolveu resposta em 9 segundos.',
+      )
+    } catch (error) {
+      setPermissionRecovery(true)
+      throw error
+    }
+  }
+
   async function authorize() {
     try {
       setBusy(true)
-      setMessage('Solicitando as permissões que você selecionou…')
-      await requestHealthAccess(selected)
-      setMessage('Permissões atualizadas. Você pode sincronizar agora.')
+      setPermissionRecovery(false)
+      setHandoffError('')
+      await requestPermissionWithDiagnostics(selected)
+      setMessage('Diagnóstico 3/3: a tela nativa respondeu. Permissões atualizadas.')
       await refreshAvailability()
     } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível atualizar as permissões.')
+      const text = error?.message || 'Não foi possível atualizar as permissões.'
+      setMessage(text)
+      setHandoffError(text)
     } finally {
       setBusy(false)
     }
@@ -198,8 +263,11 @@ export default function App() {
   async function runHandoffSync(activeHandoff: ConnectHandoff, activeUserId: string) {
     try {
       setBusy(true)
-      setMessage(`Autorizando ${providerLabel(availability?.provider || null)} e sincronizando seus dados…`)
-      const result = await syncHealthData(activeUserId, activeHandoff.metrics, activeHandoff.days)
+      setPermissionRecovery(false)
+      setHandoffError('')
+      await requestPermissionWithDiagnostics(activeHandoff.metrics)
+      setMessage('Permissão respondida. Lendo os dados autorizados…')
+      const result = await syncHealthData(activeUserId, activeHandoff.metrics, activeHandoff.days, { skipAuthorization: true })
       const now = new Date()
       setLastSync(now.toLocaleString())
       setMessage(`${result.daysSynced} dia(s) sincronizado(s). Voltando para sua HealthWallet…`)
@@ -223,8 +291,11 @@ export default function App() {
     if (!userId) return
     try {
       setBusy(true)
+      setPermissionRecovery(false)
+      setHandoffError('')
+      await requestPermissionWithDiagnostics(selected)
       setMessage('Lendo seus dados autorizados e atualizando sua HealthWallet…')
-      const result = await syncHealthData(userId, selected, handoff?.days || 30)
+      const result = await syncHealthData(userId, selected, handoff?.days || 30, { skipAuthorization: true })
       const now = new Date()
       setLastSync(now.toLocaleString())
       setMessage(`${result.daysSynced} dia(s) sincronizado(s) com sua HealthWallet.`)
@@ -238,7 +309,60 @@ export default function App() {
         })
       }
     } catch (error: any) {
-      setMessage(error?.message || 'Não foi possível sincronizar agora.')
+      const text = error?.message || 'Não foi possível sincronizar agora.'
+      setMessage(text)
+      setHandoffError(text)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function openDirectPermissions() {
+    try {
+      setBusy(true)
+      await captureDiagnostics(selected)
+      const result = await openHealthPermissionManager()
+      setMessage(result.route === 'app_health_permissions'
+        ? 'Permissões do Health Connect abertas diretamente. Autorize os dados e volte ao Connect.'
+        : 'Configurações do Health Connect abertas. Entre em Permissões do app, autorize o Connect e volte.')
+    } catch (error: any) {
+      setMessage(error?.message || 'Não foi possível abrir o Health Connect diretamente.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function continueAfterManualPermission() {
+    if (!userId || selected.length === 0) return
+    try {
+      setBusy(true)
+      setHandoffError('')
+      setMessage(`Testando leitura direta de ${METRICS.find((metric) => metric.id === selected[0])?.label || selected[0]}…`)
+      await withRejectingTimeout(
+        probeHealthAccess(selected[0]),
+        9000,
+        'O Health Connect também não respondeu à leitura direta em 9 segundos.',
+      )
+      setMessage('Leitura direta respondeu. Sincronizando sem reabrir o pedido de permissão…')
+      const result = await syncHealthData(userId, selected, handoff?.days || 30, { skipAuthorization: true })
+      const now = new Date()
+      setLastSync(now.toLocaleString())
+      setPermissionRecovery(false)
+      setMessage(`${result.daysSynced} dia(s) sincronizado(s) com sua HealthWallet.`)
+
+      if (handoff) {
+        await delay(400)
+        await returnToHealthWallet(handoff, {
+          status: 'success',
+          provider: result.provider,
+          daysSynced: result.daysSynced,
+        })
+      }
+    } catch (error: any) {
+      const text = error?.message || 'A leitura direta ainda não foi autorizada.'
+      setMessage(text)
+      setHandoffError(text)
+      setPermissionRecovery(true)
     } finally {
       setBusy(false)
     }
@@ -266,7 +390,7 @@ export default function App() {
             <span className={userId ? 'active' : ''}>2. Permissão</span>
             <span>3. Sincronização</span>
           </div>
-          <p className="fine-print">Não feche esta tela durante a autorização do sistema.</p>
+          <p className="fine-print">Se o Android não responder em 9 segundos, o Connect vai sair desta tela e mostrar o diagnóstico.</p>
         </section>
       </main>
     )
@@ -293,7 +417,7 @@ export default function App() {
           {handoff?.returnTo && (
             <button className="link-button" type="button" onClick={backToHealthWallet}>Voltar para a HealthWallet</button>
           )}
-          <p className="fine-print">Use a mesma conta do HealthWallet. O Connect não vende dados e não realiza diagnóstico.</p>
+          <p className="fine-print">Use a mesma conta do HealthWallet. O Connect não vende dados e não realiza diagnóstico médico.</p>
         </section>
       </main>
     )
@@ -316,6 +440,44 @@ export default function App() {
             <strong>Conexão iniciada pela HealthWallet</strong>
             <p>{handoffError || 'As escolhas vieram da sua carteira e serão devolvidas automaticamente após a sincronização.'}</p>
           </div>
+        </section>
+      )}
+
+      {permissionRecovery && (
+        <section className="card recovery-card">
+          <div className="recovery-title">
+            <AlertTriangle size={24} />
+            <div>
+              <p className="eyebrow">Diagnóstico nativo</p>
+              <h2>O Android não concluiu o pedido automático</h2>
+            </div>
+          </div>
+          <p className="recovery-copy">
+            Agora o Connect não fica mais preso no spinner. Abaixo estão os sinais que vêm do próprio Android; depois você pode abrir a página de permissões diretamente, autorizar e voltar.
+          </p>
+
+          <div className="diagnostic-grid">
+            <div><span>Aparelho</span><strong>{diagnostics?.manufacturer || '—'} {diagnostics?.model || ''}</strong></div>
+            <div><span>Android SDK</span><strong>{diagnostics?.androidSdk ?? '—'}</strong></div>
+            <div><span>Health Connect</span><strong>{diagnostics?.healthConnectSdkStatusLabel || diagnostics?.error || '—'}</strong></div>
+            <div><span>Pedido nativo</span><strong>{diagnostics?.permissionIntentResolvable === true ? 'Encontrado' : diagnostics?.permissionIntentResolvable === false ? 'Não encontrado' : '—'}</strong></div>
+            <div><span>Tela direta</span><strong>{diagnostics?.managePermissionsIntentResolvable === true ? 'Disponível' : diagnostics?.managePermissionsIntentResolvable === false ? 'Indisponível' : '—'}</strong></div>
+            <div><span>Manifest</span><strong>{diagnostics?.allRequestedPermissionsDeclared === true ? 'OK' : diagnostics?.allRequestedPermissionsDeclared === false ? 'Faltando permissão' : '—'}</strong></div>
+          </div>
+
+          {diagnostics?.missingManifestPermissions && diagnostics.missingManifestPermissions.length > 0 && (
+            <p className="diagnostic-error">Faltando no APK: {diagnostics.missingManifestPermissions.join(', ')}</p>
+          )}
+
+          <div className="recovery-actions">
+            <button className="primary" type="button" onClick={openDirectPermissions} disabled={busy}>
+              <ExternalLink size={18} /> Abrir permissões diretamente
+            </button>
+            <button className="secondary" type="button" onClick={continueAfterManualPermission} disabled={busy}>
+              <Bug size={18} /> Já autorizei — testar leitura e sincronizar
+            </button>
+          </div>
+          <p className="fine-print">Se você já recusou permissões várias vezes, o Android pode deixar de exibir o pedido automático; a tela direta permite revisar e conceder manualmente.</p>
         </section>
       )}
 
