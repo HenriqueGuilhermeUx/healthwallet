@@ -26,19 +26,69 @@ const profiles = {
   ],
 }
 
-const knownPermissions = [
-  ...profiles.full,
+// @capgo/capacitor-health v8 ships a broad manifest so consumers can opt into
+// many Health Connect data types. HealthWallet Connect is deliberately read-only
+// and requests only the product scopes below, so remove every other Health
+// permission contributed by the plugin at manifest-merge time.
+const pluginPermissions = [
+  'android.permission.health.READ_STEPS',
+  'android.permission.health.WRITE_STEPS',
+  'android.permission.health.READ_DISTANCE',
+  'android.permission.health.WRITE_DISTANCE',
+  'android.permission.health.READ_ACTIVE_CALORIES_BURNED',
+  'android.permission.health.WRITE_ACTIVE_CALORIES_BURNED',
+  'android.permission.health.READ_HEART_RATE',
+  'android.permission.health.WRITE_HEART_RATE',
+  'android.permission.health.READ_WEIGHT',
+  'android.permission.health.WRITE_WEIGHT',
+  'android.permission.health.READ_SLEEP',
+  'android.permission.health.WRITE_SLEEP',
+  'android.permission.health.READ_RESPIRATORY_RATE',
+  'android.permission.health.WRITE_RESPIRATORY_RATE',
+  'android.permission.health.READ_OXYGEN_SATURATION',
+  'android.permission.health.WRITE_OXYGEN_SATURATION',
+  'android.permission.health.READ_RESTING_HEART_RATE',
+  'android.permission.health.WRITE_RESTING_HEART_RATE',
+  'android.permission.health.READ_HEART_RATE_VARIABILITY',
+  'android.permission.health.WRITE_HEART_RATE_VARIABILITY',
+  'android.permission.health.READ_VO2_MAX',
+  'android.permission.health.WRITE_VO2_MAX',
+  'android.permission.health.READ_BLOOD_PRESSURE',
+  'android.permission.health.WRITE_BLOOD_PRESSURE',
+  'android.permission.health.READ_BLOOD_GLUCOSE',
+  'android.permission.health.WRITE_BLOOD_GLUCOSE',
+  'android.permission.health.READ_BODY_TEMPERATURE',
+  'android.permission.health.WRITE_BODY_TEMPERATURE',
+  'android.permission.health.READ_HEIGHT',
+  'android.permission.health.WRITE_HEIGHT',
+  'android.permission.health.READ_FLOORS_CLIMBED',
+  'android.permission.health.WRITE_FLOORS_CLIMBED',
+  'android.permission.health.READ_BODY_FAT',
+  'android.permission.health.WRITE_BODY_FAT',
+  'android.permission.health.READ_BASAL_BODY_TEMPERATURE',
+  'android.permission.health.WRITE_BASAL_BODY_TEMPERATURE',
+  'android.permission.health.READ_BASAL_METABOLIC_RATE',
+  'android.permission.health.WRITE_BASAL_METABOLIC_RATE',
+  'android.permission.health.READ_TOTAL_CALORIES_BURNED',
+  'android.permission.health.WRITE_TOTAL_CALORIES_BURNED',
+  'android.permission.health.READ_MINDFULNESS',
+  'android.permission.health.WRITE_MINDFULNESS',
+  'android.permission.health.READ_HYDRATION',
+  'android.permission.health.WRITE_HYDRATION',
+  'android.permission.health.READ_NUTRITION',
+  'android.permission.health.WRITE_NUTRITION',
+  'android.permission.health.READ_EXERCISE',
+  'android.permission.health.READ_HEALTH_DATA_HISTORY',
+  'android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND',
+]
+
+// Historical leftovers from older builds that must never leak back in.
+const legacyPermissions = [
   'android.permission.health.READ_EXERCISE_SESSION',
   'android.permission.health.READ_STEPS_CADENCE',
-  'android.permission.health.READ_DISTANCE',
-  'android.permission.health.WRITE_STEPS',
-  'android.permission.health.WRITE_DISTANCE',
-  'android.permission.health.WRITE_ACTIVE_CALORIES_BURNED',
-  'android.permission.health.WRITE_HEART_RATE',
-  'android.permission.health.WRITE_WEIGHT',
-  'android.permission.health.WRITE_SLEEP',
-  'android.permission.health.WRITE_BLOOD_PRESSURE',
 ]
+
+const knownPermissions = Array.from(new Set([...pluginPermissions, ...legacyPermissions, ...profiles.full]))
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -136,4 +186,4 @@ manifest = ensureHealthConnectProviderQuery(manifest)
 manifest = ensureHealthConnectRationale(manifest)
 
 fs.writeFileSync(manifestPath, manifest)
-console.log(`HealthWallet Connect profile applied: ${profile}. Read permissions: ${keep.join(', ')}. Health Connect provider/rationale registered. Deep link: healthwallet-connect://handoff.`)
+console.log(`HealthWallet Connect profile applied: ${profile}. Read permissions: ${keep.join(', ')}. All other plugin health scopes are removed. Deep link: healthwallet-connect://handoff.`)
