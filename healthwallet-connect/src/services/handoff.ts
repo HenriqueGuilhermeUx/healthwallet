@@ -36,16 +36,30 @@ function clampDays(value: number) {
   return Math.max(1, Math.min(90, Math.round(value)))
 }
 
+function metricsForPlatform(metrics: HealthMetric[]) {
+  const unique = Array.from(new Set(metrics))
+
+  // Capgo Health v8 intentionally does not expose exerciseTime as an Android
+  // HealthDataType. Health Connect represents exercise as workout sessions
+  // instead. Keep exerciseTime for the future iOS path, but never send it to
+  // Android requestAuthorization/readSamples where it would be rejected.
+  if (Capacitor.getPlatform() === 'android') {
+    return unique.filter((metric) => metric !== 'exerciseTime')
+  }
+
+  return unique
+}
+
 function parseMetrics(raw: string | null, profile: ConnectProfile) {
   if (profile === 'minimal') return ['steps'] as HealthMetric[]
-  if (!raw) return [...ALL_METRICS]
+  if (!raw) return metricsForPlatform([...ALL_METRICS])
 
   const requested = raw
     .split(',')
     .map((item) => item.trim())
     .filter((item): item is HealthMetric => ALLOWED_METRICS.has(item as HealthMetric))
 
-  return requested.length ? Array.from(new Set(requested)) : [...ALL_METRICS]
+  return metricsForPlatform(requested.length ? requested : [...ALL_METRICS])
 }
 
 function isAllowedReturnUrl(value: string | null) {
@@ -178,12 +192,14 @@ export async function redeemHandoff(handoff: ConnectHandoff): Promise<ConnectHan
     ? data.metrics.filter((item): item is HealthMetric => ALLOWED_METRICS.has(item as HealthMetric))
     : []
 
+  const resolvedMetrics = profile === 'minimal'
+    ? ['steps'] as HealthMetric[]
+    : metricsForPlatform(responseMetrics.length ? responseMetrics : handoff.metrics)
+
   return {
     ...handoff,
     profile,
-    metrics: profile === 'minimal'
-      ? ['steps']
-      : (responseMetrics.length ? responseMetrics : handoff.metrics),
+    metrics: resolvedMetrics,
     days: clampDays(Number(data.days || handoff.days)),
     returnTo: isAllowedReturnUrl(data.return_to || null) ? data.return_to : handoff.returnTo,
     state: data.state || handoff.state,
