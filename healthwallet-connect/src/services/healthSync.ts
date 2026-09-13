@@ -104,6 +104,20 @@ export async function getHealthAvailability() {
     return { available: false, provider: null, reason: 'Abra o HealthWallet Connect instalado no celular.' }
   }
 
+  // On some Android/Samsung combinations the plugin availability probe can stay
+  // pending even though Health Connect itself is usable. Do not let that
+  // diagnostic call block the permission flow. requestAuthorization is the
+  // authoritative runtime check on Android and will surface a real system error
+  // if Health Connect cannot be used.
+  if (provider === 'health_connect') {
+    return {
+      available: true,
+      provider,
+      platform: 'android',
+      reason: null,
+    }
+  }
+
   try {
     const plugin = await loadPlugin()
     const result = await plugin.isAvailable()
@@ -118,10 +132,24 @@ export async function getHealthAvailability() {
   }
 }
 
+async function requestAuthorizationWithPlugin(plugin: HealthPlugin, metrics: HealthMetric[]) {
+  try {
+    return await plugin.requestAuthorization({ read: metrics, requestHistoryAccess: true })
+  } catch (error: any) {
+    const nativeMessage = String(error?.message || '').trim()
+    if (currentProvider() === 'health_connect') {
+      throw new Error(nativeMessage
+        ? `O Health Connect não conseguiu abrir as permissões: ${nativeMessage}`
+        : 'O Health Connect não conseguiu abrir as permissões neste aparelho.')
+    }
+    throw error
+  }
+}
+
 export async function requestHealthAccess(metrics: HealthMetric[]) {
   if (!metrics.length) throw new Error('Selecione pelo menos um dado para sincronizar.')
   const plugin = await loadPlugin()
-  return plugin.requestAuthorization({ read: metrics, requestHistoryAccess: true })
+  return requestAuthorizationWithPlugin(plugin, metrics)
 }
 
 export async function openHealthSettings() {
@@ -139,10 +167,17 @@ export async function syncHealthData(userId: string, metrics: HealthMetric[], da
   if (!provider) throw new Error('Sincronização nativa disponível somente no app instalado.')
 
   const plugin = await loadPlugin()
-  const availability = await plugin.isAvailable()
-  if (!availability?.available) throw new Error(availability?.reason || 'Fonte de saúde indisponível.')
 
-  await requestHealthAccess(metrics)
+  // Apple Health availability is reliable and can remain a preflight check.
+  // Android intentionally skips isAvailable() because that probe can hang on
+  // otherwise compatible devices; the authorization request below becomes the
+  // runtime source of truth.
+  if (provider === 'apple_health') {
+    const availability = await plugin.isAvailable()
+    if (!availability?.available) throw new Error(availability?.reason || 'Apple Saúde indisponível.')
+  }
+
+  await requestAuthorizationWithPlugin(plugin, metrics)
   await upsertConnection(userId, provider, metrics)
 
   const safeDays = Math.max(1, Math.min(90, days))
