@@ -1,10 +1,9 @@
 {
   "name": "healthwallet-connect",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/patch-capgo-health-v7.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
@@ -19,19 +18,19 @@
     "ios:open": "npm run ios:sync && npx cap open ios"
   },
   "dependencies": {
-    "@capacitor/android": "^7.4.3",
-    "@capacitor/app": "7.1.2",
-    "@capacitor/app-launcher": "^7.0.4",
-    "@capacitor/core": "^7.4.3",
-    "@capacitor/ios": "^7.4.3",
-    "@capgo/capacitor-health": "7.2.15",
+    "@capacitor/android": "8.5.2",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/app-launcher": "8.0.1",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/ios": "8.5.2",
+    "@capgo/capacitor-health": "8.10.6",
     "@supabase/supabase-js": "^2.106.1",
     "lucide-react": "^0.364.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.4.3",
+    "@capacitor/cli": "8.5.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
