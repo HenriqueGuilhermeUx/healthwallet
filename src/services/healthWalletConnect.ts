@@ -1,5 +1,5 @@
 import { AppLauncher } from '@capacitor/app-launcher'
-import { Capacitor } from '@capacitor/core'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '@/lib/supabase'
 
 export type HealthWalletConnectProfile = 'minimal' | 'full'
@@ -33,6 +33,12 @@ const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/
 const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '')
 const HANDOFF_FUNCTION = 'healthwallet-connect-handoff'
 const CONNECT_SCHEME = 'healthwallet-connect://handoff'
+
+type NativeConnectLauncherPlugin = {
+  open(options: { url: string }): Promise<{ completed: boolean }>
+}
+
+const NativeConnectLauncher = registerPlugin<NativeConnectLauncherPlugin>('HealthWalletConnectLauncher')
 
 export type LaunchHealthWalletConnectOptions = {
   profile?: HealthWalletConnectProfile
@@ -129,58 +135,36 @@ async function issueHandoff(body: Record<string, unknown>): Promise<IssueRespons
   }
 }
 
-function openViaWebViewFallback(url: string) {
-  return new Promise<void>((resolve, reject) => {
-    let finished = false
-
-    const cleanup = () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-    }
-
-    const complete = (success: boolean) => {
-      if (finished) return
-      finished = true
-      cleanup()
-      if (success) resolve()
-      else reject(new Error('O HealthWallet Connect não abriu. Confirme se ele está instalado e tente novamente.'))
-    }
-
-    const onVisibilityChange = () => {
-      if (document.hidden) complete(true)
-    }
-
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    window.location.assign(url)
-
-    setTimeout(() => complete(document.hidden), 1800)
-  })
-}
-
 async function openConnectApp(url: string) {
-  if (Capacitor.isNativePlatform()) {
-    const availability = await withTimeout(
-      AppLauncher.canOpenUrl({ url: CONNECT_SCHEME }),
-      3000,
-      'Não foi possível verificar o HealthWallet Connect neste aparelho.',
-    )
-
-    if (!availability.value) {
-      throw new Error('O HealthWallet Connect não está instalado ou não está disponível neste aparelho.')
-    }
-
+  if (Capacitor.getPlatform() === 'android') {
     try {
       const result = await withTimeout(
-        AppLauncher.openUrl({ url }),
+        NativeConnectLauncher.open({ url }),
         4000,
-        'A abertura do HealthWallet Connect demorou demais.',
+        'O Android não respondeu ao comando de abrir o HealthWallet Connect.',
       )
 
-      if (result.completed) return
-    } catch (error) {
-      console.warn('Native Connect launcher fallback:', error)
-    }
+      if (!result?.completed) {
+        throw new Error('O Android não confirmou a abertura do HealthWallet Connect.')
+      }
 
-    await openViaWebViewFallback(url)
+      return
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      if (message.toLowerCase().includes('not installed')) {
+        throw new Error('O HealthWallet Connect não está instalado neste aparelho.')
+      }
+      throw new Error(message || 'Não foi possível abrir o HealthWallet Connect no Android.')
+    }
+  }
+
+  if (Capacitor.isNativePlatform()) {
+    const result = await withTimeout(
+      AppLauncher.openUrl({ url }),
+      4000,
+      'A abertura do HealthWallet Connect demorou demais.',
+    )
+    if (!result.completed) throw new Error('O HealthWallet Connect não foi aberto.')
     return
   }
 
