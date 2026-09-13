@@ -87,14 +87,18 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet1.netlify.app
 
-      - name: Audit Connect app-to-app links
+      - name: Audit Connect app-to-app and Health Connect declarations
         shell: bash
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           grep -q 'android:scheme="healthwallet-connect"' "$MANIFEST" || (echo "healthwallet-connect input scheme missing" && exit 1)
           grep -q 'android:host="handoff"' "$MANIFEST" || (echo "handoff host missing" && exit 1)
           grep -q '<data android:scheme="healthwallet" />' "$MANIFEST" || (echo "healthwallet return target query missing" && exit 1)
-          echo "Connect app-to-app link audit passed."
+          grep -q 'com.google.android.apps.healthdata' "$MANIFEST" || (echo "Health Connect provider query missing" && exit 1)
+          grep -q 'androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE' "$MANIFEST" || (echo "Health Connect permissions rationale action missing" && exit 1)
+          grep -q 'android.intent.action.VIEW_PERMISSION_USAGE' "$MANIFEST" || (echo "Health Connect permission usage alias missing" && exit 1)
+          grep -q 'app.capgo.plugin.health.PermissionsRationaleActivity' "$MANIFEST" || (echo "Health Connect rationale Activity missing" && exit 1)
+          echo "Connect app-to-app and Health Connect declaration audit passed."
 
       - name: Build Android minimal debug
         run: cd android && ./gradlew assembleDebug --stacktrace
@@ -140,18 +144,20 @@ jobs:
             READ_WEIGHT
             READ_ACTIVE_CALORIES_BURNED
             READ_EXERCISE
-            READ_EXERCISE_SESSION
           )
           for PERMISSION in "${REQUIRED[@]}"; do
             grep -q "android.permission.health.${PERMISSION}" "$MERGED_MANIFEST" || (echo "Missing ${PERMISSION} in full build" && exit 1)
           done
-          FORBIDDEN="$(grep -oE 'android\.permission\.health\.(WRITE_[A-Z_]+|READ_STEPS_CADENCE|READ_DISTANCE)' "$MERGED_MANIFEST" | sort -u || true)"
+          grep -q 'com.google.android.apps.healthdata' "$MERGED_MANIFEST" || (echo "Health Connect provider query missing from merged manifest" && exit 1)
+          grep -q 'androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE' "$MERGED_MANIFEST" || (echo "Health Connect rationale missing from merged manifest" && exit 1)
+          grep -q 'android.intent.action.VIEW_PERMISSION_USAGE' "$MERGED_MANIFEST" || (echo "Health Connect permission usage alias missing from merged manifest" && exit 1)
+          FORBIDDEN="$(grep -oE 'android\.permission\.health\.(WRITE_[A-Z_]+|READ_STEPS_CADENCE|READ_DISTANCE|READ_EXERCISE_SESSION)' "$MERGED_MANIFEST" | sort -u || true)"
           if [ -n "$FORBIDDEN" ]; then
             echo "Forbidden Health Connect permissions found in full build:"
             echo "$FORBIDDEN"
             exit 1
           fi
-          echo "Full permission audit passed."
+          echo "Full permission and Health Connect declaration audit passed."
 
       - name: Upload HealthWallet Connect full APK
         uses: actions/upload-artifact@v4
