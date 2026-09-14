@@ -10,6 +10,7 @@ on:
       - 'scripts/patch-capacitor-android.mjs'
       - 'scripts/patch-health-permissions.mjs'
       - 'scripts/patch-healthwallet-connect-return.mjs'
+      - 'scripts/patch-healthwallet-connect-auto-refresh.mjs'
       - '.github/workflows/healthwallet-connect-side-by-side.yml'
   workflow_dispatch:
 
@@ -57,6 +58,17 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+
+      - name: Patch Connect return auto-refresh for HealthWallet Test
+        run: node scripts/patch-healthwallet-connect-auto-refresh.mjs
+
+      - name: Audit Connect return auto-refresh
+        shell: bash
+        run: |
+          grep -q "healthwallet-connect-return" src/App.tsx || (echo "Connect return event missing" && exit 1)
+          grep -q "window.addEventListener('healthwallet-connect-return'" src/pages/DeviceData.tsx || (echo "DeviceData auto-refresh listener missing" && exit 1)
+          grep -q "void load(false)" src/pages/DeviceData.tsx || (echo "DeviceData refresh call missing" && exit 1)
+          echo "Connect return auto-refresh audit passed."
 
       - name: Build HealthWallet web app
         run: pnpm build
