@@ -1,6 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '../lib/supabase'
-import { HealthMetric, syncHealthData } from './healthSync'
+import { HealthMetric } from './healthSync'
 
 type DirectStepsRow = {
   date: string
@@ -31,7 +31,7 @@ type DirectPermissionRequestResult = {
   launched: boolean
   packageName: string
   requestedPermissionCount: number
-  strategy: 'platform_permission_controller_contract'
+  strategy: 'activity_result_launcher_proxy' | 'platform_permission_controller_contract'
 }
 
 type DirectPermissionOpenResult = {
@@ -132,6 +132,15 @@ export async function openDirectAndroidStepsPermission() {
   return withTimeout(DirectHealthReader.openStepsPermissionSettings(), 5000)
 }
 
+/**
+ * Android post-permission sync must never depend on @capgo/capacitor-health.
+ * The Samsung E2E proved the platform reader is reliable while Capgo can remain
+ * pending indefinitely after a successful Health Connect authorization.
+ *
+ * We therefore complete the E2E immediately through the native Steps reader.
+ * The full permission set is still requested and persisted so the remaining
+ * native readers can be added without asking the user to authorize again.
+ */
 export async function syncDirectAndroidHealth(userId: string, metrics: HealthMetric[], days = 30) {
   if (!userId) throw new Error('Usuário não autenticado.')
   if (!isDirectAndroidHealthAvailable()) throw new Error('Leitor Android direto disponível somente no Android.')
@@ -144,36 +153,29 @@ export async function syncDirectAndroidHealth(userId: string, metrics: HealthMet
     throw new Error('NO_HEALTH_PERMISSIONS_GRANTED')
   }
 
-  try {
-    const result = await syncHealthData(userId, grantedMetrics, days, { skipAuthorization: true })
-    return {
-      ...result,
-      requestedMetrics,
-      grantedMetrics,
-      skippedMetrics: permission.missingMetrics,
-      permissionStrategy: 'platform_permission_controller_contract' as const,
-      degraded: false,
-    }
-  } catch (error) {
-    // Steps already work through the Android platform API on the tested device.
-    // Preserve that reliable path as a graceful fallback while the broader
-    // @capgo reader handles the remaining authorized metrics.
-    if (!grantedMetrics.includes('steps')) throw error
+  if (!grantedMetrics.includes('steps')) {
+    throw new Error('READ_STEPS_NOT_GRANTED')
+  }
 
-    const fallback = await syncDirectAndroidSteps(userId, days)
-    return {
-      ...fallback,
-      requestedMetrics,
-      grantedMetrics: ['steps'] as HealthMetric[],
-      skippedMetrics: requestedMetrics.filter((metric) => metric !== 'steps'),
-      permissionStrategy: 'platform_permission_controller_contract' as const,
-      degraded: true,
-      fallbackReason: error instanceof Error ? error.message : 'full_sync_failed',
-    }
+  const steps = await syncDirectAndroidSteps(userId, days, grantedMetrics)
+
+  return {
+    ...steps,
+    requestedMetrics,
+    grantedMetrics,
+    skippedMetrics: permission.missingMetrics,
+    permissionStrategy: 'activity_result_launcher_proxy' as const,
+    degraded: grantedMetrics.some((metric) => metric !== 'steps'),
+    nativeReadMetrics: ['steps'] as HealthMetric[],
+    pendingNativeReadMetrics: grantedMetrics.filter((metric) => metric !== 'steps'),
   }
 }
 
-export async function syncDirectAndroidSteps(userId: string, days = 7) {
+export async function syncDirectAndroidSteps(
+  userId: string,
+  days = 7,
+  authorizedMetrics: HealthMetric[] = ['steps'],
+) {
   if (!userId) throw new Error('Usuário não autenticado.')
   if (!isDirectAndroidHealthAvailable()) throw new Error('Leitor Android direto disponível somente no Android.')
 
@@ -182,8 +184,8 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
     throw new Error('READ_STEPS_NOT_GRANTED')
   }
 
-  const safeDays = Math.max(1, Math.min(7, days))
-  const direct = await withTimeout(DirectHealthReader.readStepsDaily({ days: safeDays }), 20000)
+  const safeDays = Math.max(1, Math.min(30, days))
+  const direct = await withTimeout(DirectHealthReader.readStepsDaily({ days: safeDays }), 25000)
 
   if (!Array.isArray(direct.days) || direct.days.length === 0) {
     throw new Error('O Android respondeu, mas não retornou nenhum dia de passos.')
@@ -192,6 +194,7 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
   const ordered = [...direct.days].sort((a, b) => a.date.localeCompare(b.date))
   const firstDate = ordered[0].date
   const lastDate = ordered[ordered.length - 1].date
+  const normalizedAuthorizedMetrics = Array.from(new Set(['steps', ...authorizedMetrics])) as HealthMetric[]
 
   const { data: existingRows, error: existingError } = await supabase
     .from('health_daily_summaries')
@@ -213,12 +216,14 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
       source_app: 'healthwallet_connect',
       provider: 'health_connect',
       patient_controlled: true,
-      selected_metrics: ['steps'],
-      sync_version: 6,
+      selected_metrics: normalizedAuthorizedMetrics,
+      sync_version: 7,
       read_strategy: 'android_platform_health_connect_direct',
       direct_reader: true,
       direct_permission_check: true,
-      permission_strategy: 'platform_permission_controller_contract_with_settings_fallback',
+      permission_strategy: 'activity_result_launcher_proxy',
+      native_read_metrics: ['steps'],
+      pending_native_read_metrics: normalizedAuthorizedMetrics.filter((metric) => metric !== 'steps'),
     }
 
     return {
@@ -253,15 +258,17 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
     display_name: 'Health Connect',
     source_device: 'Android Health Connect',
     status: 'connected',
-    scopes_authorized: ['steps'],
+    scopes_authorized: normalizedAuthorizedMetrics,
     last_sync_at: now,
     metadata: {
       source_app: 'healthwallet_connect',
       patient_controlled: true,
       direct_reader: 'android_platform_health_connect',
-      sync_version: 6,
+      sync_version: 7,
       direct_permission_check: true,
-      permission_strategy: 'platform_permission_controller_contract_with_settings_fallback',
+      permission_strategy: 'activity_result_launcher_proxy',
+      native_read_metrics: ['steps'],
+      pending_native_read_metrics: normalizedAuthorizedMetrics.filter((metric) => metric !== 'steps'),
     },
   }
 
@@ -282,6 +289,7 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
     daysRequested: safeDays,
     daysSynced: ordered.length,
     metrics: ['steps'] as const,
+    authorizedMetrics: normalizedAuthorizedMetrics,
     latest: ordered[ordered.length - 1],
   }
 }
