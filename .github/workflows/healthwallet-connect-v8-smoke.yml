@@ -81,15 +81,17 @@ jobs:
         run: |
           grep -q "syncDirectAndroidSteps" src/App.tsx || (echo "Direct Android sync not wired" && exit 1)
           grep -q "checkDirectAndroidStepsPermission" src/App.tsx || (echo "Direct Android permission check not wired" && exit 1)
-          grep -q "openDirectAndroidStepsPermission" src/App.tsx || (echo "Direct Android permission screen not wired" && exit 1)
+          grep -q "requestDirectAndroidStepsPermission" src/App.tsx || (echo "Official Health Connect permission request not wired" && exit 1)
+          grep -q "openDirectAndroidStepsPermission" src/App.tsx || (echo "Direct Android permission settings fallback not wired" && exit 1)
           grep -q "CapacitorApp.addListener('appStateChange'" src/App.tsx || (echo "Android permission resume listener missing" && exit 1)
           grep -q "runDirectAndroidStepsHandoff" src/App.tsx || (echo "Automatic Android handoff path missing" && exit 1)
           if grep -q "probeHealthAccess" src/App.tsx; then
             echo "Old manual probe still present in App.tsx"
             exit 1
           fi
-          grep -q "sync_version: 4" src/services/directAndroidHealth.ts || (echo "Direct reader v4 persistence marker missing" && exit 1)
-          echo "Automatic direct Android permission + sync web path audit passed."
+          grep -q "sync_version: 5" src/services/directAndroidHealth.ts || (echo "Direct reader v5 persistence marker missing" && exit 1)
+          grep -q "official_health_connect_contract_with_settings_fallback" src/services/directAndroidHealth.ts || (echo "Permission strategy marker missing" && exit 1)
+          echo "Official Health Connect permission + direct Android sync web path audit passed."
 
       - name: Build Connect web assets
         run: npx vite build
@@ -120,14 +122,18 @@ jobs:
           test -n "$PLUGIN" || (echo "DirectHealthReaderPlugin.java missing" && exit 1)
           test -n "$ACTIVITY" || (echo "MainActivity.java missing" && exit 1)
           grep -q "HealthConnectManager" "$PLUGIN" || (echo "HealthConnectManager API missing" && exit 1)
+          grep -q "PermissionController" "$PLUGIN" || (echo "Official Health Connect PermissionController missing" && exit 1)
+          grep -q "requestStepsPermission" "$PLUGIN" || (echo "Official READ_STEPS permission request missing" && exit 1)
+          grep -q "createRequestPermissionResultContract" "$PLUGIN" || (echo "Official permission contract missing" && exit 1)
           grep -q "STEPS_COUNT_TOTAL" "$PLUGIN" || (echo "Official steps aggregate missing" && exit 1)
           grep -q "manager.aggregate" "$PLUGIN" || (echo "Official aggregate call missing" && exit 1)
           grep -q "checkStepsPermission" "$PLUGIN" || (echo "Direct READ_STEPS permission check missing" && exit 1)
-          grep -q "openStepsPermissionSettings" "$PLUGIN" || (echo "Direct Health Connect permission screen missing" && exit 1)
-          grep -q "MANAGE_HEALTH_PERMISSIONS" "$PLUGIN" || (echo "Official manage-health-permissions action missing" && exit 1)
+          grep -q "openStepsPermissionSettings" "$PLUGIN" || (echo "Health Connect settings fallback missing" && exit 1)
+          grep -q "MANAGE_HEALTH_PERMISSIONS" "$PLUGIN" || (echo "Official manage-health-permissions fallback missing" && exit 1)
           grep -q "READ_STEPS_NOT_GRANTED" "$PLUGIN" || (echo "Native permission guard missing" && exit 1)
+          grep -q 'androidx.health.connect:connect-client:1.1.0' android/app/build.gradle || (echo "Direct app Health Connect dependency missing" && exit 1)
           grep -q "DirectHealthReaderPlugin.class" "$ACTIVITY" || (echo "DirectHealthReader plugin not registered" && exit 1)
-          echo "Direct Android permission + platform Health Connect reader audit passed."
+          echo "Official permission contract + direct Android platform Health Connect reader audit passed."
 
       - name: Audit app manifest before build
         shell: bash
