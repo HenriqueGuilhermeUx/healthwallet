@@ -1,0 +1,154 @@
+name: HealthWallet Connect Release
+
+on:
+  push:
+    branches:
+      - feature/healthwallet-connect
+    paths:
+      - 'healthwallet-connect/**'
+      - '.github/workflows/healthwallet-connect-release.yml'
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'Android versionCode for HealthWallet Connect'
+        required: true
+        default: '1'
+      version_name:
+        description: 'Android versionName for HealthWallet Connect'
+        required: true
+        default: '0.3.0'
+
+concurrency:
+  group: healthwallet-connect-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-connect-release:
+    name: Build signed HealthWallet Connect APK + AAB
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: healthwallet-connect
+    env:
+      ANDROID_VERSION_CODE: ${{ github.event.inputs.version_code || github.run_number }}
+      ANDROID_VERSION_NAME: ${{ github.event.inputs.version_name || format('0.3.{0}', github.run_number) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Check required secrets
+        run: |
+          test -n "$VITE_SUPABASE_URL" || (echo "Missing VITE_SUPABASE_URL" && exit 1)
+          test -n "$VITE_SUPABASE_ANON_KEY" || (echo "Missing VITE_SUPABASE_ANON_KEY" && exit 1)
+          test -n "$ANDROID_KEYSTORE_BASE64" || (echo "Missing ANDROID_KEYSTORE_BASE64" && exit 1)
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || (echo "Missing ANDROID_KEYSTORE_PASSWORD" && exit 1)
+          test -n "$ANDROID_KEY_ALIAS" || (echo "Missing ANDROID_KEY_ALIAS" && exit 1)
+          test -n "$ANDROID_KEY_PASSWORD" || (echo "Missing ANDROID_KEY_PASSWORD" && exit 1)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Preserve proven native flow and apply store-ready UI
+        run: |
+          node scripts/patch-app-direct-reader.mjs
+          node scripts/patch-app-permission-resume.mjs
+          node scripts/patch-app-store-ready.mjs
+
+      - name: Build Connect web assets
+        run: npx vite build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet1.netlify.app
+
+      - name: Generate Android project
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Decode release keystore
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/healthwallet-connect-release.jks
+          test -s android/app/healthwallet-connect-release.jks
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Apply Health Connect native reader and release settings
+        run: |
+          node scripts/patch-android-sdk.mjs
+          node scripts/patch-health-permissions.mjs full
+          node scripts/patch-direct-health-reader.mjs
+          node scripts/patch-health-permission-launcher.mjs
+          node scripts/patch-connect-release.mjs
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_VERSION_CODE: ${{ env.ANDROID_VERSION_CODE }}
+          ANDROID_VERSION_NAME: ${{ env.ANDROID_VERSION_NAME }}
+
+      - name: Audit release permissions
+        shell: bash
+        run: |
+          ./android/gradlew -p android :app:processReleaseMainManifest >/dev/null
+          MERGED="$(find android/app/build/intermediates -path '*merged*manifest*' -name AndroidManifest.xml | head -n 1)"
+          test -n "$MERGED" || (echo "Merged manifest missing" && exit 1)
+          if grep -q 'android.permission.health.WRITE_' "$MERGED"; then
+            echo "Forbidden Health Connect write permission found"
+            exit 1
+          fi
+          for P in READ_STEPS READ_SLEEP READ_HEART_RATE READ_RESTING_HEART_RATE READ_OXYGEN_SATURATION READ_HEART_RATE_VARIABILITY READ_BLOOD_PRESSURE READ_WEIGHT READ_ACTIVE_CALORIES_BURNED READ_EXERCISE; do
+            grep -q "android.permission.health.$P" "$MERGED" || (echo "Missing $P" && exit 1)
+          done
+          grep -q 'android:usesCleartextTraffic="false"' "$MERGED" || (echo "Cleartext traffic not disabled" && exit 1)
+
+      - name: Build signed release APK and AAB
+        run: cd android && ./gradlew clean assembleRelease bundleRelease --stacktrace
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Verify release outputs
+        run: |
+          ls -lh android/app/build/outputs/apk/release/
+          ls -lh android/app/build/outputs/bundle/release/
+          test -n "$(find android/app/build/outputs/apk/release -name '*.apk' -print -quit)"
+          test -n "$(find android/app/build/outputs/bundle/release -name '*.aab' -print -quit)"
+
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthwallet-connect-release-${{ env.ANDROID_VERSION_NAME }}
+          path: |
+            healthwallet-connect/android/app/build/outputs/apk/release/*.apk
+            healthwallet-connect/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 30
