@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   FileText,
   Share2,
@@ -10,11 +10,13 @@ import {
   AlertTriangle,
   ClipboardList,
   Activity,
+  Watch,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { createProfessionalShare } from '@/services/shareAccess'
 import { useAuth } from '@/hooks/useAuth'
 import { generateHealthSummary } from '@/services/generateHealthSummary'
+import { buildClinicalDeviceInsights } from '@/services/clinicalDeviceInsights'
 
 export default function Summary() {
   const { user } = useAuth()
@@ -27,6 +29,12 @@ export default function Summary() {
   const [medications, setMedications] = useState<any[]>([])
   const [conditions, setConditions] = useState<any[]>([])
   const [score, setScore] = useState<any>(null)
+  const [deviceSummaries, setDeviceSummaries] = useState<any[]>([])
+
+  const deviceInsights = useMemo(
+    () => buildClinicalDeviceInsights(deviceSummaries),
+    [deviceSummaries],
+  )
 
   useEffect(() => {
     load()
@@ -35,7 +43,7 @@ export default function Summary() {
   async function load() {
     if (!user) return
 
-    const [summaryRes, profileRes, recordsRes, medsRes, conditionsRes, scoreRes] =
+    const [summaryRes, profileRes, recordsRes, medsRes, conditionsRes, scoreRes, deviceRes] =
       await Promise.all([
         supabase.from('health_summaries').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
@@ -49,6 +57,12 @@ export default function Summary() {
           .order('calculated_at', { ascending: false })
           .limit(1)
           .maybeSingle(),
+        supabase
+          .from('health_daily_summaries')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('summary_date', { ascending: false })
+          .limit(30),
       ])
 
     setProfile(profileRes.data || {})
@@ -56,8 +70,19 @@ export default function Summary() {
     setMedications(medsRes.data || [])
     setConditions(conditionsRes.data || [])
     setScore(scoreRes.data || null)
+    setDeviceSummaries(deviceRes.data || [])
 
-    if (summaryRes.data?.summary) {
+    const latestDeviceSync = (deviceRes.data || [])
+      .map((row: any) => row.last_sync_at || row.updated_at || null)
+      .filter(Boolean)
+      .sort()
+      .at(-1)
+    const summaryUpdatedAt = summaryRes.data?.updated_at || null
+    const wearableIsNewer = Boolean(
+      latestDeviceSync && (!summaryUpdatedAt || new Date(latestDeviceSync) > new Date(summaryUpdatedAt)),
+    )
+
+    if (summaryRes.data?.summary && !wearableIsNewer) {
       setSummary(summaryRes.data.summary)
     } else {
       await generateAndSave()
@@ -70,7 +95,7 @@ export default function Summary() {
     setLoading(true)
 
     try {
-      const [profileRes, recordsRes, medsRes, conditionsRes, scoreRes] =
+      const [profileRes, recordsRes, medsRes, conditionsRes, scoreRes, deviceRes] =
         await Promise.all([
           supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
           supabase.from('medical_records').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
@@ -83,6 +108,12 @@ export default function Summary() {
             .order('calculated_at', { ascending: false })
             .limit(1)
             .maybeSingle(),
+          supabase
+            .from('health_daily_summaries')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('summary_date', { ascending: false })
+            .limit(30),
         ])
 
       const profileData = profileRes.data || {}
@@ -90,13 +121,15 @@ export default function Summary() {
       const medsData = medsRes.data || []
       const conditionsData = conditionsRes.data || []
       const scoreData = scoreRes.data || null
+      const deviceData = deviceRes.data || []
 
       const text = generateHealthSummary(
         profileData,
         recordsData,
         medsData,
         conditionsData,
-        scoreData
+        scoreData,
+        deviceData,
       )
 
       await supabase.from('health_summaries').upsert(
@@ -114,6 +147,7 @@ export default function Summary() {
       setMedications(medsData)
       setConditions(conditionsData)
       setScore(scoreData)
+      setDeviceSummaries(deviceData)
       setSummary(text)
     } catch (error) {
       console.error('Erro ao gerar resumo:', error)
@@ -178,7 +212,28 @@ export default function Summary() {
       <Section icon={Activity} title="MedScore">
         <Info label="Score atual" value={score?.score ? `${score.score}/100` : 'Não calculado'} />
         <Info label="Nível" value={score?.status || 'Não informado'} />
-        <Info label="Confiança dos dados" value={score?.factors?.confidence ? `${score.factors.confidence}%` : 'Não informado'} />
+        <Info label="Confiança dos dados" value={score?.factors?.confidence ? `${score.factors.confidence}%` : score?.confidence ? `${score.confidence}%` : 'Não informado'} />
+      </Section>
+
+      <Section icon={Watch} title="Wearables — contexto para consulta">
+        {!deviceInsights.hasData ? (
+          <Empty text="Nenhum dado recente de dispositivo conectado." />
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <Info label="Cobertura" value={`${deviceInsights.coverageDays} dias / 30`} />
+              <Info label="Confiança" value={`${deviceInsights.confidence}%`} />
+              <Info label="Último dia" value={deviceInsights.latestDate || 'Não informado'} />
+              <Info label="Fontes" value={deviceInsights.sources.join(', ') || 'Não informado'} />
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3 text-sm space-y-1">
+              {deviceInsights.clinicianBullets.slice(1, 7).map((item, index) => (
+                <p key={index}>• {item}</p>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500">{deviceInsights.disclaimer}</p>
+          </div>
+        )}
       </Section>
 
       <Section icon={HeartPulse} title="Histórico Clínico">
