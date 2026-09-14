@@ -74,7 +74,9 @@ jobs:
           echo "Batch sync v2 audit passed."
 
       - name: Route Android flow to full platform permission sheet
-        run: node scripts/patch-app-direct-reader.mjs
+        run: |
+          node scripts/patch-app-direct-reader.mjs
+          node scripts/patch-app-permission-resume.mjs
 
       - name: Audit full Android authorization and sync path
         shell: bash
@@ -83,7 +85,9 @@ jobs:
           grep -q "checkDirectAndroidHealthPermissions" src/App.tsx || (echo "Full permission check not wired" && exit 1)
           grep -q "requestDirectAndroidHealthPermissions" src/App.tsx || (echo "Official full permission request not wired" && exit 1)
           grep -q "openDirectAndroidStepsPermission" src/App.tsx || (echo "Health Connect settings fallback not wired" && exit 1)
-          grep -q "CapacitorApp.addListener('appStateChange'" src/App.tsx || (echo "Android permission resume listener missing" && exit 1)
+          grep -q "CapacitorApp.addListener('appStateChange'" src/App.tsx || (echo "Android app-state listener missing" && exit 1)
+          grep -q "CapacitorApp.addListener('resume'" src/App.tsx || (echo "Android resume listener missing" && exit 1)
+          grep -q "directPermissionPending.current = false" src/App.tsx || (echo "Permission resume single-flight guard missing" && exit 1)
           grep -q "runDirectAndroidHealthHandoff" src/App.tsx || (echo "Automatic full Android handoff path missing" && exit 1)
           grep -q "sync_version: 6" src/services/directAndroidHealth.ts || (echo "Direct reader v6 persistence marker missing" && exit 1)
           grep -q "platform_permission_controller_contract_with_settings_fallback" src/services/directAndroidHealth.ts || (echo "Platform permission strategy marker missing" && exit 1)
@@ -111,31 +115,34 @@ jobs:
           node scripts/patch-health-permissions.mjs full
 
       - name: Install direct Android Health Connect reader
-        run: node scripts/patch-direct-health-reader.mjs
+        run: |
+          node scripts/patch-direct-health-reader.mjs
+          node scripts/patch-health-permission-launcher.mjs
 
-      - name: Audit native platform permission sheet
+      - name: Audit lifecycle-aware native permission sheet
         shell: bash
         run: |
           PLUGIN="$(find android/app/src/main/java -name DirectHealthReaderPlugin.java | head -n 1)"
+          PERMISSION_ACTIVITY="$(find android/app/src/main/java -name HealthPermissionRequestActivity.java | head -n 1)"
           ACTIVITY="$(find android/app/src/main/java -name MainActivity.java | head -n 1)"
           test -n "$PLUGIN" || (echo "DirectHealthReaderPlugin.java missing" && exit 1)
+          test -n "$PERMISSION_ACTIVITY" || (echo "HealthPermissionRequestActivity.java missing" && exit 1)
           test -n "$ACTIVITY" || (echo "MainActivity.java missing" && exit 1)
           grep -q "HealthConnectManager" "$PLUGIN" || (echo "HealthConnectManager API missing" && exit 1)
-          grep -q "PermissionController" "$PLUGIN" || (echo "Official Health Connect PermissionController missing" && exit 1)
           grep -q "FULL_READ_PERMISSIONS" "$PLUGIN" || (echo "Full read-only permission set missing" && exit 1)
           grep -q "checkHealthPermissions" "$PLUGIN" || (echo "Full permission check missing" && exit 1)
           grep -q "requestHealthPermissions" "$PLUGIN" || (echo "Full permission request missing" && exit 1)
-          grep -q "createRequestPermissionResultContract()" "$PLUGIN" || (echo "Platform-aware permission contract missing" && exit 1)
-          if grep -q "DEFAULT_HEALTH_CONNECT_PROVIDER" "$PLUGIN"; then
-            echo "Legacy hardcoded Health Connect provider is still present"
-            exit 1
-          fi
+          grep -q "HealthPermissionRequestActivity.class" "$PLUGIN" || (echo "Permission proxy Activity is not launched by plugin" && exit 1)
+          grep -q "ActivityResultLauncher" "$PERMISSION_ACTIVITY" || (echo "Lifecycle-aware ActivityResultLauncher missing" && exit 1)
+          grep -q "registerForActivityResult" "$PERMISSION_ACTIVITY" || (echo "registerForActivityResult missing" && exit 1)
+          grep -q "createRequestPermissionResultContract()" "$PERMISSION_ACTIVITY" || (echo "Official Health Connect permission contract missing" && exit 1)
+          grep -q "permissionLauncher.launch(FULL_READ_PERMISSIONS)" "$PERMISSION_ACTIVITY" || (echo "Full permission sheet launch missing" && exit 1)
           grep -q "STEPS_COUNT_TOTAL" "$PLUGIN" || (echo "Official steps aggregate missing" && exit 1)
           grep -q "manager.aggregate" "$PLUGIN" || (echo "Official aggregate call missing" && exit 1)
           grep -q "MANAGE_HEALTH_PERMISSIONS" "$PLUGIN" || (echo "Health Connect settings fallback missing" && exit 1)
           grep -q 'androidx.health.connect:connect-client:1.1.0' android/app/build.gradle || (echo "Direct app Health Connect dependency missing" && exit 1)
           grep -q "DirectHealthReaderPlugin.class" "$ACTIVITY" || (echo "DirectHealthReader plugin not registered" && exit 1)
-          echo "Platform-aware full permission sheet + fallback audit passed."
+          echo "Lifecycle-aware Health Connect permission sheet audit passed."
 
       - name: Audit app manifest before build
         shell: bash
@@ -145,6 +152,8 @@ jobs:
           grep -q 'android:host="handoff"' "$MANIFEST" || (echo "handoff host missing" && exit 1)
           grep -q '<data android:scheme="healthwallet" />' "$MANIFEST" || (echo "return query missing" && exit 1)
           grep -q 'android.permission.health.READ_STEPS' "$MANIFEST" || (echo "READ_STEPS missing" && exit 1)
+          grep -q 'android:name=".HealthPermissionRequestActivity"' "$MANIFEST" || (echo "Permission proxy Activity missing from manifest" && exit 1)
+          grep -q 'android.intent.category.HEALTH_PERMISSIONS' "$MANIFEST" || (echo "Health permission rationale category missing" && exit 1)
           echo "App manifest audit passed."
 
       - name: Build Capacitor 8 full-health debug APK
