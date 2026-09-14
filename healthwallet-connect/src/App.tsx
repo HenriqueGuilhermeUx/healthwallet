@@ -8,7 +8,6 @@ import {
   HealthMetric,
   METRICS,
   openHealthPermissionManager,
-  probeHealthAccess,
   providerLabel,
   requestHealthAccess,
   syncHealthData,
@@ -291,13 +290,21 @@ export default function App() {
     if (!userId) return
     try {
       setBusy(true)
-      setPermissionRecovery(false)
       setHandoffError('')
-      await requestPermissionWithDiagnostics(selected)
-      setMessage('Lendo seus dados autorizados e atualizando sua HealthWallet…')
-      const result = await syncHealthData(userId, selected, handoff?.days || 30, { skipAuthorization: true })
+
+      if (!permissionRecovery) {
+        await requestPermissionWithDiagnostics(selected)
+      }
+
+      setMessage('Iniciando sincronização real com o Health Connect…')
+      const result = await withRejectingTimeout(
+        syncHealthData(userId, selected, handoff?.days || 30, { skipAuthorization: true }),
+        60000,
+        'A sincronização real não terminou em 60 segundos.',
+      )
       const now = new Date()
       setLastSync(now.toLocaleString())
+      setPermissionRecovery(false)
       setMessage(`${result.daysSynced} dia(s) sincronizado(s) com sua HealthWallet.`)
 
       if (handoff) {
@@ -312,6 +319,7 @@ export default function App() {
       const text = error?.message || 'Não foi possível sincronizar agora.'
       setMessage(text)
       setHandoffError(text)
+      setPermissionRecovery(true)
     } finally {
       setBusy(false)
     }
@@ -337,14 +345,12 @@ export default function App() {
     try {
       setBusy(true)
       setHandoffError('')
-      setMessage(`Testando leitura direta de ${METRICS.find((metric) => metric.id === selected[0])?.label || selected[0]}…`)
-      await withRejectingTimeout(
-        probeHealthAccess(selected[0]),
-        9000,
-        'O Health Connect também não respondeu à leitura direta em 9 segundos.',
+      setMessage('Permissões já concedidas. Iniciando a sincronização real, sem teste intermediário…')
+      const result = await withRejectingTimeout(
+        syncHealthData(userId, selected, handoff?.days || 30, { skipAuthorization: true }),
+        60000,
+        'A sincronização real não terminou em 60 segundos.',
       )
-      setMessage('Leitura direta respondeu. Sincronizando sem reabrir o pedido de permissão…')
-      const result = await syncHealthData(userId, selected, handoff?.days || 30, { skipAuthorization: true })
       const now = new Date()
       setLastSync(now.toLocaleString())
       setPermissionRecovery(false)
@@ -359,7 +365,7 @@ export default function App() {
         })
       }
     } catch (error: any) {
-      const text = error?.message || 'A leitura direta ainda não foi autorizada.'
+      const text = error?.message || 'A sincronização real não pôde ser concluída.'
       setMessage(text)
       setHandoffError(text)
       setPermissionRecovery(true)
@@ -453,7 +459,7 @@ export default function App() {
             </div>
           </div>
           <p className="recovery-copy">
-            Agora o Connect não fica mais preso no spinner. Abaixo estão os sinais que vêm do próprio Android; depois você pode abrir a página de permissões diretamente, autorizar e voltar.
+            O pedido automático não voltou ao Connect. Abra as permissões diretamente, autorize os dados e volte. O botão seguinte vai direto para a sincronização real, sem teste intermediário.
           </p>
 
           <div className="diagnostic-grid">
@@ -474,10 +480,10 @@ export default function App() {
               <ExternalLink size={18} /> Abrir permissões diretamente
             </button>
             <button className="secondary" type="button" onClick={continueAfterManualPermission} disabled={busy}>
-              <Bug size={18} /> Já autorizei — testar leitura e sincronizar
+              <Bug size={18} /> Já autorizei — sincronizar agora
             </button>
           </div>
-          <p className="fine-print">Se você já recusou permissões várias vezes, o Android pode deixar de exibir o pedido automático; a tela direta permite revisar e conceder manualmente.</p>
+          <p className="fine-print">Depois de autorizar no Health Connect, volte aqui e use “Já autorizei — sincronizar agora”.</p>
         </section>
       )}
 
@@ -533,7 +539,7 @@ export default function App() {
         <button className="secondary" onClick={authorize} disabled={busy || selected.length === 0}>
           Gerenciar permissões <ChevronRight size={18} />
         </button>
-        <button className="primary" onClick={sync} disabled={busy || selected.length === 0 || !availability?.available}>
+        <button className="primary" onClick={sync} disabled={busy || selected.length === 0}>
           {busy ? <RefreshCw className="spin" size={18} /> : <RefreshCw size={18} />}
           Sincronizar com minha HealthWallet
         </button>
