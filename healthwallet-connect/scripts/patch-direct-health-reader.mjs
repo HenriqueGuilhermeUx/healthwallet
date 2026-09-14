@@ -28,6 +28,8 @@ const pluginPath = path.join(path.dirname(mainActivityPath), `${pluginClass}.jav
 
 const source = `package ${packageName};
 
+import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.health.connect.AggregateRecordsRequest;
 import android.health.connect.AggregateRecordsResponse;
 import android.health.connect.HealthConnectException;
@@ -53,10 +55,51 @@ import java.util.concurrent.Executors;
 
 @CapacitorPlugin(name = "DirectHealthReader")
 public class ${pluginClass} extends Plugin {
+    private static final String READ_STEPS_PERMISSION = "android.permission.health.READ_STEPS";
+    private static final String ACTION_MANAGE_HEALTH_PERMISSIONS = "android.health.connect.action.MANAGE_HEALTH_PERMISSIONS";
+
+    @PluginMethod
+    public void checkStepsPermission(PluginCall call) {
+        boolean granted = getContext().checkSelfPermission(READ_STEPS_PERMISSION) == PackageManager.PERMISSION_GRANTED;
+        JSObject result = new JSObject();
+        result.put("permission", READ_STEPS_PERMISSION);
+        result.put("granted", granted);
+        result.put("packageName", getContext().getPackageName());
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void openStepsPermissionSettings(PluginCall call) {
+        try {
+            Intent intent = new Intent(ACTION_MANAGE_HEALTH_PERMISSIONS);
+            intent.putExtra(Intent.EXTRA_PACKAGE_NAME, getContext().getPackageName());
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            if (intent.resolveActivity(getContext().getPackageManager()) == null) {
+                call.reject("A tela de permissões do Health Connect não está disponível neste aparelho.");
+                return;
+            }
+
+            getContext().startActivity(intent);
+            JSObject result = new JSObject();
+            result.put("opened", true);
+            result.put("packageName", getContext().getPackageName());
+            result.put("permission", READ_STEPS_PERMISSION);
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Não foi possível abrir as permissões do Health Connect: " + error.getMessage(), null, error);
+        }
+    }
+
     @PluginMethod
     public void readStepsDaily(PluginCall call) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             call.reject("Direct Health Connect reader requires Android 14 or newer.");
+            return;
+        }
+
+        if (getContext().checkSelfPermission(READ_STEPS_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
+            call.reject("READ_STEPS_NOT_GRANTED");
             return;
         }
 
@@ -165,4 +208,4 @@ if (!mainActivity.includes(`${pluginClass}.class`)) {
   fs.writeFileSync(mainActivityPath, mainActivity)
 }
 
-console.log('DirectHealthReader registered using Android platform HealthConnectManager API.')
+console.log('DirectHealthReader registered with direct READ_STEPS permission control and Android platform HealthConnectManager API.')
