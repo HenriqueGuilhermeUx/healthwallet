@@ -12,7 +12,21 @@ type DirectStepsResult = {
   days: DirectStepsRow[]
 }
 
+type DirectPermissionResult = {
+  permission: string
+  granted: boolean
+  packageName: string
+}
+
+type DirectPermissionOpenResult = {
+  opened: boolean
+  permission: string
+  packageName: string
+}
+
 type DirectHealthReaderPlugin = {
+  checkStepsPermission(): Promise<DirectPermissionResult>
+  openStepsPermissionSettings(): Promise<DirectPermissionOpenResult>
   readStepsDaily(options: { days: number }): Promise<DirectStepsResult>
 }
 
@@ -29,9 +43,32 @@ function withTimeout<T>(promise: Promise<T>, ms = 20000): Promise<T> {
   })
 }
 
+export function isDirectAndroidHealthAvailable() {
+  return Capacitor.getPlatform() === 'android' && Capacitor.isNativePlatform()
+}
+
+export async function checkDirectAndroidStepsPermission() {
+  if (!isDirectAndroidHealthAvailable()) {
+    return { granted: false, permission: 'android.permission.health.READ_STEPS', packageName: '' }
+  }
+  return withTimeout(DirectHealthReader.checkStepsPermission(), 5000)
+}
+
+export async function openDirectAndroidStepsPermission() {
+  if (!isDirectAndroidHealthAvailable()) {
+    throw new Error('Permissão direta disponível somente no app Android instalado.')
+  }
+  return withTimeout(DirectHealthReader.openStepsPermissionSettings(), 5000)
+}
+
 export async function syncDirectAndroidSteps(userId: string, days = 7) {
   if (!userId) throw new Error('Usuário não autenticado.')
-  if (Capacitor.getPlatform() !== 'android') throw new Error('Leitor Android direto disponível somente no Android.')
+  if (!isDirectAndroidHealthAvailable()) throw new Error('Leitor Android direto disponível somente no Android.')
+
+  const permission = await checkDirectAndroidStepsPermission()
+  if (!permission.granted) {
+    throw new Error('READ_STEPS_NOT_GRANTED')
+  }
 
   const safeDays = Math.max(1, Math.min(7, days))
   const direct = await withTimeout(DirectHealthReader.readStepsDaily({ days: safeDays }), 20000)
@@ -65,9 +102,10 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
       provider: 'health_connect',
       patient_controlled: true,
       selected_metrics: ['steps'],
-      sync_version: 3,
+      sync_version: 4,
       read_strategy: 'android_platform_health_connect_direct',
       direct_reader: true,
+      direct_permission_check: true,
     }
 
     return {
@@ -108,7 +146,8 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
       source_app: 'healthwallet_connect',
       patient_controlled: true,
       direct_reader: 'android_platform_health_connect',
-      sync_version: 3,
+      sync_version: 4,
+      direct_permission_check: true,
     },
   }
 
