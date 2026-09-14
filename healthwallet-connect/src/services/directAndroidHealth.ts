@@ -18,14 +18,23 @@ type DirectPermissionResult = {
   packageName: string
 }
 
+type DirectPermissionRequestResult = {
+  launched: boolean
+  permission: string
+  packageName: string
+  strategy: 'permission_controller_contract'
+}
+
 type DirectPermissionOpenResult = {
   opened: boolean
   permission: string
   packageName: string
+  strategy?: 'manage_health_permissions'
 }
 
 type DirectHealthReaderPlugin = {
   checkStepsPermission(): Promise<DirectPermissionResult>
+  requestStepsPermission(): Promise<DirectPermissionRequestResult>
   openStepsPermissionSettings(): Promise<DirectPermissionOpenResult>
   readStepsDaily(options: { days: number }): Promise<DirectStepsResult>
 }
@@ -52,6 +61,13 @@ export async function checkDirectAndroidStepsPermission() {
     return { granted: false, permission: 'android.permission.health.READ_STEPS', packageName: '' }
   }
   return withTimeout(DirectHealthReader.checkStepsPermission(), 5000)
+}
+
+export async function requestDirectAndroidStepsPermission() {
+  if (!isDirectAndroidHealthAvailable()) {
+    throw new Error('Pedido de permissão disponível somente no app Android instalado.')
+  }
+  return withTimeout(DirectHealthReader.requestStepsPermission(), 5000)
 }
 
 export async function openDirectAndroidStepsPermission() {
@@ -102,10 +118,11 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
       provider: 'health_connect',
       patient_controlled: true,
       selected_metrics: ['steps'],
-      sync_version: 4,
+      sync_version: 5,
       read_strategy: 'android_platform_health_connect_direct',
       direct_reader: true,
       direct_permission_check: true,
+      permission_strategy: 'official_health_connect_contract_with_settings_fallback',
     }
 
     return {
@@ -146,8 +163,9 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
       source_app: 'healthwallet_connect',
       patient_controlled: true,
       direct_reader: 'android_platform_health_connect',
-      sync_version: 4,
+      sync_version: 5,
       direct_permission_check: true,
+      permission_strategy: 'official_health_connect_contract_with_settings_fallback',
     },
   }
 
