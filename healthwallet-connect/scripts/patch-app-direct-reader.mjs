@@ -49,11 +49,15 @@ const replacement = `  async function continueAfterManualPermission() {
 `
 
 source = source.slice(0, start) + replacement + source.slice(end)
-source = source.replace('Já autorizei — testar leitura e sincronizar', 'Já autorizei — sincronizar passos direto pelo Android')
+source = source.replace(/Já autorizei\s*—\s*[^<\n]+/, 'Já autorizei — sincronizar passos direto pelo Android')
 source = source.replace(
-  'Se você já recusou permissões várias vezes, o Android pode deixar de exibir o pedido automático; a tela direta permite revisar e conceder manualmente.',
+  /Se você já recusou permissões várias vezes,[^<\n]+/,
   'Depois de autorizar no Health Connect, este botão usa a API oficial do Android diretamente e não passa pelo plugin Capgo para ler passos.',
 )
+
+if (!source.includes('Já autorizei — sincronizar passos direto pelo Android')) {
+  throw new Error('Could not update manual recovery button label for direct Android reader.')
+}
 
 fs.writeFileSync(appPath, source)
 console.log('App manual recovery routed to DirectHealthReader (Android platform API).')
