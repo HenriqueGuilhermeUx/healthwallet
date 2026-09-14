@@ -42,9 +42,7 @@ import java.util.Set;
 
 /**
  * Small proxy Activity whose only job is to use AndroidX's Activity Result API
- * exactly as documented by Health Connect. Creating the permission contract's
- * Intent manually and calling startActivity() is not equivalent on every OEM;
- * Samsung/Android 14 can route that path back to generic Health Connect UI.
+ * exactly as documented by Health Connect.
  */
 public class HealthPermissionRequestActivity extends ComponentActivity {
     private static final Set<String> FULL_READ_PERMISSIONS = new LinkedHashSet<>(Arrays.asList(
@@ -79,8 +77,6 @@ public class HealthPermissionRequestActivity extends ComponentActivity {
             }
         );
 
-        // Post until the Activity is attached. This avoids launching the
-        // Health Connect sheet before ActivityResultRegistry is ready.
         getWindow().getDecorView().post(() -> permissionLauncher.launch(FULL_READ_PERMISSIONS));
     }
 }
@@ -88,12 +84,18 @@ public class HealthPermissionRequestActivity extends ComponentActivity {
 
 fs.writeFileSync(activityPath, activitySource)
 
-const methodPattern = /    @PluginMethod\n    public void requestHealthPermissions\(PluginCall call\) \{[\s\S]*?\n    \}\n\n    @PluginMethod/
-if (!methodPattern.test(plugin)) {
-  throw new Error('Could not locate requestHealthPermissions in DirectHealthReaderPlugin.java')
+// Replace ONLY requestHealthPermissions(). The previous regex could span across
+// the compatibility comment and accidentally consume checkStepsPermission(),
+// which made Capacitor report that method as "not implemented on android".
+const requestStartMarker = '    @PluginMethod\n    public void requestHealthPermissions(PluginCall call) {'
+const compatibilityMarker = '    // Compatibility methods retained while the Connect UI migrates to the full profile flow.'
+const requestStart = plugin.indexOf(requestStartMarker)
+const compatibilityStart = plugin.indexOf(compatibilityMarker, requestStart)
+if (requestStart === -1 || compatibilityStart === -1 || compatibilityStart <= requestStart) {
+  throw new Error('Could not safely isolate requestHealthPermissions in DirectHealthReaderPlugin.java')
 }
 
-const replacement = `    @PluginMethod
+const requestReplacement = `    @PluginMethod
     public void requestHealthPermissions(PluginCall call) {
         try {
             Intent intent = new Intent(getActivity(), HealthPermissionRequestActivity.class);
@@ -110,9 +112,26 @@ const replacement = `    @PluginMethod
         }
     }
 
-    @PluginMethod`
+`
 
-plugin = plugin.replace(methodPattern, replacement)
+plugin = plugin.slice(0, requestStart) + requestReplacement + plugin.slice(compatibilityStart)
+
+// Hard build-time assertions: these methods are required by directAndroidHealth.ts.
+const requiredNativeMethods = [
+  'checkHealthPermissions',
+  'requestHealthPermissions',
+  'checkStepsPermission',
+  'requestStepsPermission',
+  'openStepsPermissionSettings',
+  'readStepsDaily',
+]
+for (const method of requiredNativeMethods) {
+  const pattern = new RegExp(`@PluginMethod\\s+public void ${method}\\(PluginCall call\\)`)
+  if (!pattern.test(plugin)) {
+    throw new Error(`Native method ${method} is missing or lost its @PluginMethod annotation after permission patch.`)
+  }
+}
+
 fs.writeFileSync(pluginPath, plugin)
 
 const manifestPath = path.join(process.cwd(), 'android', 'app', 'src', 'main', 'AndroidManifest.xml')
@@ -130,4 +149,4 @@ if (!manifest.includes(activityMarker)) {
   fs.writeFileSync(manifestPath, manifest)
 }
 
-console.log('Health Connect permission request now uses a lifecycle-aware ActivityResultLauncher proxy Activity.')
+console.log('Health Connect permission launcher installed without removing DirectHealthReader compatibility methods. Native method audit passed.')
