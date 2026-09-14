@@ -12,11 +12,11 @@ if (!source.includes("import { App as CapacitorApp } from '@capacitor/app'")) {
 }
 
 const directImport = `import {
-  checkDirectAndroidStepsPermission,
+  checkDirectAndroidHealthPermissions,
   isDirectAndroidHealthAvailable,
   openDirectAndroidStepsPermission,
-  requestDirectAndroidStepsPermission,
-  syncDirectAndroidSteps,
+  requestDirectAndroidHealthPermissions,
+  syncDirectAndroidHealth,
 } from './services/directAndroidHealth'`
 
 if (!source.includes("from './services/directAndroidHealth'")) {
@@ -40,19 +40,21 @@ if (!source.includes('const directPermissionPending = useRef(false)')) {
   )
 }
 
+// The full Connect profile should stay intact on Android. Health Connect itself
+// lets the citizen grant all or only some categories in one system screen.
 source = source.replace(
-  /setSelected\(incoming\.metrics\)/g,
-  "setSelected(isDirectAndroidHealthAvailable() ? ['steps'] : incoming.metrics)",
+  /setSelected\(isDirectAndroidHealthAvailable\(\) \? \['steps'\] : incoming\.metrics\)/g,
+  'setSelected(incoming.metrics)',
 )
 source = source.replace(
-  /setSelected\(redeemed\.metrics\)/g,
-  "setSelected(isDirectAndroidHealthAvailable() ? ['steps'] : redeemed.metrics)",
+  /setSelected\(isDirectAndroidHealthAvailable\(\) \? \['steps'\] : redeemed\.metrics\)/g,
+  'setSelected(redeemed.metrics)',
 )
 
 source = source.replace(
   '    void runHandoffSync(handoff, userId)',
   `    if (isDirectAndroidHealthAvailable()) {
-      void runDirectAndroidStepsHandoff(handoff, userId)
+      void runDirectAndroidHealthHandoff(handoff, userId)
     } else {
       void runHandoffSync(handoff, userId)
     }`,
@@ -66,7 +68,7 @@ if (!source.includes("CapacitorApp.addListener('appStateChange'")) {
 
     void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (!isActive || !directPermissionPending.current) return
-      void resumeDirectAndroidStepsPermission()
+      void resumeDirectAndroidHealthPermission()
     }).then((handle) => {
       listener = handle
     })
@@ -74,25 +76,36 @@ if (!source.includes("CapacitorApp.addListener('appStateChange'")) {
     return () => {
       void listener?.remove()
     }
-  }, [userId, handoff])
+  }, [userId, handoff, selected])
 
 `
   source = source.replace(providerNameMarker, `${resumeEffect}${providerNameMarker}`)
 }
 
 const runHandoffMarker = '  async function runHandoffSync(activeHandoff: ConnectHandoff, activeUserId: string) {'
-if (!source.includes('async function runDirectAndroidStepsHandoff(')) {
-  const directFunctions = `  async function finishDirectAndroidStepsSync(activeUserId: string, activeHandoff: ConnectHandoff | null) {
+if (!source.includes('async function runDirectAndroidHealthHandoff(')) {
+  const directFunctions = `  async function finishDirectAndroidHealthSync(
+    activeUserId: string,
+    activeHandoff: ConnectHandoff | null,
+    requestedMetrics: HealthMetric[],
+  ) {
     try {
       setBusy(true)
       setHandoffError('')
-      setMessage('Permissão confirmada. Sincronizando passos diretamente pelo Android…')
-      const result = await syncDirectAndroidSteps(activeUserId, activeHandoff?.days || 7)
+      setMessage('Permissões confirmadas. Sincronizando os dados autorizados…')
+      const result = await syncDirectAndroidHealth(activeUserId, requestedMetrics, activeHandoff?.days || 30)
       const now = new Date()
       setLastSync(now.toLocaleString())
       setPermissionRecovery(false)
       directPermissionPending.current = false
-      setMessage(\`\${result.daysSynced} dia(s) de passos sincronizado(s). Voltando para sua HealthWallet…\`)
+
+      const skipped = Array.isArray(result.skippedMetrics) ? result.skippedMetrics.length : 0
+      const suffix = result.degraded
+        ? ' Passos foram sincronizados; os demais dados serão tentados novamente na próxima sincronização.'
+        : skipped > 0
+          ? \` \${skipped} categoria(s) não autorizada(s) foram respeitadas.\`
+          : ''
+      setMessage(\`\${result.daysSynced} dia(s) sincronizado(s).\${suffix} Voltando para sua HealthWallet…\`)
 
       if (activeHandoff) {
         await delay(500)
@@ -103,9 +116,9 @@ if (!source.includes('async function runDirectAndroidStepsHandoff(')) {
         })
       }
     } catch (error: any) {
-      const text = error?.message === 'READ_STEPS_NOT_GRANTED'
-        ? 'A permissão de Passos ainda não foi concedida ao HealthWallet Connect.'
-        : error?.message || 'Não foi possível sincronizar os passos pelo Android.'
+      const text = error?.message === 'NO_HEALTH_PERMISSIONS_GRANTED'
+        ? 'Nenhum dado de saúde foi autorizado. Você pode tentar novamente e escolher o que deseja compartilhar.'
+        : error?.message || 'Não foi possível sincronizar os dados pelo Android.'
       setMessage(text)
       setHandoffError(text)
       setPermissionRecovery(true)
@@ -114,32 +127,41 @@ if (!source.includes('async function runDirectAndroidStepsHandoff(')) {
     }
   }
 
-  async function launchDirectStepsPermission() {
+  async function launchDirectHealthPermission() {
     directPermissionPending.current = true
-    setPermissionRecovery(true)
-    setMessage('Autorize Passos na tela do Health Connect. Ao voltar, a sincronização continuará automaticamente.')
+    setPermissionRecovery(false)
+    setMessage('O Android vai mostrar uma única tela do Health Connect. Autorize todos os dados que quiser compartilhar; depois a sincronização continua sozinha.')
 
     try {
-      await requestDirectAndroidStepsPermission()
+      await requestDirectAndroidHealthPermissions()
     } catch (requestError) {
       console.warn('Official Health Connect permission sheet unavailable, using settings fallback:', requestError)
+      setPermissionRecovery(true)
+      setMessage('Não foi possível abrir a tela oficial automaticamente. Abrindo a página de permissões do Health Connect como alternativa…')
       await openDirectAndroidStepsPermission()
     }
   }
 
-  async function runDirectAndroidStepsHandoff(activeHandoff: ConnectHandoff | null, activeUserId: string) {
+  async function runDirectAndroidHealthHandoff(activeHandoff: ConnectHandoff | null, activeUserId: string) {
     try {
+      const requestedMetrics = activeHandoff?.metrics?.length ? activeHandoff.metrics : selected
+      if (!requestedMetrics.length) {
+        throw new Error('Selecione pelo menos um dado de saúde para sincronizar.')
+      }
+
       setHandoffError('')
-      setMessage('Verificando a permissão de Passos no Android…')
-      const permission = await checkDirectAndroidStepsPermission()
-      if (!permission.granted) {
-        await launchDirectStepsPermission()
+      setMessage('Verificando suas autorizações no Health Connect…')
+      const permission = await checkDirectAndroidHealthPermissions(requestedMetrics)
+
+      if (permission.missingMetrics.length > 0) {
+        await launchDirectHealthPermission()
         return
       }
-      await finishDirectAndroidStepsSync(activeUserId, activeHandoff)
+
+      await finishDirectAndroidHealthSync(activeUserId, activeHandoff, requestedMetrics)
     } catch (error: any) {
       directPermissionPending.current = false
-      const text = error?.message || 'Não foi possível abrir ou verificar a permissão de Passos.'
+      const text = error?.message || 'Não foi possível abrir ou verificar as permissões de saúde.'
       setMessage(text)
       setHandoffError(text)
       setPermissionRecovery(true)
@@ -147,20 +169,23 @@ if (!source.includes('async function runDirectAndroidStepsHandoff(')) {
     }
   }
 
-  async function resumeDirectAndroidStepsPermission() {
+  async function resumeDirectAndroidHealthPermission() {
     if (!userId || !directPermissionPending.current) return
     try {
-      const permission = await checkDirectAndroidStepsPermission()
-      if (!permission.granted) {
+      const requestedMetrics = handoff?.metrics?.length ? handoff.metrics : selected
+      const permission = await checkDirectAndroidHealthPermissions(requestedMetrics)
+
+      if (!permission.grantedMetrics.length) {
         setPermissionRecovery(true)
-        setMessage('Passos ainda não está autorizado. Toque em Gerenciar permissões para tentar novamente.')
+        setMessage('Nenhum dado foi autorizado ainda. Toque em “Autorizar dados de saúde” para tentar novamente.')
         return
       }
+
       directPermissionPending.current = false
-      await finishDirectAndroidStepsSync(userId, handoff)
+      await finishDirectAndroidHealthSync(userId, handoff, requestedMetrics)
     } catch (error: any) {
       directPermissionPending.current = false
-      const text = error?.message || 'Não foi possível confirmar a permissão ao retornar ao Connect.'
+      const text = error?.message || 'Não foi possível confirmar as permissões ao retornar ao Connect.'
       setMessage(text)
       setHandoffError(text)
       setPermissionRecovery(true)
@@ -172,19 +197,19 @@ if (!source.includes('async function runDirectAndroidStepsHandoff(')) {
 }
 
 const authorizeStart = source.indexOf('  async function authorize() {')
-const runHandoffStart = source.indexOf('\n  async function runDirectAndroidStepsHandoff(', authorizeStart)
-if (authorizeStart !== -1 && runHandoffStart !== -1) {
-  const originalAuthorizeBlock = source.slice(authorizeStart, runHandoffStart)
+const directRunStart = source.indexOf('\n  async function runDirectAndroidHealthHandoff(', authorizeStart)
+if (authorizeStart !== -1 && directRunStart !== -1) {
+  const originalAuthorizeBlock = source.slice(authorizeStart, directRunStart)
   const directAwareAuthorize = originalAuthorizeBlock.replace(
     "  async function authorize() {\n    try {",
     `  async function authorize() {
     if (isDirectAndroidHealthAvailable() && userId) {
-      await runDirectAndroidStepsHandoff(handoff, userId)
+      await runDirectAndroidHealthHandoff(handoff, userId)
       return
     }
     try {`,
   )
-  source = source.slice(0, authorizeStart) + directAwareAuthorize + source.slice(runHandoffStart)
+  source = source.slice(0, authorizeStart) + directAwareAuthorize + source.slice(directRunStart)
 }
 
 const syncStart = source.indexOf('  async function sync() {')
@@ -196,7 +221,7 @@ if (syncStart !== -1 && openDirectStart !== -1) {
     `  async function sync() {
     if (!userId) return
     if (isDirectAndroidHealthAvailable()) {
-      await runDirectAndroidStepsHandoff(handoff, userId)
+      await runDirectAndroidHealthHandoff(handoff, userId)
       return
     }`,
   )
@@ -209,7 +234,7 @@ if (openDirectStart2 !== -1 && continueStart !== -1) {
   const replacement = `  async function openDirectPermissions() {
     if (isDirectAndroidHealthAvailable()) {
       try {
-        await launchDirectStepsPermission()
+        await launchDirectHealthPermission()
       } catch (error: any) {
         directPermissionPending.current = false
         setMessage(error?.message || 'Não foi possível abrir as permissões do Health Connect.')
@@ -240,29 +265,34 @@ if (start === -1 || end === -1) throw new Error('Could not locate continueAfterM
 
 const replacement = `  async function continueAfterManualPermission() {
     if (!userId) return
-    await runDirectAndroidStepsHandoff(handoff, userId)
+    await runDirectAndroidHealthHandoff(handoff, userId)
   }
 `
 source = source.slice(0, start) + replacement + source.slice(end)
 
-source = source.replace(/Já autorizei\s*—\s*[^<\n]+/, 'Já autorizei — sincronizar passos direto pelo Android')
+source = source.replace(/Já autorizei\s*—\s*[^<\n]+/, 'Já autorizei — continuar sincronização')
+source = source.replace(/Abrir permissões diretamente/g, 'Autorizar dados de saúde')
 source = source.replace(
-  /No Android, o Connect verifica Passos diretamente\.[^<\n]+|Depois de autorizar no Health Connect,[^<\n]+|Se você já recusou permissões várias vezes,[^<\n]+/,
-  'No Android, o Connect pede Passos pela tela oficial do Health Connect. Se o aparelho não abrir essa tela, usa as configurações como fallback; ao voltar, sincroniza automaticamente.',
+  /No Android, o Connect pede Passos pela tela oficial do Health Connect\.[^<\n]+|No Android, o Connect verifica Passos diretamente\.[^<\n]+|Depois de autorizar no Health Connect,[^<\n]+|Se você já recusou permissões várias vezes,[^<\n]+/,
+  'No Android, o Connect abre a tela oficial do Health Connect com todas as categorias disponíveis de uma vez. Você escolhe o que autorizar e, ao voltar, a sincronização continua automaticamente.',
+)
+source = source.replace(
+  'Depois de autorizar no Health Connect, volte aqui e use “Já autorizei — sincronizar agora”.',
+  'Normalmente basta autorizar na tela do Android. Ao voltar, a sincronização continua sozinha.',
 )
 
-if (!source.includes('runDirectAndroidStepsHandoff')) {
-  throw new Error('Could not install automatic direct Android handoff flow.')
+if (!source.includes('runDirectAndroidHealthHandoff')) {
+  throw new Error('Could not install automatic full Android handoff flow.')
 }
 if (!source.includes("CapacitorApp.addListener('appStateChange'")) {
   throw new Error('Could not install Android permission resume listener.')
 }
-if (!source.includes('requestDirectAndroidStepsPermission')) {
-  throw new Error('Could not install official Health Connect permission request.')
+if (!source.includes('requestDirectAndroidHealthPermissions')) {
+  throw new Error('Could not install official full Health Connect permission request.')
 }
-if (!source.includes('openDirectAndroidStepsPermission')) {
-  throw new Error('Could not install Health Connect settings fallback.')
+if (!source.includes('syncDirectAndroidHealth')) {
+  throw new Error('Could not install full Android health synchronization.')
 }
 
 fs.writeFileSync(appPath, source)
-console.log('Android Connect now uses official Health Connect permission request, settings fallback, automatic resume sync, and direct platform reader.')
+console.log('Android Connect now opens the platform Health Connect permission sheet for the full read-only profile, respects partial grants, syncs automatically on return, and keeps Settings only as fallback.')
