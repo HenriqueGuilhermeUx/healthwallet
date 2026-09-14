@@ -35,11 +35,26 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -mindepth 2 -maxdepth 2 -type f -name sdkmanager | sort -V | tail -n 1)"
+          fi
+          test -x "$SDKMANAGER" || (echo "Preinstalled sdkmanager not found" && exit 1)
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          "$SDKMANAGER" --version
 
       - name: Install Android API 36
-        run: sdkmanager --install "platforms;android-36"
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Check runtime configuration
         run: |
@@ -89,6 +104,11 @@ jobs:
           grep -q "CapacitorApp.addListener('resume'" src/App.tsx || (echo "Android resume listener missing" && exit 1)
           grep -q "directPermissionPending.current = false" src/App.tsx || (echo "Permission resume single-flight guard missing" && exit 1)
           grep -q "runDirectAndroidHealthHandoff" src/App.tsx || (echo "Automatic full Android handoff path missing" && exit 1)
+          grep -q "if (!isDirectAndroidHealthAvailable() && !availability?.available) return" src/App.tsx || (echo "Android-native autostart gate missing" && exit 1)
+          if grep -q "handoffBusy || handoffError || !userId || !availability?.available" src/App.tsx; then
+            echo "Legacy Capgo availability still blocks Android autostart"
+            exit 1
+          fi
           grep -q "sync_version: 7" src/services/directAndroidHealth.ts || (echo "Direct reader v7 persistence marker missing" && exit 1)
           grep -q "activity_result_launcher_proxy" src/services/directAndroidHealth.ts || (echo "Lifecycle permission strategy marker missing" && exit 1)
           grep -q "pending_native_read_metrics" src/services/directAndroidHealth.ts || (echo "Pending native metric metadata missing" && exit 1)
@@ -137,6 +157,8 @@ jobs:
           grep -q "FULL_READ_PERMISSIONS" "$PLUGIN" || (echo "Full read-only permission set missing" && exit 1)
           grep -q "checkHealthPermissions" "$PLUGIN" || (echo "Full permission check missing" && exit 1)
           grep -q "requestHealthPermissions" "$PLUGIN" || (echo "Full permission request missing" && exit 1)
+          grep -q "@PluginMethod" "$PLUGIN" || (echo "Capacitor plugin methods missing" && exit 1)
+          grep -q "public void checkStepsPermission(PluginCall call)" "$PLUGIN" || (echo "checkStepsPermission native method missing" && exit 1)
           grep -q "HealthPermissionRequestActivity.class" "$PLUGIN" || (echo "Permission proxy Activity is not launched by plugin" && exit 1)
           grep -q "ActivityResultLauncher" "$PERMISSION_ACTIVITY" || (echo "Lifecycle-aware ActivityResultLauncher missing" && exit 1)
           grep -q "registerForActivityResult" "$PERMISSION_ACTIVITY" || (echo "registerForActivityResult missing" && exit 1)
