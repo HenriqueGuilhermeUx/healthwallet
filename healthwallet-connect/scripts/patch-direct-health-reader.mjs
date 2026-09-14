@@ -53,7 +53,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.HashSet;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -62,39 +63,85 @@ import java.util.concurrent.Executors;
 public class ${pluginClass} extends Plugin {
     private static final String READ_STEPS_PERMISSION = "android.permission.health.READ_STEPS";
     private static final String ACTION_MANAGE_HEALTH_PERMISSIONS = "android.health.connect.action.MANAGE_HEALTH_PERMISSIONS";
-    private static final String DEFAULT_HEALTH_CONNECT_PROVIDER = "com.google.android.apps.healthdata";
+
+    private static final Set<String> FULL_READ_PERMISSIONS = new LinkedHashSet<>(Arrays.asList(
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_SLEEP",
+        "android.permission.health.READ_HEART_RATE",
+        "android.permission.health.READ_RESTING_HEART_RATE",
+        "android.permission.health.READ_OXYGEN_SATURATION",
+        "android.permission.health.READ_HEART_RATE_VARIABILITY",
+        "android.permission.health.READ_BLOOD_PRESSURE",
+        "android.permission.health.READ_WEIGHT",
+        "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+        "android.permission.health.READ_EXERCISE"
+    ));
+
+    private boolean isGranted(String permission) {
+        return getContext().checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+    }
 
     @PluginMethod
+    public void checkHealthPermissions(PluginCall call) {
+        JSArray granted = new JSArray();
+        JSArray missing = new JSArray();
+
+        for (String permission : FULL_READ_PERMISSIONS) {
+            if (isGranted(permission)) granted.put(permission);
+            else missing.put(permission);
+        }
+
+        JSObject result = new JSObject();
+        result.put("packageName", getContext().getPackageName());
+        result.put("grantedPermissions", granted);
+        result.put("missingPermissions", missing);
+        result.put("allGranted", missing.length() == 0);
+        result.put("requestedPermissionCount", FULL_READ_PERMISSIONS.size());
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void requestHealthPermissions(PluginCall call) {
+        try {
+            // IMPORTANT: do not hardcode the legacy Health Connect provider package here.
+            // On Android 14+ Health Connect is a platform module. The no-arg contract lets
+            // Android route the request to the correct controller and opens the real,
+            // app-scoped Health Connect permission sheet instead of generic Settings.
+            ActivityResultContract<Set<String>, Set<String>> contract =
+                PermissionController.createRequestPermissionResultContract();
+            Intent intent = contract.createIntent(getActivity(), FULL_READ_PERMISSIONS);
+
+            if (intent.resolveActivity(getContext().getPackageManager()) == null) {
+                call.reject("O Android não encontrou a tela oficial de permissões do Health Connect.");
+                return;
+            }
+
+            getActivity().startActivity(intent);
+
+            JSObject result = new JSObject();
+            result.put("launched", true);
+            result.put("packageName", getContext().getPackageName());
+            result.put("requestedPermissionCount", FULL_READ_PERMISSIONS.size());
+            result.put("strategy", "platform_permission_controller_contract");
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Não foi possível abrir o pedido oficial de permissão do Health Connect: " + error.getMessage(), null, error);
+        }
+    }
+
+    // Compatibility methods retained while the Connect UI migrates to the full profile flow.
+    @PluginMethod
     public void checkStepsPermission(PluginCall call) {
-        boolean granted = getContext().checkSelfPermission(READ_STEPS_PERMISSION) == PackageManager.PERMISSION_GRANTED;
         JSObject result = new JSObject();
         result.put("permission", READ_STEPS_PERMISSION);
-        result.put("granted", granted);
+        result.put("granted", isGranted(READ_STEPS_PERMISSION));
         result.put("packageName", getContext().getPackageName());
         call.resolve(result);
     }
 
     @PluginMethod
     public void requestStepsPermission(PluginCall call) {
-        try {
-            Set<String> permissions = new HashSet<>();
-            permissions.add(READ_STEPS_PERMISSION);
-
-            ActivityResultContract<Set<String>, Set<String>> contract =
-                PermissionController.createRequestPermissionResultContract(DEFAULT_HEALTH_CONNECT_PROVIDER);
-            Intent intent = contract.createIntent(getActivity(), permissions);
-
-            getActivity().startActivity(intent);
-
-            JSObject result = new JSObject();
-            result.put("launched", true);
-            result.put("permission", READ_STEPS_PERMISSION);
-            result.put("packageName", getContext().getPackageName());
-            result.put("strategy", "permission_controller_contract");
-            call.resolve(result);
-        } catch (Exception error) {
-            call.reject("Não foi possível abrir o pedido oficial de permissão do Health Connect: " + error.getMessage(), null, error);
-        }
+        requestHealthPermissions(call);
     }
 
     @PluginMethod
@@ -114,7 +161,7 @@ public class ${pluginClass} extends Plugin {
             result.put("opened", true);
             result.put("packageName", getContext().getPackageName());
             result.put("permission", READ_STEPS_PERMISSION);
-            result.put("strategy", "manage_health_permissions");
+            result.put("strategy", "manage_health_permissions_fallback");
             call.resolve(result);
         } catch (Exception error) {
             call.reject("Não foi possível abrir as permissões do Health Connect: " + error.getMessage(), null, error);
@@ -128,7 +175,7 @@ public class ${pluginClass} extends Plugin {
             return;
         }
 
-        if (getContext().checkSelfPermission(READ_STEPS_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
+        if (!isGranted(READ_STEPS_PERMISSION)) {
             call.reject("READ_STEPS_NOT_GRANTED");
             return;
         }
@@ -250,4 +297,4 @@ if (!mainActivity.includes(`${pluginClass}.class`)) {
   fs.writeFileSync(mainActivityPath, mainActivity)
 }
 
-console.log('DirectHealthReader registered with official Health Connect permission contract, settings fallback, READ_STEPS check, and Android platform reader.')
+console.log('DirectHealthReader registered with platform Health Connect permission sheet for the full read-only profile, settings fallback, and direct steps reader.')
