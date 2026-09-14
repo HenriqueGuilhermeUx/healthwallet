@@ -2,15 +2,27 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '../lib/supabase'
 import { HealthMetric } from './healthSync'
 
-type DirectStepsRow = {
+type DirectHealthDailyRow = {
   date: string
-  steps: number
+  steps?: number
+  sleepMinutes?: number
+  avgHeartRate?: number
+  restingHeartRate?: number
+  spo2Avg?: number
+  hrvAvg?: number
+  systolicBp?: number
+  diastolicBp?: number
+  weightKg?: number
+  activeCalories?: number
+  activityMinutes?: number
 }
 
-type DirectStepsResult = {
+type DirectHealthDailyResult = {
   reader: 'android_platform_health_connect'
   daysRequested: number
-  days: DirectStepsRow[]
+  days: DirectHealthDailyRow[]
+  metricsRead: HealthMetric[]
+  metricErrors?: Record<string, string>
 }
 
 type DirectPermissionResult = {
@@ -47,7 +59,8 @@ type DirectHealthReaderPlugin = {
   checkStepsPermission(): Promise<DirectPermissionResult>
   requestStepsPermission(): Promise<DirectPermissionRequestResult>
   openStepsPermissionSettings(): Promise<DirectPermissionOpenResult>
-  readStepsDaily(options: { days: number }): Promise<DirectStepsResult>
+  readStepsDaily(options: { days: number }): Promise<DirectHealthDailyResult>
+  readHealthDaily(options: { days: number; metrics: HealthMetric[] }): Promise<DirectHealthDailyResult>
 }
 
 const DirectHealthReader = registerPlugin<DirectHealthReaderPlugin>('DirectHealthReader')
@@ -65,7 +78,21 @@ export const ANDROID_PERMISSION_BY_METRIC: Record<HealthMetric, string> = {
   exerciseTime: 'android.permission.health.READ_EXERCISE',
 }
 
-function withTimeout<T>(promise: Promise<T>, ms = 20000): Promise<T> {
+const SUMMARY_FIELDS: Array<keyof Omit<DirectHealthDailyRow, 'date'>> = [
+  'steps',
+  'sleepMinutes',
+  'avgHeartRate',
+  'restingHeartRate',
+  'spo2Avg',
+  'hrvAvg',
+  'systolicBp',
+  'diastolicBp',
+  'weightKg',
+  'activeCalories',
+  'activityMinutes',
+]
+
+function withTimeout<T>(promise: Promise<T>, ms = 30000): Promise<T> {
   let timer: number | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = window.setTimeout(() => reject(new Error(`Leitor Android oficial não respondeu em ${Math.round(ms / 1000)} segundos.`)), ms)
@@ -74,6 +101,20 @@ function withTimeout<T>(promise: Promise<T>, ms = 20000): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => {
     if (timer) window.clearTimeout(timer)
   })
+}
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function hasNativeData(row: DirectHealthDailyRow) {
+  return SUMMARY_FIELDS.some((field) => numberOrNull(row[field]) !== null)
+}
+
+function nativeDataPointCount(row: DirectHealthDailyRow) {
+  return SUMMARY_FIELDS.filter((field) => numberOrNull(row[field]) !== null).length
 }
 
 export function isDirectAndroidHealthAvailable() {
@@ -133,13 +174,9 @@ export async function openDirectAndroidStepsPermission() {
 }
 
 /**
- * Android post-permission sync must never depend on @capgo/capacitor-health.
- * The Samsung E2E proved the platform reader is reliable while Capgo can remain
- * pending indefinitely after a successful Health Connect authorization.
- *
- * We therefore complete the E2E immediately through the native Steps reader.
- * The full permission set is still requested and persisted so the remaining
- * native readers can be added without asking the user to authorize again.
+ * Native Android sync. No @capgo/capacitor-health read is allowed in this path.
+ * The reader uses HealthConnectManager directly and returns one normalized row
+ * per local calendar day for all granted HealthWallet metrics.
  */
 export async function syncDirectAndroidHealth(userId: string, metrics: HealthMetric[], days = 30) {
   if (!userId) throw new Error('Usuário não autenticado.')
@@ -149,53 +186,46 @@ export async function syncDirectAndroidHealth(userId: string, metrics: HealthMet
   const permission = await checkDirectAndroidHealthPermissions(requestedMetrics)
   const grantedMetrics = permission.grantedMetrics
 
-  if (!grantedMetrics.length) {
-    throw new Error('NO_HEALTH_PERMISSIONS_GRANTED')
-  }
-
-  if (!grantedMetrics.includes('steps')) {
-    throw new Error('READ_STEPS_NOT_GRANTED')
-  }
-
-  const steps = await syncDirectAndroidSteps(userId, days, grantedMetrics)
-
-  return {
-    ...steps,
-    requestedMetrics,
-    grantedMetrics,
-    skippedMetrics: permission.missingMetrics,
-    permissionStrategy: 'activity_result_launcher_proxy' as const,
-    degraded: grantedMetrics.some((metric) => metric !== 'steps'),
-    nativeReadMetrics: ['steps'] as HealthMetric[],
-    pendingNativeReadMetrics: grantedMetrics.filter((metric) => metric !== 'steps'),
-  }
-}
-
-export async function syncDirectAndroidSteps(
-  userId: string,
-  days = 7,
-  authorizedMetrics: HealthMetric[] = ['steps'],
-) {
-  if (!userId) throw new Error('Usuário não autenticado.')
-  if (!isDirectAndroidHealthAvailable()) throw new Error('Leitor Android direto disponível somente no Android.')
-
-  const permission = await checkDirectAndroidStepsPermission()
-  if (!permission.granted) {
-    throw new Error('READ_STEPS_NOT_GRANTED')
-  }
+  if (!grantedMetrics.length) throw new Error('NO_HEALTH_PERMISSIONS_GRANTED')
 
   const safeDays = Math.max(1, Math.min(30, days))
-  const direct = await withTimeout(DirectHealthReader.readStepsDaily({ days: safeDays }), 25000)
+  const direct = await withTimeout(
+    DirectHealthReader.readHealthDaily({ days: safeDays, metrics: grantedMetrics }),
+    45000,
+  )
 
-  if (!Array.isArray(direct.days) || direct.days.length === 0) {
-    throw new Error('O Android respondeu, mas não retornou nenhum dia de passos.')
+  const rows = (Array.isArray(direct.days) ? direct.days : [])
+    .filter((row) => row?.date && hasNativeData(row))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  const metricsRead = Array.from(new Set(direct.metricsRead || [])) as HealthMetric[]
+  const metricErrors = direct.metricErrors || {}
+
+  if (!rows.length && Object.keys(metricErrors).length) {
+    const first = Object.entries(metricErrors)[0]
+    throw new Error(`Health Connect não conseguiu ler ${first[0]}: ${first[1]}`)
   }
 
-  const ordered = [...direct.days].sort((a, b) => a.date.localeCompare(b.date))
-  const firstDate = ordered[0].date
-  const lastDate = ordered[ordered.length - 1].date
-  const normalizedAuthorizedMetrics = Array.from(new Set(['steps', ...authorizedMetrics])) as HealthMetric[]
+  if (!rows.length) {
+    return {
+      provider: 'health_connect' as const,
+      reader: direct.reader,
+      daysRequested: safeDays,
+      daysSynced: 0,
+      requestedMetrics,
+      grantedMetrics,
+      skippedMetrics: permission.missingMetrics,
+      permissionStrategy: 'activity_result_launcher_proxy' as const,
+      degraded: metricsRead.length < grantedMetrics.length,
+      nativeReadMetrics: metricsRead,
+      pendingNativeReadMetrics: grantedMetrics.filter((metric) => !metricsRead.includes(metric)),
+      metricErrors,
+      latest: null,
+    }
+  }
 
+  const firstDate = rows[0].date
+  const lastDate = rows[rows.length - 1].date
   const { data: existingRows, error: existingError } = await supabase
     .from('health_daily_summaries')
     .select('*')
@@ -208,31 +238,45 @@ export async function syncDirectAndroidSteps(
   const existingByDate = new Map((existingRows || []).map((row: any) => [row.summary_date, row]))
   const now = new Date().toISOString()
 
-  const payloads = ordered.map((row) => {
+  const payloads = rows.map((row) => {
     const existing: any = existingByDate.get(row.date)
     const sources = Array.from(new Set([...(Array.isArray(existing?.sources) ? existing.sources : []), 'health_connect']))
-    const metadata = {
-      ...(existing?.metadata || {}),
-      source_app: 'healthwallet_connect',
-      provider: 'health_connect',
-      patient_controlled: true,
-      selected_metrics: normalizedAuthorizedMetrics,
-      sync_version: 7,
-      read_strategy: 'android_platform_health_connect_direct',
-      direct_reader: true,
-      direct_permission_check: true,
-      permission_strategy: 'activity_result_launcher_proxy',
-      native_read_metrics: ['steps'],
-      pending_native_read_metrics: normalizedAuthorizedMetrics.filter((metric) => metric !== 'steps'),
+    const merged = {
+      steps: numberOrNull(row.steps) ?? numberOrNull(existing?.steps),
+      sleep_minutes: numberOrNull(row.sleepMinutes) ?? numberOrNull(existing?.sleep_minutes),
+      avg_heart_rate: numberOrNull(row.avgHeartRate) ?? numberOrNull(existing?.avg_heart_rate),
+      resting_heart_rate: numberOrNull(row.restingHeartRate) ?? numberOrNull(existing?.resting_heart_rate),
+      spo2_avg: numberOrNull(row.spo2Avg) ?? numberOrNull(existing?.spo2_avg),
+      hrv_avg: numberOrNull(row.hrvAvg) ?? numberOrNull(existing?.hrv_avg),
+      systolic_bp: numberOrNull(row.systolicBp) ?? numberOrNull(existing?.systolic_bp),
+      diastolic_bp: numberOrNull(row.diastolicBp) ?? numberOrNull(existing?.diastolic_bp),
+      weight_kg: numberOrNull(row.weightKg) ?? numberOrNull(existing?.weight_kg),
+      active_calories: numberOrNull(row.activeCalories) ?? numberOrNull(existing?.active_calories),
+      activity_minutes: numberOrNull(row.activityMinutes) ?? numberOrNull(existing?.activity_minutes),
     }
+    const dataPoints = Object.values(merged).filter((value) => value !== null).length
 
     return {
       user_id: userId,
       summary_date: row.date,
-      steps: Math.max(0, Math.round(Number(row.steps) || 0)),
+      ...merged,
       sources,
-      data_points: Math.max(1, Number(existing?.data_points) || 0),
-      metadata,
+      data_points: Math.max(dataPoints, Number(existing?.data_points) || 0, nativeDataPointCount(row)),
+      metadata: {
+        ...(existing?.metadata || {}),
+        source_app: 'healthwallet_connect',
+        provider: 'health_connect',
+        patient_controlled: true,
+        selected_metrics: grantedMetrics,
+        sync_version: 8,
+        read_strategy: 'android_platform_health_connect_full_native',
+        direct_reader: true,
+        direct_permission_check: true,
+        permission_strategy: 'activity_result_launcher_proxy',
+        native_read_metrics: metricsRead,
+        pending_native_read_metrics: grantedMetrics.filter((metric) => !metricsRead.includes(metric)),
+        metric_errors: metricErrors,
+      },
       last_sync_at: now,
       updated_at: now,
     }
@@ -258,17 +302,18 @@ export async function syncDirectAndroidSteps(
     display_name: 'Health Connect',
     source_device: 'Android Health Connect',
     status: 'connected',
-    scopes_authorized: normalizedAuthorizedMetrics,
+    scopes_authorized: grantedMetrics,
     last_sync_at: now,
     metadata: {
       source_app: 'healthwallet_connect',
       patient_controlled: true,
       direct_reader: 'android_platform_health_connect',
-      sync_version: 7,
+      sync_version: 8,
       direct_permission_check: true,
       permission_strategy: 'activity_result_launcher_proxy',
-      native_read_metrics: ['steps'],
-      pending_native_read_metrics: normalizedAuthorizedMetrics.filter((metric) => metric !== 'steps'),
+      native_read_metrics: metricsRead,
+      pending_native_read_metrics: grantedMetrics.filter((metric) => !metricsRead.includes(metric)),
+      metric_errors: metricErrors,
     },
   }
 
@@ -287,9 +332,20 @@ export async function syncDirectAndroidSteps(
     provider: 'health_connect' as const,
     reader: direct.reader,
     daysRequested: safeDays,
-    daysSynced: ordered.length,
-    metrics: ['steps'] as const,
-    authorizedMetrics: normalizedAuthorizedMetrics,
-    latest: ordered[ordered.length - 1],
+    daysSynced: rows.length,
+    requestedMetrics,
+    grantedMetrics,
+    skippedMetrics: permission.missingMetrics,
+    permissionStrategy: 'activity_result_launcher_proxy' as const,
+    degraded: metricsRead.length < grantedMetrics.length || Object.keys(metricErrors).length > 0,
+    nativeReadMetrics: metricsRead,
+    pendingNativeReadMetrics: grantedMetrics.filter((metric) => !metricsRead.includes(metric)),
+    metricErrors,
+    latest: rows[rows.length - 1],
   }
+}
+
+// Compatibility helper retained for the diagnostic screen and old test builds.
+export async function syncDirectAndroidSteps(userId: string, days = 7, authorizedMetrics: HealthMetric[] = ['steps']) {
+  return syncDirectAndroidHealth(userId, Array.from(new Set(['steps', ...authorizedMetrics])) as HealthMetric[], days)
 }
