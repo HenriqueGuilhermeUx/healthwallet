@@ -15,6 +15,7 @@ const directImport = `import {
   checkDirectAndroidStepsPermission,
   isDirectAndroidHealthAvailable,
   openDirectAndroidStepsPermission,
+  requestDirectAndroidStepsPermission,
   syncDirectAndroidSteps,
 } from './services/directAndroidHealth'`
 
@@ -58,7 +59,7 @@ source = source.replace(
 )
 
 const providerNameMarker = '  const providerName = useMemo(() => providerLabel(availability?.provider || null), [availability])'
-if (!source.includes('CapacitorApp.addListener(\'appStateChange\'')) {
+if (!source.includes("CapacitorApp.addListener('appStateChange'")) {
   const resumeEffect = `  useEffect(() => {
     if (!userId || !isDirectAndroidHealthAvailable()) return
     let listener: { remove: () => Promise<void> } | undefined
@@ -113,16 +114,26 @@ if (!source.includes('async function runDirectAndroidStepsHandoff(')) {
     }
   }
 
+  async function launchDirectStepsPermission() {
+    directPermissionPending.current = true
+    setPermissionRecovery(true)
+    setMessage('Autorize Passos na tela do Health Connect. Ao voltar, a sincronização continuará automaticamente.')
+
+    try {
+      await requestDirectAndroidStepsPermission()
+    } catch (requestError) {
+      console.warn('Official Health Connect permission sheet unavailable, using settings fallback:', requestError)
+      await openDirectAndroidStepsPermission()
+    }
+  }
+
   async function runDirectAndroidStepsHandoff(activeHandoff: ConnectHandoff | null, activeUserId: string) {
     try {
       setHandoffError('')
       setMessage('Verificando a permissão de Passos no Android…')
       const permission = await checkDirectAndroidStepsPermission()
       if (!permission.granted) {
-        directPermissionPending.current = true
-        setPermissionRecovery(true)
-        setMessage('Autorize Passos no Health Connect. Ao voltar, a sincronização continuará automaticamente.')
-        await openDirectAndroidStepsPermission()
+        await launchDirectStepsPermission()
         return
       }
       await finishDirectAndroidStepsSync(activeUserId, activeHandoff)
@@ -198,9 +209,7 @@ if (openDirectStart2 !== -1 && continueStart !== -1) {
   const replacement = `  async function openDirectPermissions() {
     if (isDirectAndroidHealthAvailable()) {
       try {
-        directPermissionPending.current = true
-        setMessage('Abra Passos, autorize o HealthWallet Connect e volte. A sincronização continuará automaticamente.')
-        await openDirectAndroidStepsPermission()
+        await launchDirectStepsPermission()
       } catch (error: any) {
         directPermissionPending.current = false
         setMessage(error?.message || 'Não foi possível abrir as permissões do Health Connect.')
@@ -238,8 +247,8 @@ source = source.slice(0, start) + replacement + source.slice(end)
 
 source = source.replace(/Já autorizei\s*—\s*[^<\n]+/, 'Já autorizei — sincronizar passos direto pelo Android')
 source = source.replace(
-  /Depois de autorizar no Health Connect,[^<\n]+|Se você já recusou permissões várias vezes,[^<\n]+/,
-  'No Android, o Connect verifica Passos diretamente. Se a permissão faltar, abre o Health Connect; ao voltar, sincroniza automaticamente.',
+  /No Android, o Connect verifica Passos diretamente\.[^<\n]+|Depois de autorizar no Health Connect,[^<\n]+|Se você já recusou permissões várias vezes,[^<\n]+/,
+  'No Android, o Connect pede Passos pela tela oficial do Health Connect. Se o aparelho não abrir essa tela, usa as configurações como fallback; ao voltar, sincroniza automaticamente.',
 )
 
 if (!source.includes('runDirectAndroidStepsHandoff')) {
@@ -248,9 +257,12 @@ if (!source.includes('runDirectAndroidStepsHandoff')) {
 if (!source.includes("CapacitorApp.addListener('appStateChange'")) {
   throw new Error('Could not install Android permission resume listener.')
 }
+if (!source.includes('requestDirectAndroidStepsPermission')) {
+  throw new Error('Could not install official Health Connect permission request.')
+}
 if (!source.includes('openDirectAndroidStepsPermission')) {
-  throw new Error('Could not route Android permission management to direct reader.')
+  throw new Error('Could not install Health Connect settings fallback.')
 }
 
 fs.writeFileSync(appPath, source)
-console.log('Android Connect flow now uses direct READ_STEPS permission check, direct Health Connect permission screen, automatic resume sync, and direct platform reader.')
+console.log('Android Connect now uses official Health Connect permission request, settings fallback, automatic resume sync, and direct platform reader.')
