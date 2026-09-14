@@ -40,6 +40,9 @@ import android.os.Build;
 import android.os.OutcomeReceiver;
 import android.os.ext.SdkExtensions;
 
+import androidx.activity.result.contract.ActivityResultContract;
+import androidx.health.connect.client.PermissionController;
+
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -50,6 +53,8 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -57,6 +62,7 @@ import java.util.concurrent.Executors;
 public class ${pluginClass} extends Plugin {
     private static final String READ_STEPS_PERMISSION = "android.permission.health.READ_STEPS";
     private static final String ACTION_MANAGE_HEALTH_PERMISSIONS = "android.health.connect.action.MANAGE_HEALTH_PERMISSIONS";
+    private static final String DEFAULT_HEALTH_CONNECT_PROVIDER = "com.google.android.apps.healthdata";
 
     @PluginMethod
     public void checkStepsPermission(PluginCall call) {
@@ -66,6 +72,29 @@ public class ${pluginClass} extends Plugin {
         result.put("granted", granted);
         result.put("packageName", getContext().getPackageName());
         call.resolve(result);
+    }
+
+    @PluginMethod
+    public void requestStepsPermission(PluginCall call) {
+        try {
+            Set<String> permissions = new HashSet<>();
+            permissions.add(READ_STEPS_PERMISSION);
+
+            ActivityResultContract<Set<String>, Set<String>> contract =
+                PermissionController.createRequestPermissionResultContract(DEFAULT_HEALTH_CONNECT_PROVIDER);
+            Intent intent = contract.createIntent(getActivity(), permissions);
+
+            getActivity().startActivity(intent);
+
+            JSObject result = new JSObject();
+            result.put("launched", true);
+            result.put("permission", READ_STEPS_PERMISSION);
+            result.put("packageName", getContext().getPackageName());
+            result.put("strategy", "permission_controller_contract");
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Não foi possível abrir o pedido oficial de permissão do Health Connect: " + error.getMessage(), null, error);
+        }
     }
 
     @PluginMethod
@@ -85,6 +114,7 @@ public class ${pluginClass} extends Plugin {
             result.put("opened", true);
             result.put("packageName", getContext().getPackageName());
             result.put("permission", READ_STEPS_PERMISSION);
+            result.put("strategy", "manage_health_permissions");
             call.resolve(result);
         } catch (Exception error) {
             call.reject("Não foi possível abrir as permissões do Health Connect: " + error.getMessage(), null, error);
@@ -187,6 +217,18 @@ public class ${pluginClass} extends Plugin {
 
 fs.writeFileSync(pluginPath, source)
 
+const appGradlePath = path.join(process.cwd(), 'android', 'app', 'build.gradle')
+if (fs.existsSync(appGradlePath)) {
+  let appGradle = fs.readFileSync(appGradlePath, 'utf8')
+  if (!appGradle.includes('androidx.health.connect:connect-client:1.1.0')) {
+    appGradle = appGradle.replace(
+      /dependencies\s*\{/,
+      'dependencies {\n    implementation "androidx.health.connect:connect-client:1.1.0"',
+    )
+    fs.writeFileSync(appGradlePath, appGradle)
+  }
+}
+
 if (!mainActivity.includes(`${pluginClass}.class`)) {
   if (!mainActivity.includes('import android.os.Bundle;')) {
     mainActivity = mainActivity.replace(/(package\s+[\w.]+;\s*)/, '$1\nimport android.os.Bundle;\n')
@@ -208,4 +250,4 @@ if (!mainActivity.includes(`${pluginClass}.class`)) {
   fs.writeFileSync(mainActivityPath, mainActivity)
 }
 
-console.log('DirectHealthReader registered with direct READ_STEPS permission control and Android platform HealthConnectManager API.')
+console.log('DirectHealthReader registered with official Health Connect permission contract, settings fallback, READ_STEPS check, and Android platform reader.')
