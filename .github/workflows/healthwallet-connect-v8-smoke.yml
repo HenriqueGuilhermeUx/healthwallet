@@ -78,7 +78,7 @@ jobs:
           node scripts/patch-app-direct-reader.mjs
           node scripts/patch-app-permission-resume.mjs
 
-      - name: Audit full Android authorization and sync path
+      - name: Audit native-only post-permission sync path
         shell: bash
         run: |
           grep -q "syncDirectAndroidHealth" src/App.tsx || (echo "Full Android sync not wired" && exit 1)
@@ -89,12 +89,17 @@ jobs:
           grep -q "CapacitorApp.addListener('resume'" src/App.tsx || (echo "Android resume listener missing" && exit 1)
           grep -q "directPermissionPending.current = false" src/App.tsx || (echo "Permission resume single-flight guard missing" && exit 1)
           grep -q "runDirectAndroidHealthHandoff" src/App.tsx || (echo "Automatic full Android handoff path missing" && exit 1)
-          grep -q "sync_version: 6" src/services/directAndroidHealth.ts || (echo "Direct reader v6 persistence marker missing" && exit 1)
-          grep -q "platform_permission_controller_contract_with_settings_fallback" src/services/directAndroidHealth.ts || (echo "Platform permission strategy marker missing" && exit 1)
+          grep -q "sync_version: 7" src/services/directAndroidHealth.ts || (echo "Direct reader v7 persistence marker missing" && exit 1)
+          grep -q "activity_result_launcher_proxy" src/services/directAndroidHealth.ts || (echo "Lifecycle permission strategy marker missing" && exit 1)
+          grep -q "pending_native_read_metrics" src/services/directAndroidHealth.ts || (echo "Pending native metric metadata missing" && exit 1)
+          if grep -q "syncHealthData" src/services/directAndroidHealth.ts; then
+            echo "Forbidden Capgo/full sync dependency still blocks Android post-permission flow"
+            exit 1
+          fi
           grep -q "READ_SLEEP" src/services/directAndroidHealth.ts || (echo "Sleep permission mapping missing" && exit 1)
           grep -q "READ_HEART_RATE" src/services/directAndroidHealth.ts || (echo "Heart rate permission mapping missing" && exit 1)
           grep -q "READ_BLOOD_PRESSURE" src/services/directAndroidHealth.ts || (echo "Blood pressure permission mapping missing" && exit 1)
-          echo "One-screen full Android permission + automatic sync web path audit passed."
+          echo "Lifecycle permission + native-only immediate sync path audit passed."
 
       - name: Build Connect web assets
         run: npx vite build
