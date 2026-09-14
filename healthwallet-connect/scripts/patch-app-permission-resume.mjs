@@ -39,12 +39,31 @@ if (!source.includes("CapacitorApp.addListener('resume'")) {
   source = source.replace(marker, `${effect}${marker}`)
 }
 
+// Android native flow must not wait for the legacy Capgo availability probe.
+// Once the secure handoff and HealthWallet session are ready, start the native
+// permission/sync path immediately. Non-Android platforms keep the old gate.
+const legacyAutostartGate = '    if (!handoff?.autostart || handoffBusy || handoffError || !userId || !availability?.available) return'
+const nativeAutostartGate = `    if (!handoff?.autostart || handoffBusy || handoffError || !userId) return
+    if (!isDirectAndroidHealthAvailable() && !availability?.available) return`
+if (source.includes(legacyAutostartGate)) {
+  source = source.replace(legacyAutostartGate, nativeAutostartGate)
+}
+
 if (!source.includes("CapacitorApp.addListener('resume'")) {
   throw new Error('Could not install Capacitor resume listener')
 }
 if (!source.includes('directPermissionPending.current = false\n    try {')) {
   throw new Error('Could not install single-flight permission resume guard')
 }
+if (!source.includes(nativeAutostartGate)) {
+  throw new Error('Could not install native Android handoff autostart gate')
+}
+if (source.includes(legacyAutostartGate)) {
+  throw new Error('Legacy Capgo availability gate still blocks Android autostart')
+}
+if (!source.includes('void runDirectAndroidHealthHandoff(handoff, userId)')) {
+  throw new Error('Direct Android handoff is not wired into autostart')
+}
 
 fs.writeFileSync(appPath, source)
-console.log('Connect now resumes permission verification from both appStateChange and resume without duplicate syncs.')
+console.log('Connect resumes permission verification without duplicate syncs and Android handoff now autostarts without waiting for legacy Capgo availability.')
