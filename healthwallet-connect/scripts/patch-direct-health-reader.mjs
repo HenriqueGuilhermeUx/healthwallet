@@ -103,10 +103,6 @@ public class ${pluginClass} extends Plugin {
     @PluginMethod
     public void requestHealthPermissions(PluginCall call) {
         try {
-            // IMPORTANT: do not hardcode the legacy Health Connect provider package here.
-            // On Android 14+ Health Connect is a platform module. The no-arg contract lets
-            // Android route the request to the correct controller and opens the real,
-            // app-scoped Health Connect permission sheet instead of generic Settings.
             ActivityResultContract<Set<String>, Set<String>> contract =
                 PermissionController.createRequestPermissionResultContract();
             Intent intent = contract.createIntent(getActivity(), FULL_READ_PERMISSIONS);
@@ -298,3 +294,4 @@ if (!mainActivity.includes(`${pluginClass}.class`)) {
 }
 
 console.log('DirectHealthReader registered with platform Health Connect permission sheet for the full read-only profile, settings fallback, and direct steps reader.')
+await import('./patch-full-health-reader.mjs')
