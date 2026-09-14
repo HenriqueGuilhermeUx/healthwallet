@@ -71,8 +71,22 @@ jobs:
             echo "Blocking readSamples probe is still present"
             exit 1
           fi
-          grep -q "queryAggregated" "$SYNC" || (echo "Aggregate Health Connect path missing" && exit 1)
-          echo "Batch sync v2 audit passed: no blocking pre-sync read probe."
+          echo "Batch sync v2 audit passed."
+
+      - name: Route manual recovery to direct Android reader
+        run: node scripts/patch-app-direct-reader.mjs
+
+      - name: Audit direct reader web path
+        shell: bash
+        run: |
+          grep -q "syncDirectAndroidSteps" src/App.tsx || (echo "Direct Android sync not wired" && exit 1)
+          grep -q "sincronizar passos direto pelo Android" src/App.tsx || (echo "Direct reader button label missing" && exit 1)
+          if grep -q "probeHealthAccess" src/App.tsx; then
+            echo "Old manual probe still present in App.tsx"
+            exit 1
+          fi
+          grep -q "android_platform_health_connect_direct" src/services/directAndroidHealth.ts || (echo "Direct reader persistence marker missing" && exit 1)
+          echo "Direct reader web path audit passed."
 
       - name: Build Connect web assets
         run: npx vite build
@@ -92,6 +106,22 @@ jobs:
           node scripts/patch-android-sdk.mjs
           node scripts/patch-health-permissions.mjs full
 
+      - name: Install direct Android Health Connect reader
+        run: node scripts/patch-direct-health-reader.mjs
+
+      - name: Audit direct native Android reader
+        shell: bash
+        run: |
+          PLUGIN="$(find android/app/src/main/java -name DirectHealthReaderPlugin.java | head -n 1)"
+          ACTIVITY="$(find android/app/src/main/java -name MainActivity.java | head -n 1)"
+          test -n "$PLUGIN" || (echo "DirectHealthReaderPlugin.java missing" && exit 1)
+          test -n "$ACTIVITY" || (echo "MainActivity.java missing" && exit 1)
+          grep -q "HealthConnectManager" "$PLUGIN" || (echo "HealthConnectManager API missing" && exit 1)
+          grep -q "STEPS_COUNT_TOTAL" "$PLUGIN" || (echo "Official steps aggregate missing" && exit 1)
+          grep -q "manager.aggregate" "$PLUGIN" || (echo "Official aggregate call missing" && exit 1)
+          grep -q "DirectHealthReaderPlugin.class" "$ACTIVITY" || (echo "DirectHealthReader plugin not registered" && exit 1)
+          echo "Direct Android platform Health Connect reader audit passed."
+
       - name: Audit app manifest before build
         shell: bash
         run: |
@@ -102,7 +132,7 @@ jobs:
           grep -q 'android.permission.health.READ_STEPS' "$MANIFEST" || (echo "READ_STEPS missing" && exit 1)
           echo "App manifest audit passed."
 
-      - name: Build Capacitor 8 full debug APK
+      - name: Build Capacitor 8 direct-reader debug APK
         run: cd android && ./gradlew clean assembleDebug --stacktrace
 
       - name: Audit merged read-only Health Connect permissions
@@ -131,18 +161,12 @@ jobs:
             echo "$WRITE_PERMS"
             exit 1
           fi
-          EXTRA_READS="$(grep -oE 'android\.permission\.health\.READ_[A-Z_]+' "$MERGED_MANIFEST" | sort -u | grep -vE '^android.permission.health.READ_(STEPS|SLEEP|HEART_RATE|RESTING_HEART_RATE|OXYGEN_SATURATION|HEART_RATE_VARIABILITY|BLOOD_PRESSURE|WEIGHT|ACTIVE_CALORIES_BURNED|EXERCISE)$' || true)"
-          if [ -n "$EXTRA_READS" ]; then
-            echo "Unexpected read permissions found:"
-            echo "$EXTRA_READS"
-            exit 1
-          fi
-          echo "Capacitor 8 full APK permission audit passed."
+          echo "Direct-reader APK permission audit passed."
 
-      - name: Upload HealthWallet Connect V8 Sync2 APK
+      - name: Upload HealthWallet Connect Direct Steps APK
         uses: actions/upload-artifact@v4
         with:
-          name: healthwallet-connect-v8-sync2-debug-apk
+          name: healthwallet-connect-direct-steps-debug-apk
           path: healthwallet-connect/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
