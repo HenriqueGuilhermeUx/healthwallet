@@ -1,12 +1,16 @@
+import { buildClinicalDeviceInsights, formatClinicalDeviceSummary } from './clinicalDeviceInsights'
+
 export function generateHealthSummary(
   profile: any,
   records: any[] = [],
   medications: any[] = [],
   conditions: any[] = [],
-  score: any = null
+  score: any = null,
+  deviceSummaries: any[] = [],
 ) {
   const healthScore = score?.score || profile?.med_score || profile?.medScore || 0
   const age = profile?.birth_date ? calculateAge(profile.birth_date) : null
+  const deviceInsights = buildClinicalDeviceInsights(deviceSummaries)
 
   const bmi =
     profile?.weight && profile?.height
@@ -93,7 +97,7 @@ PRONTUÁRIO DIGITAL — RESUMO PROFISSIONAL
 MedScore:
 - Score atual: ${healthScore}/100
 - Nível: ${score?.status || profile?.med_score_status || 'Não informado'}
-- Confiança dos dados: ${score?.factors?.confidence || 'Não informado'}%
+- Confiança dos dados: ${score?.factors?.confidence || score?.confidence || 'Não informado'}%
 
 2. HISTÓRICO CLÍNICO
 
@@ -117,40 +121,61 @@ ${medsText}
 - Atividade física: ${translateLifestyle(profile?.physical_activity)}
 - Tabagismo: ${translateLifestyle(profile?.smoking_status)}
 - Álcool: ${translateLifestyle(profile?.alcohol_consumption)}
-- Sono: ${profile?.sleep_hours ? `${profile.sleep_hours}h/noite` : 'Não informado'}
+- Sono informado: ${profile?.sleep_hours ? `${profile.sleep_hours}h/noite` : 'Não informado'}
 - Estresse: ${translateLifestyle(profile?.stress_level)}
 
-4. EXAMES DISPONÍVEIS
+4. DADOS DE DISPOSITIVOS / WEARABLES
+
+${formatClinicalDeviceSummary(deviceInsights)}
+
+5. EXAMES DISPONÍVEIS
 
 - Total de exames cadastrados: ${records.length}
 - Exames com análise por IA: ${analyzedRecords.length}
 
 ${examSummaries.length ? examSummaries.map(formatExamSummary).join('\n\n') : 'Nenhum exame analisado disponível.'}
 
-5. PRINCIPAIS PONTOS DE ATENÇÃO
+6. PRINCIPAIS PONTOS DE ATENÇÃO
 
-${alerts.length ? unique(alerts).map((a) => `- ${a}`).join('\n') : alteredText}
+${[
+  ...deviceInsights.attention,
+  ...(alerts.length ? unique(alerts) : []),
+].length
+  ? [
+      ...deviceInsights.attention.map((item) => `- Wearable: ${item}`),
+      ...(alerts.length ? unique(alerts).map((a) => `- ${a}`) : []),
+    ].join('\n')
+  : alteredText}
 
-6. ACHADOS POSITIVOS / DADOS TRANQUILIZADORES
+7. ACHADOS POSITIVOS / DADOS TRANQUILIZADORES
 
-${goodNews.length ? unique(goodNews).map((g) => `- ${g}`).join('\n') : 'Sem achados positivos estruturados disponíveis.'}
+${[
+  ...deviceInsights.positives,
+  ...(goodNews.length ? unique(goodNews) : []),
+].length
+  ? [
+      ...deviceInsights.positives.map((item) => `- Wearable: ${item}`),
+      ...(goodNews.length ? unique(goodNews).map((g) => `- ${g}`) : []),
+    ].join('\n')
+  : 'Sem achados positivos estruturados disponíveis.'}
 
-7. MARCADORES ALTERADOS
+8. MARCADORES ALTERADOS
 
 ${alteredText}
 
-8. RECOMENDAÇÕES PARA CONSULTA
+9. RECOMENDAÇÕES PARA CONSULTA
 
 - Revisar os marcadores alterados com profissional de saúde.
+- Interpretar tendências de smartwatch/dispositivo junto com sintomas, contexto e qualidade da medição.
 - Avaliar risco cardiovascular quando houver LDL, colesterol total, pressão arterial, histórico familiar ou tabagismo relevantes.
 - Confirmar medicamentos em uso, doses e aderência.
 - Atualizar alergias, cirurgias, histórico familiar e hábitos.
 - Repetir exames conforme orientação profissional.
 - Usar este resumo como apoio para consulta, não como diagnóstico.
 
-9. OBSERVAÇÃO
+10. OBSERVAÇÃO
 
-Este resumo foi gerado a partir de dados informados pelo paciente, exames enviados e análises automáticas do HealthWallet. Não substitui avaliação clínica, exame físico ou decisão médica profissional.
+Este resumo foi gerado a partir de dados informados pelo paciente, exames enviados, análises automáticas do HealthWallet e, quando autorizados, dados de dispositivos pessoais. Leituras de wearables podem conter imprecisões e são apresentadas como contexto longitudinal, não como diagnóstico, prescrição ou substituto de avaliação clínica.
 `.trim()
 }
 
