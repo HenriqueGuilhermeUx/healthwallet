@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { supabase } from '../lib/supabase'
+import { HealthMetric, syncHealthData } from './healthSync'
 
 type DirectStepsRow = {
   date: string
@@ -18,21 +19,31 @@ type DirectPermissionResult = {
   packageName: string
 }
 
+type DirectHealthPermissionsResult = {
+  packageName: string
+  grantedPermissions: string[]
+  missingPermissions: string[]
+  allGranted: boolean
+  requestedPermissionCount: number
+}
+
 type DirectPermissionRequestResult = {
   launched: boolean
-  permission: string
   packageName: string
-  strategy: 'permission_controller_contract'
+  requestedPermissionCount: number
+  strategy: 'platform_permission_controller_contract'
 }
 
 type DirectPermissionOpenResult = {
   opened: boolean
   permission: string
   packageName: string
-  strategy?: 'manage_health_permissions'
+  strategy?: 'manage_health_permissions_fallback'
 }
 
 type DirectHealthReaderPlugin = {
+  checkHealthPermissions(): Promise<DirectHealthPermissionsResult>
+  requestHealthPermissions(): Promise<DirectPermissionRequestResult>
   checkStepsPermission(): Promise<DirectPermissionResult>
   requestStepsPermission(): Promise<DirectPermissionRequestResult>
   openStepsPermissionSettings(): Promise<DirectPermissionOpenResult>
@@ -40,6 +51,19 @@ type DirectHealthReaderPlugin = {
 }
 
 const DirectHealthReader = registerPlugin<DirectHealthReaderPlugin>('DirectHealthReader')
+
+export const ANDROID_PERMISSION_BY_METRIC: Record<HealthMetric, string> = {
+  steps: 'android.permission.health.READ_STEPS',
+  sleep: 'android.permission.health.READ_SLEEP',
+  heartRate: 'android.permission.health.READ_HEART_RATE',
+  restingHeartRate: 'android.permission.health.READ_RESTING_HEART_RATE',
+  oxygenSaturation: 'android.permission.health.READ_OXYGEN_SATURATION',
+  heartRateVariability: 'android.permission.health.READ_HEART_RATE_VARIABILITY',
+  bloodPressure: 'android.permission.health.READ_BLOOD_PRESSURE',
+  weight: 'android.permission.health.READ_WEIGHT',
+  calories: 'android.permission.health.READ_ACTIVE_CALORIES_BURNED',
+  exerciseTime: 'android.permission.health.READ_EXERCISE',
+}
 
 function withTimeout<T>(promise: Promise<T>, ms = 20000): Promise<T> {
   let timer: number | undefined
@@ -56,6 +80,40 @@ export function isDirectAndroidHealthAvailable() {
   return Capacitor.getPlatform() === 'android' && Capacitor.isNativePlatform()
 }
 
+export async function checkDirectAndroidHealthPermissions(metrics: HealthMetric[]) {
+  if (!isDirectAndroidHealthAvailable()) {
+    return {
+      packageName: '',
+      grantedPermissions: [] as string[],
+      missingPermissions: metrics.map((metric) => ANDROID_PERMISSION_BY_METRIC[metric]),
+      allGranted: false,
+      requestedPermissionCount: metrics.length,
+      grantedMetrics: [] as HealthMetric[],
+      missingMetrics: [...metrics],
+    }
+  }
+
+  const result = await withTimeout(DirectHealthReader.checkHealthPermissions(), 5000)
+  const granted = new Set(result.grantedPermissions || [])
+  const uniqueMetrics = Array.from(new Set(metrics))
+  const grantedMetrics = uniqueMetrics.filter((metric) => granted.has(ANDROID_PERMISSION_BY_METRIC[metric]))
+  const missingMetrics = uniqueMetrics.filter((metric) => !granted.has(ANDROID_PERMISSION_BY_METRIC[metric]))
+
+  return {
+    ...result,
+    grantedMetrics,
+    missingMetrics,
+    allSelectedGranted: missingMetrics.length === 0,
+  }
+}
+
+export async function requestDirectAndroidHealthPermissions() {
+  if (!isDirectAndroidHealthAvailable()) {
+    throw new Error('Pedido de permissão disponível somente no app Android instalado.')
+  }
+  return withTimeout(DirectHealthReader.requestHealthPermissions(), 5000)
+}
+
 export async function checkDirectAndroidStepsPermission() {
   if (!isDirectAndroidHealthAvailable()) {
     return { granted: false, permission: 'android.permission.health.READ_STEPS', packageName: '' }
@@ -64,10 +122,7 @@ export async function checkDirectAndroidStepsPermission() {
 }
 
 export async function requestDirectAndroidStepsPermission() {
-  if (!isDirectAndroidHealthAvailable()) {
-    throw new Error('Pedido de permissão disponível somente no app Android instalado.')
-  }
-  return withTimeout(DirectHealthReader.requestStepsPermission(), 5000)
+  return requestDirectAndroidHealthPermissions()
 }
 
 export async function openDirectAndroidStepsPermission() {
@@ -75,6 +130,47 @@ export async function openDirectAndroidStepsPermission() {
     throw new Error('Permissão direta disponível somente no app Android instalado.')
   }
   return withTimeout(DirectHealthReader.openStepsPermissionSettings(), 5000)
+}
+
+export async function syncDirectAndroidHealth(userId: string, metrics: HealthMetric[], days = 30) {
+  if (!userId) throw new Error('Usuário não autenticado.')
+  if (!isDirectAndroidHealthAvailable()) throw new Error('Leitor Android direto disponível somente no Android.')
+
+  const requestedMetrics = Array.from(new Set(metrics))
+  const permission = await checkDirectAndroidHealthPermissions(requestedMetrics)
+  const grantedMetrics = permission.grantedMetrics
+
+  if (!grantedMetrics.length) {
+    throw new Error('NO_HEALTH_PERMISSIONS_GRANTED')
+  }
+
+  try {
+    const result = await syncHealthData(userId, grantedMetrics, days, { skipAuthorization: true })
+    return {
+      ...result,
+      requestedMetrics,
+      grantedMetrics,
+      skippedMetrics: permission.missingMetrics,
+      permissionStrategy: 'platform_permission_controller_contract' as const,
+      degraded: false,
+    }
+  } catch (error) {
+    // Steps already work through the Android platform API on the tested device.
+    // Preserve that reliable path as a graceful fallback while the broader
+    // @capgo reader handles the remaining authorized metrics.
+    if (!grantedMetrics.includes('steps')) throw error
+
+    const fallback = await syncDirectAndroidSteps(userId, days)
+    return {
+      ...fallback,
+      requestedMetrics,
+      grantedMetrics: ['steps'] as HealthMetric[],
+      skippedMetrics: requestedMetrics.filter((metric) => metric !== 'steps'),
+      permissionStrategy: 'platform_permission_controller_contract' as const,
+      degraded: true,
+      fallbackReason: error instanceof Error ? error.message : 'full_sync_failed',
+    }
+  }
 }
 
 export async function syncDirectAndroidSteps(userId: string, days = 7) {
@@ -118,11 +214,11 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
       provider: 'health_connect',
       patient_controlled: true,
       selected_metrics: ['steps'],
-      sync_version: 5,
+      sync_version: 6,
       read_strategy: 'android_platform_health_connect_direct',
       direct_reader: true,
       direct_permission_check: true,
-      permission_strategy: 'official_health_connect_contract_with_settings_fallback',
+      permission_strategy: 'platform_permission_controller_contract_with_settings_fallback',
     }
 
     return {
@@ -163,9 +259,9 @@ export async function syncDirectAndroidSteps(userId: string, days = 7) {
       source_app: 'healthwallet_connect',
       patient_controlled: true,
       direct_reader: 'android_platform_health_connect',
-      sync_version: 5,
+      sync_version: 6,
       direct_permission_check: true,
-      permission_strategy: 'official_health_connect_contract_with_settings_fallback',
+      permission_strategy: 'platform_permission_controller_contract_with_settings_fallback',
     },
   }
 
