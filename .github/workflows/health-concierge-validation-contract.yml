@@ -1,0 +1,137 @@
+name: Health Concierge Validation Contract
+
+on:
+  push:
+    branches:
+      - feature/health-concierge-mvp
+    paths:
+      - 'SQL_CONCIERGE_*.sql'
+      - 'HEALTH_CONCIERGE_VALIDATION.md'
+      - 'HEALTH_CONCIERGE_E2E_RUNBOOK.md'
+      - '.github/workflows/health-concierge-validation-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  validation-contract:
+    name: Validate Concierge release contract
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Required validation artifacts
+        run: |
+          set -euo pipefail
+          for file in \
+            SQL_CONCIERGE_MVP_V1.sql \
+            SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql \
+            SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql \
+            SQL_CONCIERGE_CONSENT_V1.sql \
+            SQL_CONCIERGE_ROSTER_GUARDS_V1.sql \
+            SQL_CONCIERGE_REQUEST_INTEGRITY_V1.sql \
+            SQL_CONCIERGE_PROGRAM_GUARDS_V1.sql \
+            SQL_CONCIERGE_ALERT_ENGINE_V1.sql \
+            SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql \
+            SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql \
+            SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql \
+            SQL_CONCIERGE_PATIENT_AUDIT_V1.sql \
+            SQL_CONCIERGE_SLA_METRICS_V1.sql \
+            SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql \
+            SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql \
+            SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql \
+            SQL_CONCIERGE_VALIDATION_SEED_V1.sql \
+            SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql \
+            HEALTH_CONCIERGE_VALIDATION.md \
+            HEALTH_CONCIERGE_E2E_RUNBOOK.md
+          do
+            test -f "$file" || { echo "Missing required validation artifact: $file"; exit 1; }
+          done
+
+      - name: Canonical migration order audit
+        run: |
+          node <<'NODE'
+          const fs = require('fs')
+          const docs = [
+            fs.readFileSync('HEALTH_CONCIERGE_VALIDATION.md', 'utf8'),
+            fs.readFileSync('HEALTH_CONCIERGE_E2E_RUNBOOK.md', 'utf8'),
+          ]
+          const migrations = [
+            'SQL_CONCIERGE_MVP_V1.sql',
+            'SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql',
+            'SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql',
+            'SQL_CONCIERGE_CONSENT_V1.sql',
+            'SQL_CONCIERGE_ROSTER_GUARDS_V1.sql',
+            'SQL_CONCIERGE_REQUEST_INTEGRITY_V1.sql',
+            'SQL_CONCIERGE_PROGRAM_GUARDS_V1.sql',
+            'SQL_CONCIERGE_ALERT_ENGINE_V1.sql',
+            'SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql',
+            'SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql',
+            'SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql',
+            'SQL_CONCIERGE_PATIENT_AUDIT_V1.sql',
+            'SQL_CONCIERGE_SLA_METRICS_V1.sql',
+            'SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql',
+            'SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql',
+          ]
+
+          for (const [docIndex, text] of docs.entries()) {
+            let previous = -1
+            for (const file of migrations) {
+              const index = text.indexOf(file)
+              if (index < 0) throw new Error(`Doc ${docIndex + 1} missing ${file}`)
+              if (index <= previous) throw new Error(`Doc ${docIndex + 1} migration order broken at ${file}`)
+              previous = index
+            }
+          }
+          console.log('Canonical 15-migration order is preserved in validation docs.')
+          NODE
+
+      - name: Reference-team routing safety audit
+        run: |
+          set -euo pipefail
+          grep -q 'concierge_route_reference_team' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'trg_10_concierge_reference_team_route' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'trg_20_concierge_guard_clinician_assignment' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q "a.is_primary = true" SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q "a.role IN ('nurse','care_coordinator')" SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q "a.role = 'doctor'" SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'Nurse cannot assign an arbitrary physician' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'Doctor cannot change nursing assignment' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'concierge_reference_team' SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql
+
+      - name: Synthetic persona isolation audit
+        run: |
+          set -euo pipefail
+          grep -q 'VALIDATION ENVIRONMENT ONLY' SQL_CONCIERGE_VALIDATION_SEED_V1.sql
+          grep -q 'NEVER RUN IN PRODUCTION' SQL_CONCIERGE_VALIDATION_SEED_V1.sql
+          grep -q '@healthwallet.test' SQL_CONCIERGE_VALIDATION_SEED_V1.sql
+          grep -q 'Refusing to reseed a used E2E environment' SQL_CONCIERGE_VALIDATION_SEED_V1.sql
+          grep -q "consent_status = 'pending'" SQL_CONCIERGE_VALIDATION_SEED_V1.sql
+          grep -q 'Patient A -> Nurse A + Doctor A' SQL_CONCIERGE_VALIDATION_SEED_V1.sql
+
+      - name: Precheck and postcheck contract audit
+        run: |
+          set -euo pipefail
+          grep -q "'PASS' AS validation_precheck" SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql
+          grep -q 'Unrestricted policy found' SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql
+          grep -q 'RLS disabled on' SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql
+          grep -q 'reference-team routing' SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql
+          grep -q "'PASS' AS canonical_e2e_postcheck" SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql
+          grep -q 'Patient A latest request did not remain routed to Nurse A' SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql
+          grep -q 'Patient A medical escalation did not route to Doctor A' SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql
+          grep -q 'Patient A still has open Concierge alerts after consent revocation' SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql
+
+      - name: E2E release gate audit
+        run: |
+          set -euo pipefail
+          grep -q 'Patient A -> Nurse A -> Doctor A -> Patient A' HEALTH_CONCIERGE_E2E_RUNBOOK.md
+          grep -q 'Consent revocation kill switch' HEALTH_CONCIERGE_E2E_RUNBOOK.md
+          grep -q 'Role / privacy negative controls' HEALTH_CONCIERGE_E2E_RUNBOOK.md
+          grep -q 'Existing HealthWallet regression pass' HEALTH_CONCIERGE_E2E_RUNBOOK.md
+          grep -q '15 migrations apply cleanly' HEALTH_CONCIERGE_E2E_RUNBOOK.md
+          grep -q 'Any failed item is \*\*NO-GO\*\*' HEALTH_CONCIERGE_E2E_RUNBOOK.md
+
+      - name: Production isolation statement
+        run: |
+          echo 'Validation contract passed.'
+          echo 'No database migration, production deployment or branch merge is performed by this workflow.'
