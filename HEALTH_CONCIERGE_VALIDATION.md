@@ -2,6 +2,8 @@
 
 This document is the release gate for the Concierge MVP. Nothing in this branch is published to the public HealthWallet site/app or applied to the production database until this matrix passes in a controlled validation environment.
 
+The deterministic execution sequence is documented in `HEALTH_CONCIERGE_E2E_RUNBOOK.md`.
+
 ## 1. Migration order
 
 Apply manually, in this exact order:
@@ -20,6 +22,11 @@ Apply manually, in this exact order:
 12. `SQL_CONCIERGE_PATIENT_AUDIT_V1.sql`
 13. `SQL_CONCIERGE_SLA_METRICS_V1.sql`
 14. `SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql`
+15. `SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql`
+
+Then run `SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql`. It must return `PASS` before any E2E testing begins.
+
+After the nine synthetic Auth users listed in `HEALTH_CONCIERGE_E2E_RUNBOOK.md` exist, run `SQL_CONCIERGE_VALIDATION_SEED_V1.sql`. It must also return `PASS`.
 
 All migrations are validation-first and are intentionally not executed by CI.
 
@@ -52,10 +59,10 @@ Expected:
 
 ### 3.2 Enrolled but consent pending
 
-Coordinator enrolls Patient A through `/concierge/ops/roster`.
+Coordinator enrolls Patient A through `/concierge/ops/roster` or the validation seed creates the pending membership.
 
 Expected:
-- membership is created with `consent_status = pending`
+- membership exists with `consent_status = pending`
 - opening patient Concierge redirects to `/concierge/consent`
 - Nurse A, Doctor A, Coordinator and Admin cannot use request-scoped clinical context before consent
 
@@ -90,9 +97,10 @@ Expected:
 - open proactive alerts are dismissed
 - no new Concierge alerts are accepted while consent is inactive
 - subsequent request-context loads fail
+- patient reply through the Concierge RPC fails while consent is inactive
 - patient can re-authorize later
 
-## 4. Care-team assignment
+## 4. Care-team assignment and continuity routing
 
 Coordinator assigns Nurse A and Doctor A to Patient A.
 
@@ -102,6 +110,26 @@ Expected:
 - replacing Doctor A with Doctor B ends the previous primary physician assignment
 - no patient has two active primary professionals for the same care layer after replacement
 - ordinary nurses/doctors cannot administer the roster
+
+### 4.1 New-request routing
+
+Patient A creates a new Concierge case while Nurse A is the active primary nurse.
+
+Expected:
+- request is created with `assigned_nurse_id = Nurse A`
+- Nurse B does not become owner of the assigned case
+- if no active primary nurse/care coordinator exists, the request may remain unassigned for the eligible fallback queue
+
+### 4.2 Medical escalation routing
+
+Nurse A escalates Patient A's case while Doctor A is the active primary physician.
+
+Expected:
+- `assigned_doctor_id = Doctor A`
+- Doctor B is not assigned automatically
+- if no active primary physician exists, the case may remain unassigned in the eligible medical fallback queue
+- Nurse A cannot arbitrarily assign another physician
+- Doctor A cannot alter the nursing assignment
 
 ## 5. Patient request flows
 
@@ -113,7 +141,7 @@ Expected:
 - trackable request is created
 - patient timeline has `request_created`
 - automation event contains IDs/category/urgency, not raw health text
-- assigned reference nurse receives the request
+- reference-team routing is applied
 - original patient-authored title/description/category/context cannot be rewritten later by staff
 
 ### 5.2 Symptom — no red flag
@@ -143,12 +171,15 @@ Expected:
 - request stores `subject_family_member_id`
 - no duplicate family profile is created
 - subject name/relationship remain available for operational readability
+- entering from Concierge Family preserves the selected family context into the tracked request
 
 ### 5.5 Request integrity / role transitions
 
 Expected:
 - nurse cannot assign a case to another nurse directly
 - doctor cannot assign a case to another doctor directly
+- nurse cannot arbitrarily assign a non-reference doctor
+- doctor cannot rewrite the nursing assignment
 - nurse cannot put a request into doctor-only arbitrary states
 - doctor cannot move a request back into nurse-only arbitrary states
 - admin/coordinator remains the operational override layer
@@ -209,6 +240,16 @@ Expected:
 - revoking consent causes subsequent context loads to fail
 - patient can see the resulting access trail in consent controls
 
+### 7.1 MyDataMed operational patient workspace
+
+Coordinator/reference staff opens `/concierge/ops/patient/:patientId`.
+
+Expected:
+- workspace shows operational state only: membership/consent, care team, cases, actions and alerts
+- workspace does not query or render blanket `medical_records`, `health_scores`, `health_daily_summaries`, medications or full clinical timeline
+- clinical context still requires opening an authorized request and explicitly loading request-scoped context
+- patient context access remains auditable
+
 ## 8. Action plan
 
 Nurse/doctor creates an action from a case.
@@ -254,7 +295,7 @@ Expected:
 - active family-targeted medications and reminders are summarized by `target_family_member_id`
 - overdue reminders may be highlighted as operational attention, not a medical-risk score
 - if no family profile exists, CTA returns to canonical HealthWallet Family setup
-- requesting help still enters the normal tracked Concierge case flow
+- requesting help enters the normal tracked Concierge case flow with the selected member preserved
 - Concierge does not fabricate a Health Score for a family member without a real authorized longitudinal record
 
 ## 10. Programs
@@ -295,6 +336,10 @@ Expected:
 - alerts are workflow attention signals, not diagnoses
 - assigned staff/coordinator sees only authorized patients
 - doctor queue remains focused on escalated medical review rather than every operational alert
+- operations can open the related patient workspace
+- authorized operations can acknowledge an alert
+- authorized operations can resolve/dismiss an alert
+- resolved/dismissed alerts leave the open queue
 - no new alert survives insertion after consent has been revoked
 - revocation dismisses outstanding Concierge alerts for that patient
 
@@ -367,8 +412,12 @@ Must fail:
 - patient reading another patient's request
 - patient reading staff-only case notes
 - non-staff opening professional queue data
+- Nurse B reading Patient A's assigned case/context
+- Doctor B reading Patient A's assigned medical review
 - nurse reading a patient with no assignment/eligible unassigned case
 - doctor reading a non-escalated case not assigned to them
+- nurse arbitrarily assigning a different physician
+- doctor changing nursing assignment
 - coordinator clinical context access after patient revocation
 - patient editing clinical review directly
 - nurse publishing patient-visible final clinical review
@@ -402,12 +451,18 @@ The main HealthWallet Android Health Connect permission strategy remains unchang
 The MVP is ready for a controlled human-led pilot only when:
 
 - latest branch CI is green
-- all 14 migrations apply cleanly in validation
+- all 15 migrations apply cleanly in validation
+- `SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql` returns PASS
+- synthetic persona seed returns PASS
 - all role-access negative tests pass
 - patient consent/revocation works end-to-end
+- new request routes to the reference nurse when one exists
+- medical escalation routes to the reference physician when one exists
 - patient → nurse → physician → patient second-analysis flow passes
 - patient reply returns a waiting case to the correct professional lane
 - action-plan recurrence passes
+- operational alert acknowledge/resolve lifecycle passes
+- operational patient workspace stays non-clinical by default
 - patient access audit is visible and accurate
 - unified agenda renders canonical data without duplication
 - longitudinal My Health renders with and without device data without diagnostic claims
@@ -415,6 +470,7 @@ The MVP is ready for a controlled human-led pilot only when:
 - first-response SLA instrumentation is verified
 - workload metrics are recorded
 - plan-vs-no-plan segmentation and data-quality coverage render correctly
+- `SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql` returns PASS after the canonical E2E
 - HealthWallet existing features regress cleanly
 
 Only after this gate do we decide when/how to publish the site/app experience.
