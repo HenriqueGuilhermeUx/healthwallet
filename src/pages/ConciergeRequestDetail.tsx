@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Clock, Loader2, Send, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
-import { addPatientRequestMessage, getConciergeRequest, listConciergeRequestEvents } from '@/services/concierge'
+import { getConciergeRequest, listConciergeRequestEvents } from '@/services/concierge'
+import { sendConciergePatientReply } from '@/services/conciergeMessaging'
 import ConciergeClinicalReviewPanel from '@/components/ConciergeClinicalReviewPanel'
 
 const statusLabels: Record<string, string> = {
@@ -60,8 +61,9 @@ export default function ConciergeRequestDetail() {
     if (!user || !message.trim()) return
     setSending(true)
     try {
-      await addPatientRequestMessage(id, user.id, message.trim())
+      await sendConciergePatientReply(id, message)
       setMessage('')
+      toast.success(request?.status === 'waiting_patient' ? 'Resposta enviada e caso devolvido à sua equipe' : 'Atualização enviada à sua equipe')
       await load()
     } catch (error) {
       console.error('Patient concierge message failed:', error)
@@ -124,11 +126,12 @@ export default function ConciergeRequestDetail() {
       </section>
 
       {!['resolved', 'closed'].includes(request.status) && (
-        <section className="rounded-2xl border bg-white p-4">
-          <label className="text-sm font-semibold">Enviar informação para a equipe</label>
-          <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={4} placeholder="Adicione uma informação, resposta ou atualização..." className="mt-2 w-full resize-none rounded-xl border px-3 py-3 text-sm" />
+        <section className={`rounded-2xl border bg-white p-4 ${request.status === 'waiting_patient' ? 'border-amber-300' : ''}`}>
+          <label className="text-sm font-semibold">{request.status === 'waiting_patient' ? 'Sua equipe está aguardando você' : 'Enviar informação para a equipe'}</label>
+          {request.status === 'waiting_patient' && <p className="mt-1 text-xs text-amber-800">Ao responder, o caso volta automaticamente para a fila do profissional responsável.</p>}
+          <textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={4} maxLength={5000} placeholder="Adicione uma informação, resposta ou atualização..." className="mt-2 w-full resize-none rounded-xl border px-3 py-3 text-sm" />
           <button type="button" onClick={sendMessage} disabled={sending || !message.trim()} className="mt-3 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50 flex items-center justify-center gap-2">
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Enviar atualização
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {request.status === 'waiting_patient' ? 'Responder à equipe' : 'Enviar atualização'}
           </button>
         </section>
       )}
