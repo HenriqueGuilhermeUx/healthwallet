@@ -8,14 +8,14 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  current_role TEXT;
+  staff_role TEXT;
   expected_reference_doctor UUID;
 BEGIN
-  SELECT s.role INTO current_role
+  SELECT s.role INTO staff_role
   FROM public.concierge_staff s
   WHERE s.user_id = auth.uid() AND s.active = true;
 
-  IF current_role IS NULL THEN
+  IF staff_role IS NULL THEN
     RAISE EXCEPTION 'Active Concierge staff role required';
   END IF;
 
@@ -36,7 +36,7 @@ BEGIN
   END IF;
 
   -- Nurses can take an unassigned case themselves, but cannot assign other nurses.
-  IF current_role = 'nurse'
+  IF staff_role = 'nurse'
      AND NEW.assigned_nurse_id IS DISTINCT FROM OLD.assigned_nurse_id
      AND NEW.assigned_nurse_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'Nurse cannot assign request to another nurse';
@@ -46,7 +46,7 @@ BEGIN
   -- reference-team router (which runs before this guard) may populate only the
   -- patient's active primary reference physician. Open medical queue remains the
   -- fallback when there is no reference physician.
-  IF current_role = 'nurse'
+  IF staff_role = 'nurse'
      AND NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id THEN
 
     SELECT a.professional_id
@@ -72,7 +72,7 @@ BEGIN
   END IF;
 
   -- A doctor can take an eligible medical case themselves, not assign another doctor.
-  IF current_role = 'doctor'
+  IF staff_role = 'doctor'
      AND NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id
      AND NEW.assigned_doctor_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'Doctor cannot assign request to another doctor';
@@ -80,18 +80,18 @@ BEGIN
 
   -- Medical reviewers cannot alter the nursing continuity owner. Reassignment is
   -- an explicit coordination/admin operation.
-  IF current_role = 'doctor'
+  IF staff_role = 'doctor'
      AND NEW.assigned_nurse_id IS DISTINCT FROM OLD.assigned_nurse_id THEN
     RAISE EXCEPTION 'Doctor cannot change nursing assignment';
   END IF;
 
-  IF current_role = 'nurse'
+  IF staff_role = 'nurse'
      AND NEW.status IS DISTINCT FROM OLD.status
      AND NEW.status NOT IN ('in_triage','waiting_patient','waiting_nurse','escalated_medical','action_plan','resolved') THEN
     RAISE EXCEPTION 'Status transition not allowed for nurse';
   END IF;
 
-  IF current_role = 'doctor'
+  IF staff_role = 'doctor'
      AND NEW.status IS DISTINCT FROM OLD.status
      AND NEW.status NOT IN ('medical_review','waiting_patient','action_plan','resolved') THEN
     RAISE EXCEPTION 'Status transition not allowed for doctor';
