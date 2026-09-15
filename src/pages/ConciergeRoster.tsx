@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, ShieldCheck, UserPlus, Users } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Loader2, ShieldCheck, UserPlus, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { getConciergeStaffSelf } from '@/services/concierge'
@@ -166,6 +166,8 @@ export default function ConciergeRoster() {
                     <select value={doctor?.professional_id || ''} onChange={(event) => assign(member, event.target.value, 'doctor')} className="mt-1 w-full rounded-xl border bg-white px-3 py-2.5 text-sm"><option value="">Sem atribuição</option>{doctors.map((item) => <option key={item.user_id} value={item.user_id}>{item.display_name || item.user_id}{item.specialty ? ` · ${item.specialty}` : ''}</option>)}</select>
                   </label>
                 </div>
+
+                <Link to={`/concierge/ops/patient/${member.patient_id}`} className="mt-4 flex items-center justify-between rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white"><span>Abrir carteira operacional</span><ChevronRight className="h-4 w-4" /></Link>
               </div>
             )
           })}
