@@ -35,6 +35,7 @@ BEGIN
       ('function', 'concierge_patient_reply(uuid,text)', to_regprocedure('public.concierge_patient_reply(uuid,text)') IS NOT NULL),
       ('function', 'concierge_reference_team(uuid)', to_regprocedure('public.concierge_reference_team(uuid)') IS NOT NULL),
       ('function', 'concierge_reference_professional_id(uuid,text)', to_regprocedure('public.concierge_reference_professional_id(uuid,text)') IS NOT NULL),
+      ('function', 'concierge_guard_clinical_review()', to_regprocedure('public.concierge_guard_clinical_review()') IS NOT NULL),
       ('function', 'concierge_refresh_time_alerts()', to_regprocedure('public.concierge_refresh_time_alerts()') IS NOT NULL)
   )
   SELECT string_agg(kind || ':' || object_name, ', ' ORDER BY kind, object_name)
@@ -142,7 +143,8 @@ BEGIN
     VALUES
       ('trg_10_concierge_reference_team_route', 'concierge_route_reference_team'),
       ('trg_20_concierge_guard_clinician_assignment', 'concierge_guard_clinician_assignment'),
-      ('trg_concierge_guard_request_update', 'concierge_guard_request_update')
+      ('trg_concierge_guard_request_update', 'concierge_guard_request_update'),
+      ('trg_concierge_guard_clinical_review', 'concierge_guard_clinical_review')
   )
   SELECT string_agg(e.trigger_name, ', ' ORDER BY e.trigger_name)
     INTO missing_triggers
@@ -153,7 +155,6 @@ BEGIN
     JOIN pg_class c ON c.oid = t.tgrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public'
-      AND c.relname = 'concierge_requests'
       AND t.tgname = e.trigger_name
       AND NOT t.tgisinternal
   );
@@ -168,52 +169,54 @@ BEGIN
   JOIN pg_class c ON c.oid = t.tgrelid
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public'
-    AND c.relname = 'concierge_requests'
     AND t.tgname = ANY(ARRAY[
       'trg_10_concierge_reference_team_route',
       'trg_20_concierge_guard_clinician_assignment',
-      'trg_concierge_guard_request_update'
+      'trg_concierge_guard_request_update',
+      'trg_concierge_guard_clinical_review'
     ])
     AND NOT t.tgisinternal
     AND t.tgenabled <> 'O';
 
   IF disabled_triggers IS NOT NULL THEN
-    RAISE EXCEPTION 'Concierge validation precheck failed. Assignment guard triggers not enabled for origin sessions: %', disabled_triggers;
+    RAISE EXCEPTION 'Concierge validation precheck failed. Critical guard triggers not enabled for origin sessions: %', disabled_triggers;
   END IF;
 
   WITH expected(trigger_name, function_name) AS (
     VALUES
       ('trg_10_concierge_reference_team_route', 'concierge_route_reference_team'),
       ('trg_20_concierge_guard_clinician_assignment', 'concierge_guard_clinician_assignment'),
-      ('trg_concierge_guard_request_update', 'concierge_guard_request_update')
+      ('trg_concierge_guard_request_update', 'concierge_guard_request_update'),
+      ('trg_concierge_guard_clinical_review', 'concierge_guard_clinical_review')
   )
   SELECT string_agg(e.trigger_name || '->' || p.proname, ', ' ORDER BY e.trigger_name)
     INTO wrong_bindings
   FROM expected e
   JOIN pg_trigger t ON t.tgname = e.trigger_name AND NOT t.tgisinternal
-  JOIN pg_class c ON c.oid = t.tgrelid
-  JOIN pg_namespace n ON n.oid = c.relnamespace
   JOIN pg_proc p ON p.oid = t.tgfoid
-  WHERE n.nspname = 'public'
-    AND c.relname = 'concierge_requests'
-    AND p.proname <> e.function_name;
+  WHERE p.proname <> e.function_name;
 
   IF wrong_bindings IS NOT NULL THEN
     RAISE EXCEPTION 'Concierge validation precheck failed. Unexpected trigger/function binding: %', wrong_bindings;
   END IF;
 END $$;
 
--- Final function bodies must retain assignment-integrity invariants. This catches
--- later CREATE OR REPLACE migrations accidentally weakening an earlier guard.
+-- Final function bodies must retain assignment-integrity invariants and must not
+-- use `current_role` as a PL/pgSQL identifier. PostgreSQL reserves CURRENT_ROLE
+-- for the database session role (e.g. authenticated), which would shadow the
+-- intended Concierge staff role in conditional expressions.
 DO $$
 DECLARE
   request_guard TEXT;
   clinician_guard TEXT;
+  clinical_review_guard TEXT;
 BEGIN
   SELECT pg_get_functiondef('public.concierge_guard_request_update()'::regprocedure)
     INTO request_guard;
   SELECT pg_get_functiondef('public.concierge_guard_clinician_assignment()'::regprocedure)
     INTO clinician_guard;
+  SELECT pg_get_functiondef('public.concierge_guard_clinical_review()'::regprocedure)
+    INTO clinical_review_guard;
 
   IF request_guard NOT LIKE '%Nurse cannot assign an arbitrary physician%'
      OR request_guard NOT LIKE '%Doctor cannot change nursing assignment%' THEN
@@ -223,6 +226,17 @@ BEGIN
   IF clinician_guard NOT LIKE '%Nurse cannot assign an arbitrary physician%'
      OR clinician_guard NOT LIKE '%Doctor cannot change nursing assignment%' THEN
     RAISE EXCEPTION 'Concierge validation precheck failed. Reference-team clinician guard is incomplete';
+  END IF;
+
+  IF clinical_review_guard NOT LIKE '%Physician review required before publishing a clinical review%'
+     OR clinical_review_guard NOT LIKE '%staff_role%' THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Clinical-review physician guard is incomplete';
+  END IF;
+
+  IF lower(request_guard) LIKE '%current_role%'
+     OR lower(clinician_guard) LIKE '%current_role%'
+     OR lower(clinical_review_guard) LIKE '%current_role%' THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. CURRENT_ROLE identifier collision detected in a critical trigger function';
   END IF;
 END $$;
 
@@ -254,4 +268,4 @@ END $$;
 SELECT
   'PASS' AS validation_precheck,
   NOW() AS checked_at,
-  'Schema, functions, RLS, reference-team routing and runtime assignment guards are ready for controlled Concierge validation.' AS message;
+  'Schema, functions, RLS, reference-team routing and runtime assignment/clinical guards are ready for controlled Concierge validation.' AS message;
