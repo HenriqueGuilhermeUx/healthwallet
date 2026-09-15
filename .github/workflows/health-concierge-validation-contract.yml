@@ -8,6 +8,7 @@ on:
       - 'SQL_CONCIERGE_*.sql'
       - 'HEALTH_CONCIERGE_VALIDATION.md'
       - 'HEALTH_CONCIERGE_E2E_RUNBOOK.md'
+      - 'HEALTH_CONCIERGE_PILOT_ROLLOUT.md'
       - '.github/workflows/health-concierge-validation-contract.yml'
       - '.github/workflows/health-concierge-pilot-bootstrap.yml'
   workflow_dispatch:
@@ -46,6 +47,7 @@ jobs:
             SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql \
             HEALTH_CONCIERGE_VALIDATION.md \
             HEALTH_CONCIERGE_E2E_RUNBOOK.md \
+            HEALTH_CONCIERGE_PILOT_ROLLOUT.md \
             .github/workflows/health-concierge-pilot-bootstrap.yml
           do
             test -f "$file" || { echo "Missing required validation artifact: $file"; exit 1; }
@@ -184,6 +186,18 @@ jobs:
             echo 'Remote pilot bootstrap must use the explicitly bound pilot DB URL only.'
             exit 1
           fi
+
+      - name: Pilot rollout documentation audit
+        run: |
+          set -euo pipefail
+          doc='HEALTH_CONCIERGE_PILOT_ROLLOUT.md'
+          grep -q 'Data-free staging schema' "$doc"
+          grep -q 'Controlled human smoke test' "$doc"
+          grep -q 'Production database security hardening' "$doc"
+          grep -q 'Explicit production pilot approval' "$doc"
+          grep -q 'Do not put real patient data' "$doc"
+          grep -q 'automation_events.*not required' "$doc"
+          grep -q 'NO-GO for production migration or real-patient rollout yet' "$doc"
 
       - name: E2E release gate audit
         run: |
