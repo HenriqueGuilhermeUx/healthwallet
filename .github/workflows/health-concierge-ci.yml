@@ -47,6 +47,7 @@ jobs:
         run: |
           grep -q 'path="/concierge/consent"' src/App.tsx
           grep -q 'path="/concierge"' src/App.tsx
+          grep -q 'path="/concierge/health"' src/App.tsx
           grep -q 'path="/concierge/request"' src/App.tsx
           grep -q 'path="/concierge/requests/:id"' src/App.tsx
           grep -q 'path="/concierge/plan"' src/App.tsx
@@ -151,6 +152,7 @@ jobs:
           grep -q 'Procure atendimento de urgência imediatamente' src/pages/ConciergeRequest.tsx
           grep -q 'não substitui revisão clínica' src/pages/ConciergeCase.tsx
           grep -q 'A publicação da revisão requer médico responsável' src/components/ConciergeClinicalReviewPanel.tsx
+          grep -q 'não geram diagnóstico automático' src/pages/ConciergeHealth.tsx
 
       - name: Health Connect regression guard
         run: |
