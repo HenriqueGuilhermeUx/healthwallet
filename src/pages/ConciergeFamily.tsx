@@ -114,7 +114,7 @@ export default function ConciergeFamily() {
                 <div className="rounded-xl bg-violet-50 p-3"><div className="flex items-center gap-1 text-xs text-violet-700"><Pill className="h-3.5 w-3.5" /> Medicações</div><p className="mt-1 text-xl font-bold">{memberMedications.length}</p>{criticalMedications.length > 0 && <p className="mt-1 text-[10px] font-semibold text-violet-700">{criticalMedications.length} marcada(s) crítica(s)</p>}</div>
               </div>
 
-              <Link to="/concierge/request?category=guidance" className="mt-4 flex w-full items-center justify-between rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800"><span>Pedir ajuda para {member.name.split(' ')[0]}</span><ChevronRight className="h-4 w-4" /></Link>
+              <Link to={`/concierge/request?category=guidance&family_member=${encodeURIComponent(member.id)}`} className="mt-4 flex w-full items-center justify-between rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800"><span>Pedir ajuda para {member.name.split(' ')[0]}</span><ChevronRight className="h-4 w-4" /></Link>
             </article>
           ))}
         </section>
