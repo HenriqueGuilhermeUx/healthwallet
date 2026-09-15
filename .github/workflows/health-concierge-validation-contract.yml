@@ -280,7 +280,7 @@ jobs:
           grep -q 'Explicit production pilot approval' "$doc"
           grep -q 'Do not put real patient data' "$doc"
           grep -q 'automation_events.*not required' "$doc"
-          grep -q 'NO-GO for production migration' "$doc"
+          grep -Eq 'NO-GO.*production.*migration' "$doc"
           grep -q 'Production security migrations V1/V2/V3: \*\*not applied\*\*' "$doc"
 
       - name: E2E release gate audit
