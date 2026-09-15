@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, HeartPulse, Loader2, PlusCircle, Target } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, HeartPulse, Loader2, PlusCircle, Stethoscope, Target } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { enrollInConciergeProgram, listConciergePrograms, listMyProgramEnrollments } from '@/services/concierge'
@@ -44,6 +44,11 @@ export default function ConciergePrograms() {
 
   async function enroll(program: any) {
     if (!user) return
+    if (program.enrollment_mode === 'team') {
+      navigate(`/concierge/request?category=guidance&program_name=${encodeURIComponent(program.name)}`)
+      return
+    }
+
     setBusyId(program.id)
     try {
       await enrollInConciergeProgram(user.id, program)
@@ -96,19 +101,21 @@ export default function ConciergePrograms() {
         <div className="space-y-3">
           {programs.map((program) => {
             const enrolled = enrolledIds.has(program.id)
+            const teamEnrollment = program.enrollment_mode === 'team'
             return (
               <div key={program.id} className="rounded-2xl border bg-white p-4">
                 <div className="flex items-start gap-3">
                   <div className="h-11 w-11 flex-shrink-0 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center"><HeartPulse className="h-5 w-5" /></div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-bold text-gray-900">{program.name}</p>
+                    <div className="flex flex-wrap items-center gap-2"><p className="font-bold text-gray-900">{program.name}</p>{teamEnrollment && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800">COM EQUIPE</span>}</div>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{program.description}</p>
                     {program.target && <p className="mt-2 text-xs text-slate-500">Para: {program.target}</p>}
+                    {teamEnrollment && <p className="mt-2 text-xs text-blue-800">A entrada neste programa é combinada com sua equipe de referência para evitar transformar uma condição clínica em autoinscrição.</p>}
                   </div>
                 </div>
-                <button type="button" disabled={enrolled || busyId === program.id} onClick={() => enroll(program)} className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-bold flex items-center justify-center gap-2 ${enrolled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-900 text-white'} disabled:opacity-70`}>
-                  {busyId === program.id ? <Loader2 className="h-4 w-4 animate-spin" /> : enrolled ? <CheckCircle2 className="h-4 w-4" /> : <PlusCircle className="h-4 w-4" />}
-                  {enrolled ? 'Programa ativo' : 'Adicionar à minha jornada'}
+                <button type="button" disabled={enrolled || busyId === program.id} onClick={() => enroll(program)} className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-bold flex items-center justify-center gap-2 ${enrolled ? 'bg-emerald-50 text-emerald-700' : teamEnrollment ? 'bg-blue-50 text-blue-800' : 'bg-slate-900 text-white'} disabled:opacity-70`}>
+                  {busyId === program.id ? <Loader2 className="h-4 w-4 animate-spin" /> : enrolled ? <CheckCircle2 className="h-4 w-4" /> : teamEnrollment ? <Stethoscope className="h-4 w-4" /> : <PlusCircle className="h-4 w-4" />}
+                  {enrolled ? 'Programa ativo' : teamEnrollment ? 'Conversar com minha equipe' : 'Adicionar à minha jornada'}
                 </button>
               </div>
             )
