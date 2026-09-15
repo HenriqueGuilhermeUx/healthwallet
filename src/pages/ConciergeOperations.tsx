@@ -20,6 +20,7 @@ import {
   getConciergeStaffSelf,
   listOperationsAlerts,
   listOperationsRequests,
+  updateConciergeAlert,
   updateConciergeRequestStatus,
 } from '@/services/concierge'
 
@@ -76,6 +77,7 @@ export default function ConciergeOperations() {
   const [requests, setRequests] = useState<any[]>([])
   const [alerts, setAlerts] = useState<any[]>([])
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [busyAlertId, setBusyAlertId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -149,6 +151,21 @@ export default function ConciergeOperations() {
     }
   }
 
+  async function handleAlert(alertId: string, status: 'acknowledged' | 'resolved') {
+    if (!staff) return
+    setBusyAlertId(alertId)
+    try {
+      await updateConciergeAlert(alertId, staff.user_id, status)
+      toast.success(status === 'resolved' ? 'Alerta resolvido' : 'Alerta reconhecido')
+      await load()
+    } catch (error) {
+      console.error('Alert update failed:', error)
+      toast.error('Não foi possível atualizar o alerta.')
+    } finally {
+      setBusyAlertId(null)
+    }
+  }
+
   if (loading) return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>
 
   if (!staff?.active) {
@@ -198,13 +215,18 @@ export default function ConciergeOperations() {
 
       {alerts.length > 0 && staff.role !== 'doctor' && (
         <section>
-          <h2 className="mb-3 font-bold text-gray-900">Alertas para revisar</h2>
+          <div className="mb-3"><h2 className="font-bold text-gray-900">Alertas para revisar</h2><p className="mt-1 text-xs text-muted-foreground">Alertas são sinais de workflow. Revise o contexto antes de tomar qualquer decisão clínica.</p></div>
           <div className="space-y-2">
-            {alerts.slice(0, 5).map((alert) => (
+            {alerts.slice(0, 8).map((alert) => (
               <div key={alert.id} className={`rounded-2xl border p-4 ${alert.severity === 'high' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
                 <div className="flex items-start gap-3">
                   <AlertTriangle className={`h-5 w-5 flex-shrink-0 ${alert.severity === 'high' ? 'text-red-700' : 'text-amber-700'}`} />
-                  <div><p className="font-semibold">{alert.title}</p>{alert.explanation && <p className="mt-1 text-sm text-muted-foreground">{alert.explanation}</p>}<p className="mt-2 text-xs text-muted-foreground">Origem: {alert.source}</p></div>
+                  <div className="min-w-0 flex-1"><p className="font-semibold">{alert.title}</p>{alert.explanation && <p className="mt-1 text-sm text-muted-foreground">{alert.explanation}</p>}<p className="mt-2 text-xs text-muted-foreground">Origem: {alert.source}</p></div>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <Link to={`/concierge/ops/patient/${alert.patient_id}`} className="rounded-xl border bg-white/70 px-3 py-2 text-center text-[11px] font-bold">Ver carteira</Link>
+                  <button type="button" disabled={busyAlertId === alert.id} onClick={() => handleAlert(alert.id, 'acknowledged')} className="rounded-xl border bg-white/70 px-3 py-2 text-[11px] font-bold disabled:opacity-50">Reconhecer</button>
+                  <button type="button" disabled={busyAlertId === alert.id} onClick={() => handleAlert(alert.id, 'resolved')} className="rounded-xl bg-slate-900 px-3 py-2 text-[11px] font-bold text-white disabled:opacity-50">Resolver</button>
                 </div>
               </div>
             ))}
