@@ -12,9 +12,15 @@ interface RedeemedGrant {
   professional_id: string
 }
 
+function isSecureToken(value?: string | null) {
+  return Boolean(value && /^HW-[0-9A-F]{36}$/i.test(value))
+}
+
 export default function AccessCode() {
   const { code } = useParams()
   const { user, loading: authLoading, signInWithEmail } = useAuth()
+  const legacyOrInvalidToken = Boolean(code && !isSecureToken(code))
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [signingIn, setSigningIn] = useState(false)
@@ -35,6 +41,17 @@ export default function AccessCode() {
       setLoading(false)
       return
     }
+
+    // Legacy six-digit bearer links are intentionally refused by the secure
+    // frontend even before V2 reaches the database. This lets the UI ship first
+    // without keeping anonymous clinical sharing alive during the transition.
+    if (!isSecureToken(code)) {
+      setError('Este link pertence ao modelo antigo de compartilhamento. Peça ao paciente para gerar um novo token seguro após a atualização.')
+      setLoading(false)
+      setGrant(null)
+      return
+    }
+
     if (authLoading) return
     if (!user) {
       setLoading(false)
@@ -60,7 +77,7 @@ export default function AccessCode() {
   }
 
   async function redeemAndLoad() {
-    if (!code || !user) return
+    if (!code || !user || !isSecureToken(code)) return
     setLoading(true)
     setError('')
     clearClinicalState()
@@ -145,6 +162,17 @@ export default function AccessCode() {
     return <CenteredCard><Loader2 className="mx-auto mb-4 h-10 w-10 animate-spin text-emerald-600" /><p className="font-semibold">Validando acesso seguro...</p></CenteredCard>
   }
 
+  if (legacyOrInvalidToken) {
+    return (
+      <CenteredCard>
+        <Shield className="mx-auto mb-4 h-12 w-12 text-amber-600" />
+        <h1 className="text-xl font-bold">Compartilhamento antigo desativado</h1>
+        <p className="mt-2 text-sm text-gray-600">{error || 'Este link não usa o novo token profissional vinculado.'}</p>
+        <p className="mt-4 text-xs text-gray-500">Peça ao paciente para abrir “Compartilhar Dados” no HealthWallet e gerar uma nova autorização segura.</p>
+      </CenteredCard>
+    )
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50 px-4 py-10">
@@ -204,6 +232,7 @@ function mapRedeemError(message: string) {
   if (message.includes('access_code_expired')) return 'Este acesso expirou. Peça ao paciente para gerar um novo token.'
   if (message.includes('access_code_revoked')) return 'O paciente revogou este acesso.'
   if (message.includes('invalid_access_code')) return 'Token inválido ou inexistente.'
+  if (message.includes('redeem_health_access_code') || message.toLowerCase().includes('schema cache')) return 'O compartilhamento seguro está sendo ativado. Nenhum dado clínico foi liberado.'
   return 'Não foi possível validar o acesso profissional.'
 }
 
