@@ -21,6 +21,18 @@ function ensureSchemeQuery(content, scheme) {
   return content.replace(/\s*<application/, `\n${queries}    <application`)
 }
 
+function ensurePackageQuery(content, packageName) {
+  const marker = `<package android:name="${packageName}" />`
+  if (content.includes(marker)) return content
+
+  if (content.includes('</queries>')) {
+    return content.replace('</queries>', `        ${marker}\n    </queries>`)
+  }
+
+  const queries = `    <queries>\n        ${marker}\n    </queries>\n\n`
+  return content.replace(/\s*<application/, `\n${queries}    <application`)
+}
+
 function findFile(root, filename) {
   if (!fs.existsSync(root)) return null
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -55,6 +67,7 @@ function installTargetedLauncherPlugin() {
 
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 
 import com.getcapacitor.JSObject;
@@ -66,6 +79,46 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "HealthWalletConnectLauncher")
 public class ${pluginClass} extends Plugin {
     private static final String CONNECT_PACKAGE = "br.com.healthwallet.connect";
+    private static final String PLAY_STORE_PACKAGE = "com.android.vending";
+    private static final String PLAY_STORE_WEB_URL = "https://play.google.com/store/apps/details?id=" + CONNECT_PACKAGE;
+
+    @PluginMethod
+    public void isInstalled(PluginCall call) {
+        JSObject result = new JSObject();
+        try {
+            getContext().getPackageManager().getPackageInfo(CONNECT_PACKAGE, 0);
+            result.put("installed", true);
+        } catch (PackageManager.NameNotFoundException error) {
+            result.put("installed", false);
+        }
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void openStore(PluginCall call) {
+        try {
+            Intent marketIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + CONNECT_PACKAGE));
+            marketIntent.setPackage(PLAY_STORE_PACKAGE);
+            getActivity().startActivity(marketIntent);
+
+            JSObject result = new JSObject();
+            result.put("completed", true);
+            call.resolve(result);
+        } catch (ActivityNotFoundException marketMissing) {
+            try {
+                Intent webIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(PLAY_STORE_WEB_URL));
+                getActivity().startActivity(webIntent);
+
+                JSObject result = new JSObject();
+                result.put("completed", true);
+                call.resolve(result);
+            } catch (Exception webError) {
+                call.reject("Could not open HealthWallet Connect in Google Play", webError);
+            }
+        } catch (Exception error) {
+            call.reject("Could not open HealthWallet Connect in Google Play", error);
+        }
+    }
 
     @PluginMethod
     public void open(PluginCall call) {
@@ -118,7 +171,7 @@ public class ${pluginClass} extends Plugin {
     fs.writeFileSync(mainActivityPath, mainActivity)
   }
 
-  console.log('Targeted Android launcher registered for br.com.healthwallet.connect.')
+  console.log('Targeted Android launcher registered for br.com.healthwallet.connect with Google Play fallback.')
 }
 
 let manifest = fs.readFileSync(manifestPath, 'utf8')
@@ -141,7 +194,8 @@ if (!manifest.includes('android:scheme="healthwallet"')) {
 }
 
 manifest = ensureSchemeQuery(manifest, 'healthwallet-connect')
+manifest = ensurePackageQuery(manifest, 'br.com.healthwallet.connect')
 fs.writeFileSync(manifestPath, manifest)
 installTargetedLauncherPlugin()
 
-console.log('HealthWallet Connect return deep link registered: healthwallet://connect-complete; launch target query: healthwallet-connect://')
+console.log('HealthWallet Connect return deep link registered: healthwallet://connect-complete; launch target query: healthwallet-connect://; package visibility + Google Play fallback enabled.')
