@@ -57,6 +57,7 @@ jobs:
           grep -q 'path="/concierge/agenda"' src/App.tsx
           grep -q 'path="/concierge/ops"' src/App.tsx
           grep -q 'path="/concierge/ops/case/:id"' src/App.tsx
+          grep -q 'path="/concierge/ops/patient/:patientId"' src/App.tsx
           grep -q 'path="/concierge/ops/pilot"' src/App.tsx
           grep -q 'path="/concierge/ops/roster"' src/App.tsx
           grep -q 'ConciergeAccessGate' src/App.tsx
@@ -69,7 +70,24 @@ jobs:
           grep -q "location.pathname.startsWith('/concierge/ops')" src/App.tsx
           grep -q '<ProfessionalPage><ConciergeOperations' src/App.tsx
           grep -q '<ProfessionalPage><ConciergeCase' src/App.tsx
+          grep -q '<ProfessionalPage><ConciergePatientOps' src/App.tsx
           grep -q 'MyDataMed' src/components/ConciergeProfessionalHeader.tsx
+
+      - name: Operational patient workspace boundary audit
+        run: |
+          test -f src/pages/ConciergePatientOps.tsx
+          grep -q 'Visão operacional — sem prontuário aberto' src/pages/ConciergePatientOps.tsx
+          grep -q "from('concierge_memberships')" src/pages/ConciergePatientOps.tsx
+          grep -q "from('concierge_assignments')" src/pages/ConciergePatientOps.tsx
+          grep -q "from('concierge_requests')" src/pages/ConciergePatientOps.tsx
+          grep -q "from('concierge_actions')" src/pages/ConciergePatientOps.tsx
+          grep -q "from('concierge_alerts')" src/pages/ConciergePatientOps.tsx
+          if grep -Eq "from\('(medical_records|health_scores|health_daily_summaries|medications|medical_events|health_documents)'\)" src/pages/ConciergePatientOps.tsx; then
+            echo 'Operational patient workspace must not become a blanket clinical record view'
+            exit 1
+          fi
+          grep -q 'Abrir carteira operacional' src/pages/ConciergeRoster.tsx
+          grep -q 'Ver carteira' src/pages/ConciergeOperations.tsx
 
       - name: Concierge migration inventory
         run: |
