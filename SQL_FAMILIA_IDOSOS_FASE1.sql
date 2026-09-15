@@ -103,6 +103,19 @@ CREATE TABLE IF NOT EXISTS public.health_reminders (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- CREATE TABLE IF NOT EXISTS does not evolve a pre-existing table. Keep these
+-- explicit upgrades so databases that already had health_reminders before the
+-- Family phase receive the canonical family-coordination contract as well.
+ALTER TABLE public.health_reminders
+  ADD COLUMN IF NOT EXISTS target_family_member_id UUID REFERENCES public.family_members(id) ON DELETE SET NULL;
+ALTER TABLE public.health_reminders
+  ADD COLUMN IF NOT EXISTS requires_confirmation BOOLEAN DEFAULT false;
+ALTER TABLE public.health_reminders
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+CREATE INDEX IF NOT EXISTS idx_health_reminders_target_family_member
+  ON public.health_reminders(target_family_member_id);
+
 ALTER TABLE public.health_reminders ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "health_reminders_manage_own" ON public.health_reminders;
 CREATE POLICY "health_reminders_manage_own" ON public.health_reminders
