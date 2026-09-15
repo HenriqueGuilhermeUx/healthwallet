@@ -1,0 +1,157 @@
+name: HealthWallet Connect Full Native Smoke
+
+on:
+  push:
+    branches:
+      - feature/healthwallet-connect
+    paths:
+      - 'healthwallet-connect/**'
+      - '.github/workflows/healthwallet-connect-full-native-smoke.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: healthwallet-connect-full-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-full-native:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: healthwallet-connect
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -mindepth 2 -maxdepth 2 -type f -name sdkmanager | sort -V | tail -n 1)"
+          fi
+          test -x "$SDKMANAGER" || (echo "Preinstalled sdkmanager not found" && exit 1)
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+
+      - name: Install Android API 36
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Check runtime configuration
+        run: |
+          test -n "$VITE_SUPABASE_URL" || (echo "Missing VITE_SUPABASE_URL" && exit 1)
+          test -n "$VITE_SUPABASE_ANON_KEY" || (echo "Missing VITE_SUPABASE_ANON_KEY" && exit 1)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Patch Android app flow
+        run: |
+          node scripts/patch-app-direct-reader.mjs
+          node scripts/patch-app-permission-resume.mjs
+
+      - name: Audit full native TypeScript path
+        shell: bash
+        run: |
+          grep -q "readHealthDaily" src/services/directAndroidHealth.ts || (echo "readHealthDaily bridge missing" && exit 1)
+          grep -q "sync_version: 8" src/services/directAndroidHealth.ts || (echo "Native sync v8 marker missing" && exit 1)
+          grep -q "android_platform_health_connect_full_native" src/services/directAndroidHealth.ts || (echo "Full native strategy missing" && exit 1)
+          grep -q "sleep_minutes" src/services/directAndroidHealth.ts || (echo "Sleep persistence missing" && exit 1)
+          grep -q "avg_heart_rate" src/services/directAndroidHealth.ts || (echo "Heart rate persistence missing" && exit 1)
+          grep -q "spo2_avg" src/services/directAndroidHealth.ts || (echo "SpO2 persistence missing" && exit 1)
+          grep -q "hrv_avg" src/services/directAndroidHealth.ts || (echo "HRV persistence missing" && exit 1)
+          grep -q "systolic_bp" src/services/directAndroidHealth.ts || (echo "Blood pressure persistence missing" && exit 1)
+          grep -q "weight_kg" src/services/directAndroidHealth.ts || (echo "Weight persistence missing" && exit 1)
+          grep -q "active_calories" src/services/directAndroidHealth.ts || (echo "Calories persistence missing" && exit 1)
+          grep -q "activity_minutes" src/services/directAndroidHealth.ts || (echo "Exercise persistence missing" && exit 1)
+          if grep -q "syncHealthData" src/services/directAndroidHealth.ts; then
+            echo "Capgo sync dependency found in native path"
+            exit 1
+          fi
+
+      - name: Build web assets
+        run: npx vite build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet1.netlify.app
+
+      - name: Generate Android project
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Apply Android policy and native reader
+        run: |
+          node scripts/patch-android-sdk.mjs
+          node scripts/patch-health-permissions.mjs full
+          node scripts/patch-direct-health-reader.mjs
+          node scripts/patch-health-permission-launcher.mjs
+
+      - name: Audit full native Java reader
+        shell: bash
+        run: |
+          PLUGIN="$(find android/app/src/main/java -name DirectHealthReaderPlugin.java | head -n 1)"
+          test -n "$PLUGIN" || (echo "DirectHealthReaderPlugin missing" && exit 1)
+          REQUIRED=(
+            'public void readHealthDaily(PluginCall call)'
+            'SleepSessionRecord.SLEEP_DURATION_TOTAL'
+            'HeartRateRecord.BPM_AVG'
+            'RestingHeartRateRecord.BPM_AVG'
+            'OxygenSaturationRecord.class'
+            'HeartRateVariabilityRmssdRecord.class'
+            'BloodPressureRecord.class'
+            'WeightRecord.WEIGHT_AVG'
+            'ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL'
+            'ExerciseSessionRecord.EXERCISE_DURATION_TOTAL'
+            'aggregateGroupByPeriod'
+            'readRecords'
+          )
+          for MARKER in "${REQUIRED[@]}"; do
+            grep -q "$MARKER" "$PLUGIN" || (echo "Missing native marker: $MARKER" && exit 1)
+          done
+          echo "Full native Java reader audit passed."
+
+      - name: Build full native debug APK
+        run: cd android && ./gradlew clean assembleDebug --stacktrace
+
+      - name: Audit read-only permissions
+        shell: bash
+        run: |
+          MERGED="$(find android/app/build/intermediates -path '*merged*manifest*' -name AndroidManifest.xml | head -n 1)"
+          test -n "$MERGED" || (echo "Merged manifest missing" && exit 1)
+          if grep -q 'android.permission.health.WRITE_' "$MERGED"; then
+            echo "Forbidden Health Connect write permission found"
+            exit 1
+          fi
+          for P in READ_STEPS READ_SLEEP READ_HEART_RATE READ_RESTING_HEART_RATE READ_OXYGEN_SATURATION READ_HEART_RATE_VARIABILITY READ_BLOOD_PRESSURE READ_WEIGHT READ_ACTIVE_CALORIES_BURNED READ_EXERCISE; do
+            grep -q "android.permission.health.$P" "$MERGED" || (echo "Missing $P" && exit 1)
+          done
+
+      - name: Upload full native APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthwallet-connect-full-native-debug-apk
+          path: healthwallet-connect/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

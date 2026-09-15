@@ -1,0 +1,223 @@
+name: HealthWallet Connect V8 Smoke
+
+on:
+  push:
+    branches:
+      - feature/healthwallet-connect
+    paths:
+      - 'healthwallet-connect/**'
+      - '.github/workflows/healthwallet-connect-v8-smoke.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: healthwallet-connect-v8-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-connect-v8:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: healthwallet-connect
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -mindepth 2 -maxdepth 2 -type f -name sdkmanager | sort -V | tail -n 1)"
+          fi
+          test -x "$SDKMANAGER" || (echo "Preinstalled sdkmanager not found" && exit 1)
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          "$SDKMANAGER" --version
+
+      - name: Install Android API 36
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Check runtime configuration
+        run: |
+          test -n "$VITE_SUPABASE_URL" || (echo "Missing VITE_SUPABASE_URL" && exit 1)
+          test -n "$VITE_SUPABASE_ANON_KEY" || (echo "Missing VITE_SUPABASE_ANON_KEY" && exit 1)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Install Capacitor 8 dependencies
+        run: npm install
+
+      - name: Audit modern native stack
+        shell: bash
+        run: |
+          node -e "const p=require('./node_modules/@capacitor/core/package.json'); if(!p.version.startsWith('8.')) throw new Error('Capacitor core is not v8: '+p.version); console.log('Capacitor core', p.version)"
+          node -e "const p=require('./node_modules/@capgo/capacitor-health/package.json'); if(!p.version.startsWith('8.')) throw new Error('Health plugin is not v8: '+p.version); console.log('Capgo health', p.version)"
+          grep -q "androidx.health.connect:connect-client:1.1.0" node_modules/@capgo/capacitor-health/android/build.gradle || (echo "Modern Health Connect client 1.1.0 missing" && exit 1)
+          grep -q "compileSdk = 36" node_modules/@capgo/capacitor-health/android/build.gradle || (echo "Plugin compileSdk 36 missing" && exit 1)
+          echo "Modern Capacitor/Health Connect stack audit passed."
+
+      - name: Audit batch sync v2 engine
+        shell: bash
+        run: |
+          SYNC="src/services/healthSync.ts"
+          grep -q "sync_version: 2" "$SYNC" || (echo "Batch sync v2 marker missing" && exit 1)
+          grep -q "read_strategy: 'range_aggregate_with_sample_fallback'" "$SYNC" || (echo "Range aggregation strategy missing" && exit 1)
+          if grep -q "await probePluginRead" "$SYNC"; then
+            echo "Blocking readSamples probe is still present"
+            exit 1
+          fi
+          echo "Batch sync v2 audit passed."
+
+      - name: Route Android flow to full platform permission sheet
+        run: |
+          node scripts/patch-app-direct-reader.mjs
+          node scripts/patch-app-permission-resume.mjs
+
+      - name: Audit native-only post-permission sync path
+        shell: bash
+        run: |
+          grep -q "syncDirectAndroidHealth" src/App.tsx || (echo "Full Android sync not wired" && exit 1)
+          grep -q "checkDirectAndroidHealthPermissions" src/App.tsx || (echo "Full permission check not wired" && exit 1)
+          grep -q "requestDirectAndroidHealthPermissions" src/App.tsx || (echo "Official full permission request not wired" && exit 1)
+          grep -q "openDirectAndroidStepsPermission" src/App.tsx || (echo "Health Connect settings fallback not wired" && exit 1)
+          grep -q "CapacitorApp.addListener('appStateChange'" src/App.tsx || (echo "Android app-state listener missing" && exit 1)
+          grep -q "CapacitorApp.addListener('resume'" src/App.tsx || (echo "Android resume listener missing" && exit 1)
+          grep -q "directPermissionPending.current = false" src/App.tsx || (echo "Permission resume single-flight guard missing" && exit 1)
+          grep -q "runDirectAndroidHealthHandoff" src/App.tsx || (echo "Automatic full Android handoff path missing" && exit 1)
+          grep -q "if (!isDirectAndroidHealthAvailable() && !availability?.available) return" src/App.tsx || (echo "Android-native autostart gate missing" && exit 1)
+          if grep -q "handoffBusy || handoffError || !userId || !availability?.available" src/App.tsx; then
+            echo "Legacy Capgo availability still blocks Android autostart"
+            exit 1
+          fi
+          grep -q "sync_version: 7" src/services/directAndroidHealth.ts || (echo "Direct reader v7 persistence marker missing" && exit 1)
+          grep -q "activity_result_launcher_proxy" src/services/directAndroidHealth.ts || (echo "Lifecycle permission strategy marker missing" && exit 1)
+          grep -q "pending_native_read_metrics" src/services/directAndroidHealth.ts || (echo "Pending native metric metadata missing" && exit 1)
+          if grep -q "syncHealthData" src/services/directAndroidHealth.ts; then
+            echo "Forbidden Capgo/full sync dependency still blocks Android post-permission flow"
+            exit 1
+          fi
+          grep -q "READ_SLEEP" src/services/directAndroidHealth.ts || (echo "Sleep permission mapping missing" && exit 1)
+          grep -q "READ_HEART_RATE" src/services/directAndroidHealth.ts || (echo "Heart rate permission mapping missing" && exit 1)
+          grep -q "READ_BLOOD_PRESSURE" src/services/directAndroidHealth.ts || (echo "Blood pressure permission mapping missing" && exit 1)
+          echo "Lifecycle permission + native-only immediate sync path audit passed."
+
+      - name: Build Connect web assets
+        run: npx vite build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet1.netlify.app
+
+      - name: Add Android project
+        run: npx cap add android
+
+      - name: Sync Capacitor 8 Android
+        run: npx cap sync android
+
+      - name: Apply HealthWallet Connect Android policy
+        run: |
+          node scripts/patch-android-sdk.mjs
+          node scripts/patch-health-permissions.mjs full
+
+      - name: Install direct Android Health Connect reader
+        run: |
+          node scripts/patch-direct-health-reader.mjs
+          node scripts/patch-health-permission-launcher.mjs
+
+      - name: Audit lifecycle-aware native permission sheet
+        shell: bash
+        run: |
+          PLUGIN="$(find android/app/src/main/java -name DirectHealthReaderPlugin.java | head -n 1)"
+          PERMISSION_ACTIVITY="$(find android/app/src/main/java -name HealthPermissionRequestActivity.java | head -n 1)"
+          ACTIVITY="$(find android/app/src/main/java -name MainActivity.java | head -n 1)"
+          test -n "$PLUGIN" || (echo "DirectHealthReaderPlugin.java missing" && exit 1)
+          test -n "$PERMISSION_ACTIVITY" || (echo "HealthPermissionRequestActivity.java missing" && exit 1)
+          test -n "$ACTIVITY" || (echo "MainActivity.java missing" && exit 1)
+          grep -q "HealthConnectManager" "$PLUGIN" || (echo "HealthConnectManager API missing" && exit 1)
+          grep -q "FULL_READ_PERMISSIONS" "$PLUGIN" || (echo "Full read-only permission set missing" && exit 1)
+          grep -q "checkHealthPermissions" "$PLUGIN" || (echo "Full permission check missing" && exit 1)
+          grep -q "requestHealthPermissions" "$PLUGIN" || (echo "Full permission request missing" && exit 1)
+          grep -q "@PluginMethod" "$PLUGIN" || (echo "Capacitor plugin methods missing" && exit 1)
+          grep -q "public void checkStepsPermission(PluginCall call)" "$PLUGIN" || (echo "checkStepsPermission native method missing" && exit 1)
+          grep -q "HealthPermissionRequestActivity.class" "$PLUGIN" || (echo "Permission proxy Activity is not launched by plugin" && exit 1)
+          grep -q "ActivityResultLauncher" "$PERMISSION_ACTIVITY" || (echo "Lifecycle-aware ActivityResultLauncher missing" && exit 1)
+          grep -q "registerForActivityResult" "$PERMISSION_ACTIVITY" || (echo "registerForActivityResult missing" && exit 1)
+          grep -q "createRequestPermissionResultContract()" "$PERMISSION_ACTIVITY" || (echo "Official Health Connect permission contract missing" && exit 1)
+          grep -q "permissionLauncher.launch(FULL_READ_PERMISSIONS)" "$PERMISSION_ACTIVITY" || (echo "Full permission sheet launch missing" && exit 1)
+          grep -q "STEPS_COUNT_TOTAL" "$PLUGIN" || (echo "Official steps aggregate missing" && exit 1)
+          grep -q "manager.aggregate" "$PLUGIN" || (echo "Official aggregate call missing" && exit 1)
+          grep -q "MANAGE_HEALTH_PERMISSIONS" "$PLUGIN" || (echo "Health Connect settings fallback missing" && exit 1)
+          grep -q 'androidx.health.connect:connect-client:1.1.0' android/app/build.gradle || (echo "Direct app Health Connect dependency missing" && exit 1)
+          grep -q "DirectHealthReaderPlugin.class" "$ACTIVITY" || (echo "DirectHealthReader plugin not registered" && exit 1)
+          echo "Lifecycle-aware Health Connect permission sheet audit passed."
+
+      - name: Audit app manifest before build
+        shell: bash
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          grep -q 'android:scheme="healthwallet-connect"' "$MANIFEST" || (echo "handoff scheme missing" && exit 1)
+          grep -q 'android:host="handoff"' "$MANIFEST" || (echo "handoff host missing" && exit 1)
+          grep -q '<data android:scheme="healthwallet" />' "$MANIFEST" || (echo "return query missing" && exit 1)
+          grep -q 'android.permission.health.READ_STEPS' "$MANIFEST" || (echo "READ_STEPS missing" && exit 1)
+          grep -q 'android:name=".HealthPermissionRequestActivity"' "$MANIFEST" || (echo "Permission proxy Activity missing from manifest" && exit 1)
+          grep -q 'android.intent.category.HEALTH_PERMISSIONS' "$MANIFEST" || (echo "Health permission rationale category missing" && exit 1)
+          echo "App manifest audit passed."
+
+      - name: Build Capacitor 8 full-health debug APK
+        run: cd android && ./gradlew clean assembleDebug --stacktrace
+
+      - name: Audit merged read-only Health Connect permissions
+        shell: bash
+        run: |
+          MERGED_MANIFEST="$(find android/app/build/intermediates -path '*merged*manifest*' -name AndroidManifest.xml | head -n 1)"
+          test -n "$MERGED_MANIFEST" || (echo "Merged AndroidManifest.xml not found" && exit 1)
+          REQUIRED=(
+            READ_STEPS
+            READ_SLEEP
+            READ_HEART_RATE
+            READ_RESTING_HEART_RATE
+            READ_OXYGEN_SATURATION
+            READ_HEART_RATE_VARIABILITY
+            READ_BLOOD_PRESSURE
+            READ_WEIGHT
+            READ_ACTIVE_CALORIES_BURNED
+            READ_EXERCISE
+          )
+          for PERMISSION in "${REQUIRED[@]}"; do
+            grep -q "android.permission.health.${PERMISSION}" "$MERGED_MANIFEST" || (echo "Missing ${PERMISSION}" && exit 1)
+          done
+          WRITE_PERMS="$(grep -oE 'android\.permission\.health\.WRITE_[A-Z_]+' "$MERGED_MANIFEST" | sort -u || true)"
+          if [ -n "$WRITE_PERMS" ]; then
+            echo "Forbidden write permissions found:"
+            echo "$WRITE_PERMS"
+            exit 1
+          fi
+          echo "Full-health APK permission audit passed: read-only scopes only."
+
+      - name: Upload HealthWallet Connect Full Health APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthwallet-connect-full-health-debug-apk
+          path: healthwallet-connect/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

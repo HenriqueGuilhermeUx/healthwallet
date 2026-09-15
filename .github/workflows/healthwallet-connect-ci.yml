@@ -1,0 +1,321 @@
+name: HealthWallet Connect CI
+
+on:
+  push:
+    branches:
+      - feature/healthwallet-connect
+    paths:
+      - 'healthwallet-connect/**'
+      - 'src/App.tsx'
+      - 'src/pages/DeviceData.tsx'
+      - 'src/services/healthWalletConnect.ts'
+      - 'scripts/patch-healthwallet-connect-return.mjs'
+      - 'supabase/functions/healthwallet-connect-handoff/**'
+      - 'SQL_HEALTHWALLET_CONNECT_HANDOFF_V1.sql'
+      - 'package.json'
+      - '.github/workflows/healthwallet-connect-ci.yml'
+  pull_request:
+    paths:
+      - 'healthwallet-connect/**'
+      - 'src/App.tsx'
+      - 'src/pages/DeviceData.tsx'
+      - 'src/services/healthWalletConnect.ts'
+      - 'scripts/patch-healthwallet-connect-return.mjs'
+      - 'supabase/functions/healthwallet-connect-handoff/**'
+      - 'SQL_HEALTHWALLET_CONNECT_HANDOFF_V1.sql'
+      - 'package.json'
+      - '.github/workflows/healthwallet-connect-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: healthwallet-connect-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  connect-android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: healthwallet-connect
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36
+        run: sdkmanager --install "platforms;android-36"
+
+      - name: Check runtime configuration
+        run: |
+          test -n "$VITE_SUPABASE_URL" || (echo "Missing VITE_SUPABASE_URL" && exit 1)
+          test -n "$VITE_SUPABASE_ANON_KEY" || (echo "Missing VITE_SUPABASE_ANON_KEY" && exit 1)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Connect web app
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet1.netlify.app
+
+      - name: Add Android project
+        run: npx cap add android
+
+      - name: Sync Android minimal profile
+        run: npm run android:sync:minimal
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet1.netlify.app
+
+      - name: Audit Connect app-to-app and Health Connect declarations
+        shell: bash
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          grep -q 'android:scheme="healthwallet-connect"' "$MANIFEST" || (echo "healthwallet-connect input scheme missing" && exit 1)
+          grep -q 'android:host="handoff"' "$MANIFEST" || (echo "handoff host missing" && exit 1)
+          grep -q '<data android:scheme="healthwallet" />' "$MANIFEST" || (echo "healthwallet return target query missing" && exit 1)
+          grep -q 'com.google.android.apps.healthdata' "$MANIFEST" || (echo "Health Connect provider query missing" && exit 1)
+          grep -q 'androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE' "$MANIFEST" || (echo "Health Connect permissions rationale action missing" && exit 1)
+          grep -q 'android.intent.action.VIEW_PERMISSION_USAGE' "$MANIFEST" || (echo "Health Connect permission usage alias missing" && exit 1)
+          grep -q 'app.capgo.plugin.health.PermissionsRationaleActivity' "$MANIFEST" || (echo "Health Connect rationale Activity missing" && exit 1)
+          echo "Connect app-to-app and Health Connect declaration audit passed."
+
+      - name: Build Android minimal debug
+        run: cd android && ./gradlew assembleDebug --stacktrace
+
+      - name: Audit minimal merged Health Connect permissions
+        shell: bash
+        run: |
+          MERGED_MANIFEST="$(find android/app/build/intermediates -path '*merged*manifest*' -name AndroidManifest.xml | head -n 1)"
+          test -n "$MERGED_MANIFEST" || (echo "Merged AndroidManifest.xml not found" && exit 1)
+          echo "Auditing $MERGED_MANIFEST"
+          grep -q 'android.permission.health.READ_STEPS' "$MERGED_MANIFEST" || (echo "READ_STEPS missing" && exit 1)
+          EXTRA="$(grep -oE 'android\.permission\.health\.[A-Z_]+' "$MERGED_MANIFEST" | sort -u | grep -v '^android.permission.health.READ_STEPS$' || true)"
+          if [ -n "$EXTRA" ]; then
+            echo "Unexpected Health Connect permissions in minimal build:"
+            echo "$EXTRA"
+            exit 1
+          fi
+          echo "Minimal permission audit passed: READ_STEPS only."
+
+      - name: Sync Android full profile
+        run: npm run android:sync:full
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_HEALTHWALLET_WEB_ORIGIN: https://healthwallet1.netlify.app
+
+      - name: Build Android full debug
+        run: cd android && ./gradlew clean assembleDebug --stacktrace
+
+      - name: Audit full merged Health Connect permissions
+        shell: bash
+        run: |
+          MERGED_MANIFEST="$(find android/app/build/intermediates -path '*merged*manifest*' -name AndroidManifest.xml | head -n 1)"
+          test -n "$MERGED_MANIFEST" || (echo "Merged AndroidManifest.xml not found" && exit 1)
+          REQUIRED=(
+            READ_STEPS
+            READ_SLEEP
+            READ_HEART_RATE
+            READ_RESTING_HEART_RATE
+            READ_OXYGEN_SATURATION
+            READ_HEART_RATE_VARIABILITY
+            READ_BLOOD_PRESSURE
+            READ_WEIGHT
+            READ_ACTIVE_CALORIES_BURNED
+            READ_EXERCISE
+          )
+          for PERMISSION in "${REQUIRED[@]}"; do
+            grep -q "android.permission.health.${PERMISSION}" "$MERGED_MANIFEST" || (echo "Missing ${PERMISSION} in full build" && exit 1)
+          done
+          grep -q 'com.google.android.apps.healthdata' "$MERGED_MANIFEST" || (echo "Health Connect provider query missing from merged manifest" && exit 1)
+          grep -q 'androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE' "$MERGED_MANIFEST" || (echo "Health Connect rationale missing from merged manifest" && exit 1)
+          grep -q 'android.intent.action.VIEW_PERMISSION_USAGE' "$MERGED_MANIFEST" || (echo "Health Connect permission usage alias missing from merged manifest" && exit 1)
+          FORBIDDEN="$(grep -oE 'android\.permission\.health\.(WRITE_[A-Z_]+|READ_STEPS_CADENCE|READ_DISTANCE|READ_EXERCISE_SESSION)' "$MERGED_MANIFEST" | sort -u || true)"
+          if [ -n "$FORBIDDEN" ]; then
+            echo "Forbidden Health Connect permissions found in full build:"
+            echo "$FORBIDDEN"
+            exit 1
+          fi
+          echo "Full permission and Health Connect declaration audit passed."
+
+      - name: Upload HealthWallet Connect full APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthwallet-connect-full-debug-apk
+          path: healthwallet-connect/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  healthwallet-android-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 36
+        run: sdkmanager --install "platforms;android-36"
+
+      - name: Check runtime configuration
+        run: |
+          test -n "$VITE_SUPABASE_URL" || (echo "Missing VITE_SUPABASE_URL" && exit 1)
+          test -n "$VITE_SUPABASE_ANON_KEY" || (echo "Missing VITE_SUPABASE_ANON_KEY" && exit 1)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Install HealthWallet dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build HealthWallet web app
+        run: pnpm build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_ENABLE_NEXA_LOGIN: 'false'
+
+      - name: Add Android project
+        run: npx cap add android
+
+      - name: Sync Android project
+        run: npx cap sync android
+
+      - name: Patch Android test build
+        run: |
+          node scripts/patch-capacitor-android.mjs
+          node scripts/patch-health-permissions.mjs
+          node scripts/patch-healthwallet-connect-return.mjs
+
+      - name: Audit HealthWallet app-to-app return links
+        shell: bash
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          grep -q 'android:scheme="healthwallet" android:host="connect-complete"' "$MANIFEST" || (echo "HealthWallet return scheme missing" && exit 1)
+          grep -q '<data android:scheme="healthwallet-connect" />' "$MANIFEST" || (echo "Connect target query missing" && exit 1)
+          echo "HealthWallet app-to-app link audit passed."
+
+      - name: Build HealthWallet debug APK
+        run: cd android && ./gradlew assembleDebug --stacktrace
+
+      - name: Audit HealthWallet merged Health Connect permissions
+        shell: bash
+        run: |
+          MERGED_MANIFEST="$(find android/app/build/intermediates -path '*merged*manifest*' -name AndroidManifest.xml | head -n 1)"
+          test -n "$MERGED_MANIFEST" || (echo "Merged AndroidManifest.xml not found" && exit 1)
+          grep -q 'android.permission.health.READ_STEPS' "$MERGED_MANIFEST" || (echo "READ_STEPS missing" && exit 1)
+          EXTRA="$(grep -oE 'android\.permission\.health\.[A-Z_]+' "$MERGED_MANIFEST" | sort -u | grep -v '^android.permission.health.READ_STEPS$' || true)"
+          if [ -n "$EXTRA" ]; then
+            echo "Unexpected Health Connect permissions in HealthWallet test APK:"
+            echo "$EXTRA"
+            exit 1
+          fi
+          echo "HealthWallet permission audit passed: READ_STEPS only."
+
+      - name: Upload HealthWallet test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthwallet-connect-bridge-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  healthwallet-web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+
+      - name: Install HealthWallet dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build HealthWallet branch
+        run: pnpm exec tsc -b && pnpm exec vite build
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-placeholder-key
+
+      - name: Validate HealthWallet return Manifest patch
+        shell: bash
+        run: |
+          mkdir -p android/app/src/main
+          cat > android/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="HealthWallet">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          node scripts/patch-healthwallet-connect-return.mjs
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          grep -q 'android:scheme="healthwallet" android:host="connect-complete"' "$MANIFEST" || (echo "HealthWallet return scheme missing" && exit 1)
+          grep -q '<data android:scheme="healthwallet-connect" />' "$MANIFEST" || (echo "Connect target query missing" && exit 1)
+          echo "HealthWallet return Manifest patch passed."
+
+  handoff-edge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check handoff Edge Function
+        run: deno check --node-modules-dir=auto supabase/functions/healthwallet-connect-handoff/index.ts
