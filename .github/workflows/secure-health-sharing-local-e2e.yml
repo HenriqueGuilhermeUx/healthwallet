@@ -5,9 +5,12 @@ on:
     branches:
       - feature/health-concierge-mvp
     paths:
+      - 'SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql'
       - 'SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql'
       - 'SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql'
+      - 'SQL_PRE_CONCIERGE_SECURITY_POSTCHECK_V3.sql'
       - 'SQL_SECURE_HEALTH_SHARING_VALIDATION_BASE_V2.sql'
+      - 'SQL_SECURE_HEALTH_SHARING_VALIDATION_V1_DEPS.sql'
       - 'scripts/secure-health-sharing-local-e2e.mjs'
       - '.github/workflows/secure-health-sharing-local-e2e.yml'
   workflow_dispatch:
@@ -17,7 +20,7 @@ permissions:
 
 jobs:
   secure-sharing-local-e2e:
-    name: Ephemeral Auth + PostgREST + RLS sharing E2E
+    name: Ephemeral V1 + V2 + V3 Auth/PostgREST/RLS E2E
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -78,6 +81,26 @@ jobs:
           psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_SECURE_HEALTH_SHARING_VALIDATION_BASE_V2.sql | tee /tmp/secure-sharing-base.log
           grep -q 'PASS' /tmp/secure-sharing-base.log
 
+      - name: Apply V1 validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/secure-sharing-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_SECURE_HEALTH_SHARING_VALIDATION_V1_DEPS.sql | tee /tmp/security-v1-deps.log
+          grep -q 'PASS' /tmp/security-v1-deps.log
+
+      - name: Apply pre-Concierge function hardening V1
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/secure-sharing-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql | tee /tmp/security-v1.log
+          grep -q 'PASS' /tmp/security-v1.log
+
       - name: Apply secure sharing V2
         shell: bash
         run: |
@@ -97,6 +120,16 @@ jobs:
           set +a
           psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql | tee /tmp/secure-sharing-v3.log
           grep -q 'PASS' /tmp/secure-sharing-v3.log
+
+      - name: Full V1 V2 V3 postcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/secure-sharing-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_PRE_CONCIERGE_SECURITY_POSTCHECK_V3.sql | tee /tmp/security-postcheck-v3.log
+          grep -q 'PASS' /tmp/security-postcheck-v3.log
 
       - name: Runtime schema contract
         shell: bash
@@ -129,6 +162,9 @@ jobs:
             IF has_table_privilege('anon','public.shared_access','SELECT') THEN
               failures := array_append(failures, 'anon-shared_access-select');
             END IF;
+            IF has_function_privilege('authenticated','public.activate_mydatamed_pro_after_payment(uuid,uuid,uuid)','EXECUTE') THEN
+              failures := array_append(failures, 'authenticated-payment-activation-execute');
+            END IF;
 
             FOREACH view_name IN ARRAY ARRAY[
               'patient_device_score_latest','vw_document_deliveries_public','vw_exames_autocomplete',
@@ -146,10 +182,10 @@ jobs:
             END LOOP;
 
             IF cardinality(failures) > 0 THEN
-              RAISE EXCEPTION 'Secure sharing runtime schema contract failed: %', array_to_string(failures, ', ');
+              RAISE EXCEPTION 'Full pre-Concierge security runtime schema contract failed: %', array_to_string(failures, ', ');
             END IF;
           END $$;
-          SELECT 'PASS' AS secure_sharing_runtime_schema;
+          SELECT 'PASS' AS full_pre_concierge_security_runtime_schema;
           SQL
 
       - name: Run three-persona Auth/PostgREST/RLS E2E
@@ -181,7 +217,8 @@ jobs:
 
       - name: Result
         run: |
-          echo 'SECURE HEALTH SHARING V2 + VIEW HARDENING V3: LOCAL E2E PASS'
+          echo 'PRE-CONCIERGE SECURITY V1 + SHARING V2 + VIEW V3: LOCAL E2E PASS'
+          echo 'The exact Gate C security order and read-only final postcheck passed in an ephemeral Supabase stack.'
           echo 'No production database, remote Supabase project, deployment or branch merge was touched.'
 
       - name: Stop ephemeral Supabase
