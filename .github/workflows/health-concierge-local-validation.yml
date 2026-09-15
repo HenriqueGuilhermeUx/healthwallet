@@ -1,0 +1,269 @@
+name: Health Concierge Local Validation
+
+on:
+  push:
+    branches:
+      - feature/health-concierge-mvp
+    paths:
+      - 'SQL_CONCIERGE_*.sql'
+      - 'scripts/health-concierge-local-e2e.mjs'
+      - 'HEALTH_CONCIERGE_VALIDATION.md'
+      - 'HEALTH_CONCIERGE_E2E_RUNBOOK.md'
+      - '.github/workflows/health-concierge-local-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-supabase-e2e:
+    name: Isolated Supabase + 9-persona E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout validation branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install application dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Assert production isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow='.github/workflows/health-concierge-local-validation.yml'
+          if grep -Eq 'supabase[[:space:]]+link|supabase[[:space:]]+db[[:space:]]+push|--linked' "$workflow"; then
+            echo 'Remote Supabase operation found in local validation workflow.'
+            exit 1
+          fi
+          echo 'PASS: workflow contains no Supabase link/db push/linked operation.'
+
+      - name: Start ephemeral local Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f supabase/config.toml ]; then
+            supabase init
+          fi
+          supabase start
+          supabase status -o env > /tmp/healthwallet-supabase.env
+          echo 'PASS: local Supabase stack is running.'
+
+      - name: Prepare local database client
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+          : "${DB_URL:?Supabase CLI did not expose DB_URL}"
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -c 'select current_database(), current_user;'
+
+      - name: Apply HealthWallet validation base schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_CONCIERGE_VALIDATION_BASE_V1.sql
+
+      - name: Apply canonical 15 Concierge migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+
+          migrations=(
+            SQL_CONCIERGE_MVP_V1.sql
+            SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql
+            SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql
+            SQL_CONCIERGE_CONSENT_V1.sql
+            SQL_CONCIERGE_ROSTER_GUARDS_V1.sql
+            SQL_CONCIERGE_REQUEST_INTEGRITY_V1.sql
+            SQL_CONCIERGE_PROGRAM_GUARDS_V1.sql
+            SQL_CONCIERGE_ALERT_ENGINE_V1.sql
+            SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql
+            SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql
+            SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
+            SQL_CONCIERGE_PATIENT_AUDIT_V1.sql
+            SQL_CONCIERGE_SLA_METRICS_V1.sql
+            SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
+            SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          )
+
+          index=0
+          for migration in "${migrations[@]}"; do
+            index=$((index + 1))
+            echo "[$index/15] $migration"
+            psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f "$migration"
+          done
+          test "$index" -eq 15
+          echo 'PASS: all 15 canonical Concierge migrations applied in order.'
+
+      - name: Validation precheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql | tee /tmp/concierge-precheck.log
+          grep -q 'PASS' /tmp/concierge-precheck.log
+
+      - name: Create nine synthetic Auth personas
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+
+          : "${API_URL:?Supabase CLI did not expose API_URL}"
+          SERVICE_KEY="${SERVICE_ROLE_KEY:-${SECRET_KEY:-}}"
+          if [ -z "$SERVICE_KEY" ]; then
+            echo 'Supabase CLI did not expose SERVICE_ROLE_KEY/SECRET_KEY.'
+            exit 1
+          fi
+
+          VALIDATION_PASSWORD="$(openssl rand -hex 24)Aa1!"
+          echo "::add-mask::$VALIDATION_PASSWORD"
+          echo "CONCIERGE_VALIDATION_PASSWORD=$VALIDATION_PASSWORD" >> "$GITHUB_ENV"
+
+          emails=(
+            concierge.patient.a@healthwallet.test
+            concierge.patient.b@healthwallet.test
+            concierge.patient.c@healthwallet.test
+            concierge.nurse.a@healthwallet.test
+            concierge.nurse.b@healthwallet.test
+            concierge.doctor.a@healthwallet.test
+            concierge.doctor.b@healthwallet.test
+            concierge.coord@healthwallet.test
+            concierge.admin@healthwallet.test
+          )
+
+          for email in "${emails[@]}"; do
+            payload="$(jq -nc --arg email "$email" --arg password "$VALIDATION_PASSWORD" '{email:$email,password:$password,email_confirm:true}')"
+            curl --fail-with-body --silent --show-error \
+              -X POST "$API_URL/auth/v1/admin/users" \
+              -H "apikey: $SERVICE_KEY" \
+              -H "Authorization: Bearer $SERVICE_KEY" \
+              -H 'Content-Type: application/json' \
+              --data "$payload" >/dev/null
+            echo "Created synthetic Auth persona: $email"
+          done
+          echo 'PASS: nine synthetic Auth users created only in the ephemeral stack.'
+
+      - name: Seed deterministic Concierge personas
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_CONCIERGE_VALIDATION_SEED_V1.sql | tee /tmp/concierge-seed.log
+          grep -q 'PASS' /tmp/concierge-seed.log
+
+      - name: Run patient-nurse-doctor E2E through Auth, PostgREST and RLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+
+          ANON="${ANON_KEY:-${PUBLISHABLE_KEY:-}}"
+          SERVICE_KEY="${SERVICE_ROLE_KEY:-${SECRET_KEY:-}}"
+          : "${API_URL:?}"
+          if [ -z "$ANON" ] || [ -z "$SERVICE_KEY" ]; then
+            echo 'Supabase CLI did not expose local API keys.'
+            exit 1
+          fi
+
+          SUPABASE_URL="$API_URL" \
+          SUPABASE_ANON_KEY="$ANON" \
+          SUPABASE_SERVICE_ROLE_KEY="$SERVICE_KEY" \
+          node scripts/health-concierge-local-e2e.mjs | tee /tmp/concierge-e2e.log
+
+          grep -q '"canonical_e2e": "PASS"' /tmp/concierge-e2e.log
+
+      - name: Canonical E2E postcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql | tee /tmp/concierge-postcheck.log
+          grep -q 'PASS' /tmp/concierge-postcheck.log
+
+      - name: Database lint and security contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db lint --schema public --level warning --fail-on error | tee /tmp/concierge-db-lint.log
+
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            unsafe_count INTEGER;
+            rls_off_count INTEGER;
+          BEGIN
+            SELECT count(*) INTO unsafe_count
+            FROM pg_policies
+            WHERE schemaname = 'public'
+              AND tablename LIKE 'concierge_%'
+              AND (
+                trim(coalesce(qual, '')) IN ('true','(true)')
+                OR trim(coalesce(with_check, '')) IN ('true','(true)')
+              );
+            IF unsafe_count > 0 THEN
+              RAISE EXCEPTION 'Unrestricted Concierge RLS policies found: %', unsafe_count;
+            END IF;
+
+            SELECT count(*) INTO rls_off_count
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind = 'r'
+              AND c.relname LIKE 'concierge_%'
+              AND NOT c.relrowsecurity;
+            IF rls_off_count > 0 THEN
+              RAISE EXCEPTION 'Concierge tables with RLS disabled: %', rls_off_count;
+            END IF;
+          END $$;
+
+          SELECT 'PASS' AS local_security_contract;
+          SQL
+
+      - name: Validation result
+        run: |
+          echo 'GO FOR CONTROLLED VALIDATION ENVIRONMENT ONLY'
+          echo 'No production migration, deploy, merge, Supabase link or remote db push occurred.'
+
+      - name: Stop ephemeral Supabase
+        if: always()
+        run: supabase stop --no-backup || true
