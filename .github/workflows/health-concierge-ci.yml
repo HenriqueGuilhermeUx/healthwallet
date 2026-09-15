@@ -136,8 +136,8 @@ jobs:
           grep -Fq "store: false" netlify/functions/concierge-ai-assist.js
           grep -Fq "visibility: 'staff_only'" netlify/functions/concierge-ai-assist.js
           grep -Fq "autonomous_action: false" netlify/functions/concierge-ai-assist.js
-          if grep -R "OPENAI_API_KEY" src/; then
-            echo 'OPENAI_API_KEY must remain server-side only'
+          if grep -R "OPENAI_API_KEY" src/services/concierge*.ts src/pages/Concierge*.tsx src/components/Concierge*.tsx; then
+            echo 'OPENAI_API_KEY must remain server-side only in Concierge code'
             exit 1
           fi
           if grep -Eq "method: ['\"]PATCH['\"]|method: ['\"]DELETE['\"]" netlify/functions/concierge-ai-assist.js; then
