@@ -18,6 +18,7 @@ import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { createConciergeRequest, type ConciergeRequestCategory } from '@/services/concierge'
+import ConciergeRequestContextPicker from '@/components/ConciergeRequestContextPicker'
 
 const categories: Array<{
   key: ConciergeRequestCategory
@@ -62,9 +63,13 @@ export default function ConciergeRequest() {
   const [forFamily, setForFamily] = useState(false)
   const [subjectName, setSubjectName] = useState('')
   const [subjectRelationship, setSubjectRelationship] = useState('')
+  const [selectedFamilyMemberId, setSelectedFamilyMemberId] = useState('')
+  const [selectedExamIds, setSelectedExamIds] = useState<string[]>([])
+  const [linkedExams, setLinkedExams] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
 
   const selected = useMemo(() => categories.find((item) => item.key === category), [category])
+  const showExamPicker = category === 'exam_review' || category === 'second_analysis'
 
   async function buildContextSnapshot() {
     if (!user) return {}
@@ -96,8 +101,24 @@ export default function ConciergeRequest() {
           }
         : null,
       device_connection: connectionRes.data || null,
+      linked_exams: linkedExams.map((exam) => ({
+        id: exam.id,
+        file_name: exam.file_name || null,
+        exam_type: exam.exam_type || null,
+        exam_date: exam.exam_date || null,
+      })),
       captured_at: new Date().toISOString(),
     }
+  }
+
+  function selectFamilyMember(member: { id: string; name: string; relationship: string } | null) {
+    if (!member) {
+      setSelectedFamilyMemberId('')
+      return
+    }
+    setSelectedFamilyMemberId(member.id)
+    setSubjectName(member.name)
+    setSubjectRelationship(member.relationship)
   }
 
   async function submit() {
@@ -107,7 +128,7 @@ export default function ConciergeRequest() {
       return
     }
     if (forFamily && subjectName.trim().length < 2) {
-      toast.error('Informe o nome da pessoa da família.')
+      toast.error('Informe ou selecione a pessoa da família.')
       return
     }
 
@@ -121,6 +142,7 @@ export default function ConciergeRequest() {
         description: description.trim(),
         subjectName: forFamily ? subjectName.trim() : undefined,
         subjectRelationship: forFamily ? subjectRelationship.trim() : undefined,
+        subjectFamilyMemberId: forFamily && selectedFamilyMemberId ? selectedFamilyMemberId : undefined,
         symptomPayload: category === 'symptom'
           ? { duration, intensity, fever, pain, red_flag_reported: redFlag }
           : {},
@@ -197,17 +219,10 @@ export default function ConciergeRequest() {
         <div>
           <label className="text-sm font-semibold text-gray-900">Esta solicitação é para</label>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setForFamily(false)} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${!forFamily ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'bg-white'}`}>Mim</button>
+            <button type="button" onClick={() => { setForFamily(false); setSelectedFamilyMemberId('') }} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${!forFamily ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'bg-white'}`}>Mim</button>
             <button type="button" onClick={() => setForFamily(true)} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${forFamily ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'bg-white'}`}>Minha família</button>
           </div>
         </div>
-
-        {forFamily && (
-          <div className="grid gap-3">
-            <input value={subjectName} onChange={(event) => setSubjectName(event.target.value)} placeholder="Nome da pessoa" className="w-full rounded-xl border px-3 py-3 text-sm" />
-            <input value={subjectRelationship} onChange={(event) => setSubjectRelationship(event.target.value)} placeholder="Relação: mãe, filho, esposa..." className="w-full rounded-xl border px-3 py-3 text-sm" />
-          </div>
-        )}
 
         <div>
           <label className="text-sm font-semibold text-gray-900">O que está acontecendo?</label>
@@ -264,9 +279,32 @@ export default function ConciergeRequest() {
         )}
       </section>
 
-      {(category === 'exam_review' || category === 'second_analysis') && (
+      {user && (
+        <ConciergeRequestContextPicker
+          userId={user.id}
+          showFamily={forFamily}
+          showExams={showExamPicker}
+          selectedFamilyMemberId={selectedFamilyMemberId}
+          onFamilyMemberChange={selectFamilyMember}
+          selectedExamIds={selectedExamIds}
+          onExamsChange={(ids, references) => { setSelectedExamIds(ids); setLinkedExams(references) }}
+        />
+      )}
+
+      {forFamily && !selectedFamilyMemberId && (
+        <section className="rounded-2xl border bg-slate-50 p-4">
+          <p className="text-sm font-semibold">Familiar não cadastrado?</p>
+          <p className="mt-1 text-xs text-muted-foreground">Você pode informar manualmente agora. Depois recomendamos criar o perfil em Família para manter a jornada organizada.</p>
+          <div className="mt-3 grid gap-2">
+            <input value={subjectName} onChange={(event) => setSubjectName(event.target.value)} placeholder="Nome da pessoa" className="w-full rounded-xl border bg-white px-3 py-3 text-sm" />
+            <input value={subjectRelationship} onChange={(event) => setSubjectRelationship(event.target.value)} placeholder="Relação: mãe, filho, esposa..." className="w-full rounded-xl border bg-white px-3 py-3 text-sm" />
+          </div>
+        </section>
+      )}
+
+      {showExamPicker && (
         <section className="rounded-2xl border bg-slate-50 p-4 text-sm text-slate-700">
-          Seus exames continuam no HealthWallet. Se algum documento ainda não estiver lá, use <button type="button" onClick={() => navigate('/upload')} className="font-bold text-emerald-700 underline">Enviar exame</button> e depois volte para concluir a solicitação.
+          Seus exames continuam no HealthWallet. Se algum documento ainda não estiver lá, use <button type="button" onClick={() => navigate('/upload')} className="font-bold text-emerald-700 underline">Enviar exame</button> e depois volte para concluir a solicitação. Selecionar um exame aqui relaciona apenas a referência ao caso; não duplica o arquivo.
         </section>
       )}
 
