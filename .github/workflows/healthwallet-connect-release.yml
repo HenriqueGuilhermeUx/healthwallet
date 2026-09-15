@@ -75,10 +75,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Preserve proven native flow and apply store-ready UI
+      - name: Preserve proven E2E native flow and apply store-ready UI
         run: |
           node scripts/patch-app-direct-reader.mjs
           node scripts/patch-app-permission-resume.mjs
+          node scripts/patch-return-to-healthwallet.mjs
           node scripts/patch-app-store-ready.mjs
 
       - name: Build Connect web assets
@@ -100,12 +101,13 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
-      - name: Apply Health Connect native reader and release settings
+      - name: Apply Health Connect native reader, proven return launcher and release settings
         run: |
           node scripts/patch-android-sdk.mjs
           node scripts/patch-health-permissions.mjs full
           node scripts/patch-direct-health-reader.mjs
           node scripts/patch-health-permission-launcher.mjs
+          node scripts/patch-return-to-healthwallet.mjs
           node scripts/patch-connect-release.mjs
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -113,6 +115,21 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_VERSION_CODE: ${{ env.ANDROID_VERSION_CODE }}
           ANDROID_VERSION_NAME: ${{ env.ANDROID_VERSION_NAME }}
+
+      - name: Audit proven E2E release package
+        shell: bash
+        run: |
+          PLUGIN="$(find android/app/src/main/java -name DirectHealthReaderPlugin.java | head -n 1)"
+          RETURN_PLUGIN="$(find android/app/src/main/java -name HealthWalletReturnLauncherPlugin.java | head -n 1)"
+          MAIN_ACTIVITY="$(find android/app/src/main/java -name MainActivity.java | head -n 1)"
+          test -n "$PLUGIN" || (echo "DirectHealthReaderPlugin missing" && exit 1)
+          test -n "$RETURN_PLUGIN" || (echo "HealthWalletReturnLauncherPlugin missing" && exit 1)
+          test -n "$MAIN_ACTIVITY" || (echo "MainActivity missing" && exit 1)
+          grep -q 'br.com.healthwallet.app.connecttest' "$RETURN_PLUGIN" || (echo "HealthWallet Test target missing" && exit 1)
+          grep -q 'br.com.healthwallet.app' "$RETURN_PLUGIN" || (echo "HealthWallet production target missing" && exit 1)
+          grep -q 'HealthWalletReturnLauncherPlugin.class' "$MAIN_ACTIVITY" || (echo "Return launcher not registered" && exit 1)
+          grep -q 'ExerciseSessionRecord.EXERCISE_DURATION_TOTAL' "$PLUGIN" || (echo "Exercise native reader missing" && exit 1)
+          grep -q 'activityMinutes' "$PLUGIN" || (echo "Activity minutes output missing" && exit 1)
 
       - name: Audit release permissions
         shell: bash
