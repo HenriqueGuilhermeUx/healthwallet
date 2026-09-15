@@ -18,6 +18,7 @@ Apply manually, in this exact order:
 10. `SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql`
 11. `SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql`
 12. `SQL_CONCIERGE_PATIENT_AUDIT_V1.sql`
+13. `SQL_CONCIERGE_SLA_METRICS_V1.sql`
 
 All migrations are validation-first and are intentionally not executed by CI.
 
@@ -256,24 +257,70 @@ Expected:
 - no new alert survives insertion after consent has been revoked
 - revocation dismisses outstanding Concierge alerts for that patient
 
-## 12. Workload and pilot economics
+## 12. SLA instrumentation
 
-For synthetic interactions record human work minutes.
+Create a new case and perform the first professional interaction.
 
-Expected metrics:
+Expected:
+- `first_response_at` stays null while only patient/system events exist
+- first staff status transition away from `new` records `first_response_at`
+- first staff event also records `first_response_at` if status intentionally remains unchanged
+- later interactions never overwrite the original first-response timestamp
+- historical cases are not automatically backfilled with invented timestamps
+
+## 13. Workload and pilot economics
+
+For synthetic interactions, record human work minutes consistently.
+
+Expected overall metrics:
 - active patients
-- requests/member
-- human minutes/member
+- requests/patient
+- human minutes/patient
 - nurse/coordinator minutes
 - physician minutes
 - physician escalation rate
 - first-response time
 - resolution time
-- with-plan vs without-plan segmentation
 
-No pricing decision should be hard-coded from test data.
+Expected `with plan` vs `without plan` comparison for each group:
+- patient count
+- requests/patient
+- engaged-patient rate
+- repeat-use rate
+- human minutes/patient
+- nurse/coordinator minutes/patient
+- physician minutes/patient
+- physician escalation rate
+- resolution rate
 
-## 13. Security / privacy negative tests
+Expected data-quality indicators:
+- health-plan profile coverage
+- first-response timestamp coverage
+- work-log coverage by request
+- resolution timestamp coverage
+
+Interpretation rules:
+- only active/pilot memberships belong in current pilot economics
+- low data coverage is an instrumentation warning, not a product-performance conclusion
+- group differences are observational; they do not prove that health-plan status causes higher/lower usage
+- no pricing decision is hard-coded from test data
+
+## 14. AI assist — dormant safety gate
+
+The branch contains a server-side foundation for future internal AI case organization, but it is not considered an active MVP feature yet.
+
+Until explicit patient opt-in is available end-to-end:
+- `consent_scope.ai_assist` remains absent/false by default
+- the server function must return `AI_ASSIST_CONSENT_REQUIRED`
+- no patient-facing button or professional workflow should depend on AI
+- no AI output may change request status, create an action, publish a clinical review or message the patient automatically
+- OpenAI credentials remain server-side only
+- provider requests use `store: false`
+- existing request-scoped consent/RLS must still be enforced before authorized health context can be used
+
+AI activation requires a separate validation gate and is not required for the first human-led Concierge pilot.
+
+## 15. Security / privacy negative tests
 
 Must fail:
 - patient reading another patient's request
@@ -291,7 +338,7 @@ Must fail:
 - nurse assigning a different nurse through a direct database call
 - doctor assigning a different doctor through a direct database call
 
-## 14. Regression checks
+## 16. Regression checks
 
 The Concierge branch must not break:
 - HealthWallet login/consent
@@ -307,19 +354,21 @@ The Concierge branch must not break:
 
 The main HealthWallet Android Health Connect permission strategy remains unchanged. Concierge development must not broaden the protected main-app Health Connect permission set.
 
-## 15. Definition of validation success
+## 17. Definition of validation success
 
-The MVP is ready for a controlled pilot only when:
+The MVP is ready for a controlled human-led pilot only when:
 
 - latest branch CI is green
-- migrations apply cleanly in validation
+- all 13 migrations apply cleanly in validation
 - all role-access negative tests pass
 - patient consent/revocation works end-to-end
 - patient → nurse → physician → patient second-analysis flow passes
 - action-plan recurrence passes
 - patient access audit is visible and accurate
 - unified agenda renders canonical data without duplication
+- first-response SLA instrumentation is verified
 - workload metrics are recorded
+- plan-vs-no-plan segmentation and data-quality coverage render correctly
 - HealthWallet existing features regress cleanly
 
 Only after this gate do we decide when/how to publish the site/app experience.
