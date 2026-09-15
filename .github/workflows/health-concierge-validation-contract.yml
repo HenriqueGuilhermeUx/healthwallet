@@ -8,7 +8,10 @@ on:
       - 'SQL_CONCIERGE_*.sql'
       - 'SQL_PRE_CONCIERGE_*.sql'
       - 'SQL_SECURE_HEALTH_SHARING_VALIDATION_BASE_V2.sql'
+      - 'SQL_SECURE_HEALTH_SHARING_VALIDATION_V1_DEPS.sql'
       - 'scripts/secure-health-sharing-local-e2e.mjs'
+      - 'src/pages/ShareQRCode.tsx'
+      - 'src/pages/AccessCode.tsx'
       - 'HEALTH_CONCIERGE_VALIDATION.md'
       - 'HEALTH_CONCIERGE_E2E_RUNBOOK.md'
       - 'HEALTH_CONCIERGE_PILOT_ROLLOUT.md'
@@ -57,7 +60,9 @@ jobs:
             SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql \
             SQL_PRE_CONCIERGE_VIEW_HARDENING_PREFLIGHT_V3.sql \
             SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql \
+            SQL_PRE_CONCIERGE_SECURITY_POSTCHECK_V3.sql \
             SQL_SECURE_HEALTH_SHARING_VALIDATION_BASE_V2.sql \
+            SQL_SECURE_HEALTH_SHARING_VALIDATION_V1_DEPS.sql \
             scripts/secure-health-sharing-local-e2e.mjs \
             HEALTH_CONCIERGE_VALIDATION.md \
             HEALTH_CONCIERGE_E2E_RUNBOOK.md \
@@ -208,6 +213,7 @@ jobs:
         run: |
           set -euo pipefail
           doc='HEALTH_CONCIERGE_PILOT_ROLLOUT.md'
+          local_e2e='.github/workflows/secure-health-sharing-local-e2e.yml'
 
           # Exact Gate C order must be documented and immutable without CI review.
           node <<'NODE'
@@ -228,9 +234,20 @@ jobs:
           console.log('Gate C security migration order is V1 -> V2 -> V3.')
           NODE
 
+          grep -q 'Publish the transition-safe sharing frontend first' "$doc"
+          grep -q 'new sharing fails closed' "$doc"
           grep -q 'SQL_PRE_CONCIERGE_SECURITY_PREFLIGHT_V1.sql' "$doc"
           grep -q 'SQL_PRE_CONCIERGE_SECURE_SHARING_PREFLIGHT_V2.sql' "$doc"
           grep -q 'SQL_PRE_CONCIERGE_VIEW_HARDENING_PREFLIGHT_V3.sql' "$doc"
+          grep -q 'SQL_PRE_CONCIERGE_SECURITY_POSTCHECK_V3.sql' "$doc"
+          grep -q 'SQL_SECURE_HEALTH_SHARING_VALIDATION_V1_DEPS.sql' "$doc"
+
+          grep -q 'SQL_SECURE_HEALTH_SHARING_VALIDATION_V1_DEPS.sql' "$local_e2e"
+          grep -q 'SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql' "$local_e2e"
+          grep -q 'SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql' "$local_e2e"
+          grep -q 'SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql' "$local_e2e"
+          grep -q 'SQL_PRE_CONCIERGE_SECURITY_POSTCHECK_V3.sql' "$local_e2e"
+
           grep -q 'security_invoker' SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql
           grep -q 'extensions.gen_random_bytes(18)' SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql
           grep -q 'access_code_already_redeemed' SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql
@@ -238,6 +255,8 @@ jobs:
           grep -q 'DROP POLICY IF EXISTS mu_professional_select' SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql
           grep -q 'DROP POLICY IF EXISTS pc_professional_select' SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql
           grep -q 'secure_health_sharing_e2e.*PASS' scripts/secure-health-sharing-local-e2e.mjs
+          grep -q 'create_health_access_code' src/pages/ShareQRCode.tsx
+          grep -q 'HW-\[0-9A-F\]' src/pages/AccessCode.tsx
 
           # Production hardening may not be automated from the normal validation contract.
           for workflow in \
