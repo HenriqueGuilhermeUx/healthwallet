@@ -48,6 +48,7 @@ jobs:
           grep -q 'path="/concierge/consent"' src/App.tsx
           grep -q 'path="/concierge"' src/App.tsx
           grep -q 'path="/concierge/health"' src/App.tsx
+          grep -q 'path="/concierge/family"' src/App.tsx
           grep -q 'path="/concierge/request"' src/App.tsx
           grep -q 'path="/concierge/requests/:id"' src/App.tsx
           grep -q 'path="/concierge/plan"' src/App.tsx
@@ -59,6 +60,16 @@ jobs:
           grep -q 'path="/concierge/ops/pilot"' src/App.tsx
           grep -q 'path="/concierge/ops/roster"' src/App.tsx
           grep -q 'ConciergeAccessGate' src/App.tsx
+
+      - name: MyDataMed professional separation audit
+        run: |
+          test -f src/components/ConciergeProfessionalHeader.tsx
+          grep -q 'ProfessionalLayout' src/App.tsx
+          grep -q 'ProfessionalPage' src/App.tsx
+          grep -q "location.pathname.startsWith('/concierge/ops')" src/App.tsx
+          grep -q '<ProfessionalPage><ConciergeOperations' src/App.tsx
+          grep -q '<ProfessionalPage><ConciergeCase' src/App.tsx
+          grep -q 'MyDataMed' src/components/ConciergeProfessionalHeader.tsx
 
       - name: Concierge migration inventory
         run: |
@@ -122,6 +133,16 @@ jobs:
             echo 'Raw file URL leaked into Concierge context UI/service'
             exit 1
           fi
+
+      - name: Patient experience audit
+        run: |
+          grep -q 'Visão longitudinal' src/pages/ConciergeHealth.tsx
+          grep -q 'medical_events' src/pages/ConciergeHealth.tsx
+          grep -q 'não geram diagnóstico automático' src/pages/ConciergeHealth.tsx
+          grep -q 'Coordenação familiar' src/pages/ConciergeFamily.tsx
+          grep -q 'target_family_member_id' src/pages/ConciergeFamily.tsx
+          grep -q 'Orientação rápida' src/pages/Concierge.tsx
+          grep -q 'href="/concierge/family"' src/pages/Concierge.tsx
 
       - name: Messaging routing audit
         run: |
