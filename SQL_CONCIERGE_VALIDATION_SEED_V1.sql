@@ -17,7 +17,7 @@ CREATE TEMP TABLE _concierge_validation_personas (
   user_id UUID,
   role TEXT,
   display_name TEXT
-) ON COMMIT DROP;
+);
 
 INSERT INTO _concierge_validation_personas (code, email, role, display_name)
 VALUES
