@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Activity,
   CalendarClock,
+  CalendarDays,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
@@ -128,7 +129,7 @@ export default function Concierge() {
         id: `reminder-${item.id}`,
         title: item.title || 'Ação de saúde pendente',
         subtitle: formatDate(item.reminder_date) || undefined,
-        href: '/dashboard',
+        href: '/concierge/agenda',
       }))
     }
 
@@ -137,7 +138,7 @@ export default function Concierge() {
         id: `appointment-${nextAppointment.id}`,
         title: 'Próxima consulta',
         subtitle: formatDate(nextAppointment.preferred_date) || undefined,
-        href: '/telemedicine',
+        href: '/concierge/agenda',
       })
     }
 
@@ -186,7 +187,7 @@ export default function Concierge() {
       </section>
 
       <section>
-        <div className="mb-3 flex items-center justify-between"><h2 className="font-bold text-gray-900">O que importa agora</h2><Link to="/concierge/plan" className="text-xs font-semibold text-emerald-700">Plano completo</Link></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="font-bold text-gray-900">O que importa agora</h2><Link to="/concierge/agenda" className="text-xs font-semibold text-emerald-700">Minha agenda</Link></div>
         <div className="space-y-2">
           {pendingItems.length === 0 ? (
             <div className="rounded-2xl border bg-white p-4 flex gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0" /><div><p className="font-semibold text-sm">Nenhuma pendência importante agora</p><p className="text-xs text-muted-foreground mt-1">Sua equipe e o HealthWallet continuarão acompanhando seus próximos passos.</p></div></div>
@@ -203,7 +204,7 @@ export default function Concierge() {
         ) : (
           <div className="grid gap-3">
             {team.slice(0, 2).map((item) => (
-              <div key={item.id} className="rounded-2xl border bg-white p-4 flex items-center gap-3"><div className="h-11 w-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><Stethoscope className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="font-semibold truncate">{item.professional_name || 'Profissional de saúde'}</p><p className="text-xs text-muted-foreground mt-1">{roleLabels[item.role] || item.role}</p></div><Link to="/chat" className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">Conversar</Link></div>
+              <div key={item.id} className="rounded-2xl border bg-white p-4 flex items-center gap-3"><div className="h-11 w-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><Stethoscope className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="font-semibold truncate">{item.professional_name || 'Profissional de saúde'}</p><p className="text-xs text-muted-foreground mt-1">{roleLabels[item.role] || item.role}</p></div><Link to="/concierge/request?category=guidance" className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">Conversar</Link></div>
             ))}
           </div>
         )}
@@ -215,7 +216,8 @@ export default function Concierge() {
           <ActionCard icon={MessageCircle} title="Solicitar ajuda" subtitle="Sintoma, dúvida ou orientação" href="/concierge/request" />
           <ActionCard icon={FileSearch} title="Segunda análise" subtitle="Revisar exames, laudos e contexto" href="/concierge/request?category=second_analysis" />
           <ActionCard icon={Navigation} title="Navegação em saúde" subtitle="Saiba qual é o próximo passo" href="/concierge/request?category=navigation" />
-          <ActionCard icon={ClipboardList} title="Minhas solicitações" subtitle="Acompanhe cada caso" href="/concierge/requests" />
+          <ActionCard icon={ClipboardList} title="Mensagens e casos" subtitle="Acompanhe cada solicitação com sua equipe" href="/concierge/requests" />
+          <ActionCard icon={CalendarDays} title="Agenda" subtitle="Consultas, lembretes e ações" href="/concierge/agenda" />
           <ActionCard icon={Target} title="Plano de ação" subtitle="Pendências e próximos passos" href="/concierge/plan" />
           <ActionCard icon={Activity} title="Programas" subtitle="Jornadas de acompanhamento" href="/concierge/programs" />
           <ActionCard icon={FileUp} title="Enviar exame" subtitle="Organize e compartilhe" href="/upload" />
