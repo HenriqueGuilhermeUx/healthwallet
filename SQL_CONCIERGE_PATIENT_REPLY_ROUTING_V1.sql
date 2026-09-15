@@ -160,6 +160,44 @@ BEGIN
     next_status := req.status;
   END IF;
 
+  -- Keep automation payload free of the patient's raw message. Automation is
+  -- best-effort and must never prevent the patient reply itself from succeeding.
+  IF to_regclass('public.automation_events') IS NOT NULL THEN
+    BEGIN
+      INSERT INTO public.automation_events (
+        event_type,
+        source_app,
+        source_table,
+        source_id,
+        actor_user_id,
+        actor_role,
+        patient_id,
+        payload,
+        metadata,
+        priority,
+        status
+      ) VALUES (
+        'concierge_patient_message',
+        'healthwallet',
+        'concierge_requests',
+        req.id,
+        auth.uid(),
+        'patient',
+        req.patient_id,
+        jsonb_build_object('request_id', req.id),
+        jsonb_build_object(
+          'product', 'health_concierge',
+          'n8n_ready', true,
+          'fetch_sensitive_context_by_id', true
+        ),
+        3,
+        'pending'
+      );
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+  END IF;
+
   RETURN jsonb_build_object(
     'event_id', event_id,
     'request_id', req.id,
