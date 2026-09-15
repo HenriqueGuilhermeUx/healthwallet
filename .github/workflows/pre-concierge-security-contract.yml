@@ -1,0 +1,151 @@
+name: Pre-Concierge Security Contract
+
+on:
+  push:
+    branches:
+      - feature/health-concierge-mvp
+    paths:
+      - 'SQL_PRE_CONCIERGE_SECURITY_*.sql'
+      - 'HEALTH_CONCIERGE_PILOT_ROLLOUT.md'
+      - '.github/workflows/pre-concierge-security-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-contract:
+    name: Validate pre-Concierge security hardening package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Required artifacts
+        run: |
+          set -euo pipefail
+          test -f SQL_PRE_CONCIERGE_SECURITY_PREFLIGHT_V1.sql
+          test -f SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql
+
+      - name: Preflight must remain read-only
+        run: |
+          node <<'NODE'
+          const fs = require('fs')
+          let sql = fs.readFileSync('SQL_PRE_CONCIERGE_SECURITY_PREFLIGHT_V1.sql', 'utf8')
+          sql = sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
+          const forbidden = [
+            /\bINSERT\s+INTO\b/i,
+            /\bUPDATE\s+[a-z_]/i,
+            /\bDELETE\s+FROM\b/i,
+            /\bCREATE\s+(TABLE|VIEW|FUNCTION|POLICY|TRIGGER|INDEX)\b/i,
+            /\bALTER\s+(TABLE|VIEW|FUNCTION|POLICY|TRIGGER)\b/i,
+            /\bDROP\s+(TABLE|VIEW|FUNCTION|POLICY|TRIGGER|INDEX)\b/i,
+            /\bGRANT\b/i,
+            /\bREVOKE\b/i,
+          ]
+          for (const pattern of forbidden) {
+            if (pattern.test(sql)) throw new Error(`Read-only preflight contains forbidden mutation: ${pattern}`)
+          }
+          if (!sql.includes("'PASS' AS pre_concierge_security_preflight_v1")) {
+            throw new Error('Preflight PASS contract missing')
+          }
+          console.log('PASS: production preflight is read-only.')
+          NODE
+
+      - name: Live-signature contract
+        run: |
+          set -euo pipefail
+          hardening='SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql'
+          preflight='SQL_PRE_CONCIERGE_SECURITY_PREFLIGHT_V1.sql'
+
+          grep -Fq 'check_receita_safety(INTEGER)' "$hardening"
+          grep -Fq 'check_clinical_alerts(UUID, INTEGER)' "$hardening"
+          grep -Fq 'public.check_receita_safety(integer)' "$preflight"
+          grep -Fq 'public.check_clinical_alerts(uuid,integer)' "$preflight"
+          grep -Fq 'calculate_device_context_score(INTEGER, INTEGER, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, INTEGER, TIMESTAMPTZ)' "$hardening"
+          grep -Fq 'upsert_health_daily_summary(' "$hardening"
+
+          if grep -Fq 'check_receita_safety(UUID)' "$hardening"; then
+            echo 'Legacy prescription safety signature regressed to UUID.'
+            exit 1
+          fi
+          if grep -Fq 'check_clinical_alerts(UUID, UUID)' "$hardening"; then
+            echo 'Legacy clinical alerts signature regressed to UUID,UUID.'
+            exit 1
+          fi
+
+      - name: SECURITY DEFINER authorization contract
+        run: |
+          set -euo pipefail
+          file='SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql'
+
+          grep -Fq "auth.role() IS DISTINCT FROM 'service_role'" "$file"
+          grep -Fq 'auth.uid() IS NULL OR auth.uid() <> p_patient_id' "$file"
+          grep -Fq 'auth.uid() IS NULL OR auth.uid() <> p_professional_user_id' "$file"
+          grep -Fq 'auth.uid() IS NULL OR auth.uid() <> p_user_id' "$file"
+          grep -Fq 'professional_not_owned_by_caller' "$file"
+
+          grep -Fq 'activate_mydatamed_pro_after_payment(UUID, UUID, UUID) TO service_role' "$file"
+          grep -Fq 'record_mydatamed_usage(UUID, TEXT, INTEGER, TEXT, UUID, TEXT, JSONB) TO service_role' "$file"
+          grep -Fq 'on_clinical_visit_record_mydatamed_usage() TO service_role' "$file"
+
+          if grep -Ei 'GRANT[[:space:]]+EXECUTE.*TO[[:space:]]+anon' "$file"; then
+            echo 'SECURITY DEFINER hardening must never grant EXECUTE to anon.'
+            exit 1
+          fi
+
+      - name: Search-path contract
+        run: |
+          set -euo pipefail
+          file='SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql'
+          grep -Fq 'SET search_path = public, pg_temp' "$file"
+
+          for signature in \
+            'generate_access_code()' \
+            'set_updated_at()' \
+            'update_medicamento_search()' \
+            'check_receita_safety(INTEGER)' \
+            'check_clinical_alerts(UUID, INTEGER)' \
+            'set_telemedicine_updated_at()' \
+            'set_updated_at_generic()' \
+            'set_professional_documents_updated_at()' \
+            'set_sign_tokens_updated_at()' \
+            'expire_old_sign_tokens()' \
+            'activate_mydatamed_pro_after_payment(UUID, UUID, UUID)' \
+            'increment_precheck_submission_count()' \
+            'record_mydatamed_usage(UUID, TEXT, INTEGER, TEXT, UUID, TEXT, JSONB)' \
+            'on_clinical_visit_record_mydatamed_usage()' \
+            'sign_and_lock_clinical_visit(UUID)' \
+            'hw_set_updated_at()' \
+            'hw_clamp_int(NUMERIC, INTEGER, INTEGER)' \
+            'recalculate_health_daily_summary_score()' \
+            'hw_email_inbox_set_updated_at()' \
+            'ensure_health_inbound_email_address(UUID, TEXT)' \
+            'mark_health_inbox_forwarding_verified(UUID, TEXT)'
+          do
+            # The mark function has one UUID argument in the live DB; allow that exact
+            # exception below instead of weakening the rest of the loop.
+            if [ "$signature" = 'mark_health_inbox_forwarding_verified(UUID, TEXT)' ]; then
+              grep -Fq 'ALTER FUNCTION public.mark_health_inbox_forwarding_verified(UUID) SET search_path = public, pg_temp;' "$file"
+            else
+              grep -Fq "ALTER FUNCTION public.${signature} SET search_path = public, pg_temp;" "$file"
+            fi
+          done
+
+          grep -Fq 'ALTER FUNCTION public.calculate_device_context_score(INTEGER, INTEGER, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, INTEGER, TIMESTAMPTZ) SET search_path = public, pg_temp;' "$file"
+
+      - name: View hardening must stay separate
+        run: |
+          set -euo pipefail
+          file='SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql'
+          if grep -Eq '^[[:space:]]*ALTER[[:space:]]+VIEW|^[[:space:]]*CREATE[[:space:]]+(OR[[:space:]]+REPLACE[[:space:]]+)?VIEW' "$file"; then
+            echo 'View security changes require the separate V2 review gate.'
+            exit 1
+          fi
+          grep -Fq 'View hardening remains a separate gate' "$file"
+
+      - name: No production automation
+        run: |
+          echo 'This workflow only performs static source audits.'
+          echo 'It does not connect to Supabase and cannot apply production DDL.'
