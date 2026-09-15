@@ -33,9 +33,13 @@ const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/
 const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '')
 const HANDOFF_FUNCTION = 'healthwallet-connect-handoff'
 const CONNECT_SCHEME = 'healthwallet-connect://handoff'
+export const HEALTHWALLET_CONNECT_PACKAGE = 'br.com.healthwallet.connect'
+export const HEALTHWALLET_CONNECT_PLAY_URL = `https://play.google.com/store/apps/details?id=${HEALTHWALLET_CONNECT_PACKAGE}`
 
 type NativeConnectLauncherPlugin = {
   open(options: { url: string }): Promise<{ completed: boolean }>
+  isInstalled(): Promise<{ installed: boolean }>
+  openStore(): Promise<{ completed: boolean }>
 }
 
 const NativeConnectLauncher = registerPlugin<NativeConnectLauncherPlugin>('HealthWalletConnectLauncher')
@@ -55,6 +59,15 @@ type IssueResponse = {
   return_to?: string
   expires_at?: string
   error?: string
+}
+
+export type LaunchHealthWalletConnectResult = {
+  installRequired: boolean
+  state: string | null
+  expiresAt: string | null
+  profile: HealthWalletConnectProfile
+  metrics: HealthWalletConnectMetric[]
+  days: number
 }
 
 function clampDays(value: number | undefined) {
@@ -135,6 +148,46 @@ async function issueHandoff(body: Record<string, unknown>): Promise<IssueRespons
   }
 }
 
+export async function isHealthWalletConnectInstalled() {
+  if (Capacitor.getPlatform() !== 'android') return true
+
+  try {
+    const result = await withTimeout(
+      NativeConnectLauncher.isInstalled(),
+      2500,
+      'O Android demorou para verificar o HealthWallet Connect.',
+    )
+    return Boolean(result?.installed)
+  } catch (error) {
+    console.warn('HealthWallet Connect installation check failed:', error)
+    return false
+  }
+}
+
+export async function openHealthWalletConnectStore() {
+  if (Capacitor.getPlatform() === 'android') {
+    const result = await withTimeout(
+      NativeConnectLauncher.openStore(),
+      4000,
+      'A Google Play demorou para responder.',
+    )
+    if (!result?.completed) throw new Error('Não foi possível abrir o HealthWallet Connect na Google Play.')
+    return
+  }
+
+  if (Capacitor.isNativePlatform()) {
+    const result = await withTimeout(
+      AppLauncher.openUrl({ url: HEALTHWALLET_CONNECT_PLAY_URL }),
+      4000,
+      'A loja de aplicativos demorou para responder.',
+    )
+    if (!result.completed) throw new Error('Não foi possível abrir a loja de aplicativos.')
+    return
+  }
+
+  window.location.assign(HEALTHWALLET_CONNECT_PLAY_URL)
+}
+
 async function openConnectApp(url: string) {
   if (Capacitor.getPlatform() === 'android') {
     try {
@@ -171,12 +224,28 @@ async function openConnectApp(url: string) {
   window.location.assign(url)
 }
 
-export async function launchHealthWalletConnect(options: LaunchHealthWalletConnectOptions = {}) {
+export async function launchHealthWalletConnect(options: LaunchHealthWalletConnectOptions = {}): Promise<LaunchHealthWalletConnectResult> {
   const profile: HealthWalletConnectProfile = options.profile === 'minimal' ? 'minimal' : 'full'
   const metrics = profile === 'minimal'
     ? (['steps'] as HealthWalletConnectMetric[])
     : (options.metrics?.length ? Array.from(new Set(options.metrics)) : FULL_METRICS)
   const days = clampDays(options.days)
+
+  if (Capacitor.getPlatform() === 'android') {
+    const installed = await isHealthWalletConnectInstalled()
+    if (!installed) {
+      await openHealthWalletConnectStore()
+      return {
+        installRequired: true,
+        state: null,
+        expiresAt: null,
+        profile,
+        metrics,
+        days,
+      }
+    }
+  }
+
   const state = crypto.randomUUID()
   const returnTo = 'healthwallet://connect-complete'
 
@@ -204,6 +273,7 @@ export async function launchHealthWalletConnect(options: LaunchHealthWalletConne
   await openConnectApp(connectUrl)
 
   return {
+    installRequired: false,
     state: data.state || state,
     expiresAt: data.expires_at || null,
     profile: data.profile || profile,
