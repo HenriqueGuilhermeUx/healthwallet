@@ -158,6 +158,26 @@ export async function loadConciergePilotMetrics() {
     calculateSegment('unknown_plan', 'Não informado', unknownPlanMemberships, requests, workLogs),
   ]
 
+  const requestIdsWithWork = new Set(
+    workLogs.map((item) => item.request_id).filter((requestId) => Boolean(requestId)),
+  )
+  const resolvedWithTimestamp = requests.filter((item) => item.resolved_at).length
+
+  const dataQuality = {
+    healthPlanCoverage: activePatientIds.size
+      ? ((withPlanMemberships.length + withoutPlanMemberships.length) / activePatientIds.size) * 100
+      : 0,
+    firstResponseCoverage: requests.length
+      ? (requests.filter((item) => Boolean(item.first_response_at)).length / requests.length) * 100
+      : 0,
+    workLogCoverage: requests.length
+      ? (requests.filter((item) => requestIdsWithWork.has(item.id)).length / requests.length) * 100
+      : 0,
+    resolutionTimestampCoverage: resolved
+      ? (resolvedWithTimestamp / resolved) * 100
+      : 0,
+  }
+
   return {
     memberships,
     requests,
@@ -180,5 +200,6 @@ export async function loadConciergePilotMetrics() {
     doctorMinutes,
     requestsPerPatient: activePatientIds.size ? requests.length / activePatientIds.size : 0,
     planSegments,
+    dataQuality,
   }
 }
