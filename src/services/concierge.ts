@@ -27,9 +27,42 @@ export type ConciergeRequestInput = {
   description: string
   subjectName?: string
   subjectRelationship?: string
+  subjectFamilyMemberId?: string
   symptomPayload?: Record<string, unknown>
   contextSnapshot?: Record<string, unknown>
   urgency?: 'routine' | 'priority' | 'urgent_redirect'
+}
+
+async function emitAutomationEvent(input: {
+  eventType: string
+  patientId: string
+  sourceId?: string
+  professionalId?: string
+  payload?: Record<string, unknown>
+  priority?: number
+}) {
+  try {
+    await supabase.from('automation_events').insert({
+      event_type: input.eventType,
+      source_app: 'healthwallet',
+      source_table: 'concierge_requests',
+      source_id: input.sourceId || null,
+      actor_user_id: input.professionalId || input.patientId,
+      actor_role: input.professionalId ? 'professional' : 'patient',
+      patient_id: input.patientId,
+      professional_id: input.professionalId || null,
+      payload: input.payload || {},
+      metadata: {
+        product: 'health_concierge',
+        n8n_ready: true,
+        fetch_sensitive_context_by_id: true,
+      },
+      priority: input.priority ?? 3,
+      status: 'pending',
+    })
+  } catch {
+    // Automation must never block a patient or professional care workflow.
+  }
 }
 
 export async function createConciergeRequest(input: ConciergeRequestInput) {
@@ -42,6 +75,7 @@ export async function createConciergeRequest(input: ConciergeRequestInput) {
       description: input.description,
       subject_name: input.subjectName || null,
       subject_relationship: input.subjectRelationship || null,
+      subject_family_member_id: input.subjectFamilyMemberId || null,
       symptom_payload: input.symptomPayload || {},
       context_snapshot: input.contextSnapshot || {},
       urgency: input.urgency || 'routine',
@@ -62,6 +96,19 @@ export async function createConciergeRequest(input: ConciergeRequestInput) {
     visibility: 'patient',
     message: 'Solicitação enviada ao HealthWallet Concierge.',
     payload: { category: input.category },
+  })
+
+  await emitAutomationEvent({
+    eventType: 'concierge_request_created',
+    patientId: input.patientId,
+    sourceId: data.id,
+    payload: {
+      request_id: data.id,
+      category: input.category,
+      urgency: input.urgency || 'routine',
+      // Deliberately no raw health text in automation queue.
+    },
+    priority: input.urgency === 'urgent_redirect' ? 1 : input.urgency === 'priority' ? 2 : 3,
   })
 
   return data
@@ -112,6 +159,13 @@ export async function addPatientRequestMessage(requestId: string, patientId: str
   })
 
   if (error) throw error
+
+  await emitAutomationEvent({
+    eventType: 'concierge_patient_message',
+    patientId,
+    sourceId: requestId,
+    payload: { request_id: requestId },
+  })
 }
 
 export async function listMyConciergeActions(patientId: string) {
@@ -256,10 +310,37 @@ export async function listOperationsAlerts() {
   return data || []
 }
 
+export async function refreshConciergeTimeAlerts() {
+  const { data, error } = await supabase.rpc('concierge_refresh_time_alerts')
+  if (error) throw error
+  return data
+}
+
+export async function updateConciergeAlert(alertId: string, staffUserId: string, status: 'acknowledged' | 'resolved' | 'dismissed') {
+  const now = new Date().toISOString()
+  const patch: Record<string, unknown> = {
+    status,
+    acknowledged_by: staffUserId,
+    acknowledged_at: now,
+  }
+  if (status === 'resolved' || status === 'dismissed') patch.resolved_at = now
+
+  const { data, error } = await supabase
+    .from('concierge_alerts')
+    .update(patch)
+    .eq('id', alertId)
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return data
+}
+
 export async function assignRequestToSelf(request: any, staff: any) {
-  const patch: Record<string, unknown> = { status: 'in_triage' }
-  if (staff.role === 'doctor') patch.assigned_doctor_id = staff.user_id
-  else patch.assigned_nurse_id = staff.user_id
+  const now = new Date().toISOString()
+  const patch: Record<string, unknown> = staff.role === 'doctor'
+    ? { status: 'medical_review', assigned_doctor_id: staff.user_id }
+    : { status: 'in_triage', assigned_nurse_id: staff.user_id, triaged_at: now }
 
   const { data, error } = await supabase
     .from('concierge_requests')
@@ -270,7 +351,15 @@ export async function assignRequestToSelf(request: any, staff: any) {
 
   if (error) throw error
 
-  await addStaffEvent(request.id, request.patient_id, staff, 'assigned', `Caso assumido por ${staff.display_name || 'profissional da equipe'}.`)
+  await addStaffEvent(
+    request.id,
+    request.patient_id,
+    staff,
+    'assigned',
+    staff.role === 'doctor'
+      ? `Revisão médica assumida por ${staff.display_name || 'médico da equipe'}.`
+      : `Caso assumido por ${staff.display_name || 'profissional da equipe'}.`,
+  )
   return data
 }
 
@@ -300,6 +389,17 @@ export async function updateConciergeRequestStatus(request: any, staff: any, sta
     `status_${status}`,
     note || `Status atualizado para ${status}.`,
   )
+
+  if (status === 'escalated_medical') {
+    await emitAutomationEvent({
+      eventType: 'concierge_medical_escalation',
+      patientId: request.patient_id,
+      professionalId: staff.user_id,
+      sourceId: request.id,
+      payload: { request_id: request.id },
+      priority: 2,
+    })
+  }
 
   return data
 }
@@ -351,6 +451,55 @@ export async function createConciergeAction(input: {
       status: 'pending',
       metadata: { created_from: 'concierge_operations' },
     })
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function getConciergeClinicalReview(requestId: string) {
+  const { data, error } = await supabase
+    .from('concierge_clinical_reviews')
+    .select('*')
+    .eq('request_id', requestId)
+    .maybeSingle()
+
+  if (error) throw error
+  return data
+}
+
+export async function saveConciergeClinicalReview(input: {
+  requestId: string
+  patientId: string
+  reviewType: 'second_analysis' | 'exam_review' | 'medication_review' | 'medical_review'
+  status: 'draft' | 'ready_for_physician' | 'completed'
+  patientVisible: boolean
+  caseSummary?: string
+  relevantFindings?: string
+  pointsToConsider?: string
+  uncertainties?: string
+  recommendations?: string
+  nextSteps?: string
+  questionsForPatient?: string
+}) {
+  const { data, error } = await supabase
+    .from('concierge_clinical_reviews')
+    .upsert({
+      request_id: input.requestId,
+      patient_id: input.patientId,
+      review_type: input.reviewType,
+      status: input.status,
+      patient_visible: input.patientVisible,
+      case_summary: input.caseSummary || null,
+      relevant_findings: input.relevantFindings || null,
+      points_to_consider: input.pointsToConsider || null,
+      uncertainties: input.uncertainties || null,
+      recommendations: input.recommendations || null,
+      next_steps: input.nextSteps || null,
+      questions_for_patient: input.questionsForPatient || null,
+      metadata: { source: 'concierge_case_workspace' },
+    }, { onConflict: 'request_id' })
     .select('*')
     .single()
 
