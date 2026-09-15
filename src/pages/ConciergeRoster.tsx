@@ -82,7 +82,7 @@ export default function ConciergeRoster() {
       setPatientName('')
       setPatientEmail('')
       setHasHealthPlan('unknown')
-      toast.success('Paciente incluído no piloto')
+      toast.success('Paciente incluído no piloto. Acesso aos dados permanece pendente até o consentimento do paciente.')
       await load()
     } catch (error) {
       console.error('Pilot enrollment failed:', error)
@@ -92,22 +92,21 @@ export default function ConciergeRoster() {
     }
   }
 
-  async function assign(patient: any, professionalId: string, role: 'nurse' | 'doctor') {
+  async function assign(patient: any, professionalId: string, requestedRole: 'nurse' | 'doctor') {
     if (!professionalId) return
     const professional = staff.find((item) => item.user_id === professionalId)
+    const effectiveRole = requestedRole === 'doctor'
+      ? 'doctor'
+      : professional?.role === 'care_coordinator' ? 'care_coordinator' : 'nurse'
+
     try {
-      const { error } = await supabase.from('concierge_assignments').upsert({
-        patient_id: patient.patient_id,
-        professional_id: professionalId,
-        role,
-        is_primary: true,
-        status: 'active',
-        professional_name: professional?.display_name || null,
-        specialty: professional?.specialty || null,
-        metadata: { assigned_from: 'concierge_roster', assigned_by: staffSelf?.user_id },
-      }, { onConflict: 'patient_id,professional_id,role' })
+      const { error } = await supabase.rpc('concierge_set_primary_assignment', {
+        target_patient: patient.patient_id,
+        target_professional: professionalId,
+        target_role: effectiveRole,
+      })
       if (error) throw error
-      toast.success(`${role === 'nurse' ? 'Enfermagem' : 'Médico'} atribuído`)
+      toast.success(`${requestedRole === 'nurse' ? 'Enfermagem/coordenação' : 'Médico'} de referência atualizado`)
       await load()
     } catch (error) {
       console.error('Team assignment failed:', error)
@@ -136,7 +135,7 @@ export default function ConciergeRoster() {
 
       <section className="rounded-2xl border bg-white p-4">
         <div className="flex items-center gap-2"><UserPlus className="h-5 w-5 text-emerald-700" /><h2 className="font-bold">Adicionar paciente ao piloto</h2></div>
-        <p className="mt-1 text-xs text-muted-foreground">Neste MVP interno usamos o UUID do usuário. Depois podemos transformar isso em busca por e-mail/CRM.</p>
+        <p className="mt-1 text-xs text-muted-foreground">Neste MVP interno usamos o UUID do usuário. A inclusão cria apenas o vínculo operacional; o paciente ainda precisa autorizar explicitamente o Concierge.</p>
         <div className="mt-4 grid gap-2">
           <input value={patientId} onChange={(event) => setPatientId(event.target.value)} placeholder="UUID do usuário" className="rounded-xl border px-3 py-3 text-sm" />
           <input value={patientName} onChange={(event) => setPatientName(event.target.value)} placeholder="Nome para operação" className="rounded-xl border px-3 py-3 text-sm" />
@@ -156,7 +155,7 @@ export default function ConciergeRoster() {
               <div key={member.id} className="rounded-2xl border bg-white p-4">
                 <div className="flex items-start gap-3">
                   <div className="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center"><ShieldCheck className="h-5 w-5" /></div>
-                  <div className="min-w-0 flex-1"><p className="font-bold truncate">{member.metadata?.patient_name || member.metadata?.patient_email || member.patient_id}</p><p className="mt-1 text-xs text-muted-foreground">{member.has_health_plan === true ? 'Com plano de saúde' : member.has_health_plan === false ? 'Sem plano de saúde' : 'Plano não informado'} · {member.status}</p></div>
+                  <div className="min-w-0 flex-1"><p className="font-bold truncate">{member.metadata?.patient_name || member.metadata?.patient_email || member.patient_id}</p><p className="mt-1 text-xs text-muted-foreground">{member.has_health_plan === true ? 'Com plano de saúde' : member.has_health_plan === false ? 'Sem plano de saúde' : 'Plano não informado'} · {member.status} · consentimento {member.consent_status || 'pendente'}</p></div>
                 </div>
 
                 <div className="mt-4 grid gap-2">
