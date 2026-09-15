@@ -4,6 +4,7 @@ import { ArrowLeft, Clock, Loader2, Send, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { addPatientRequestMessage, getConciergeRequest, listConciergeRequestEvents } from '@/services/concierge'
+import ConciergeClinicalReviewPanel from '@/components/ConciergeClinicalReviewPanel'
 
 const statusLabels: Record<string, string> = {
   new: 'Recebido',
@@ -101,6 +102,8 @@ export default function ConciergeRequestDetail() {
           Esta solicitação registrou sinais potencialmente graves. O Concierge não substitui atendimento de urgência.
         </section>
       )}
+
+      <ConciergeClinicalReviewPanel request={request} patientMode />
 
       <section className="rounded-2xl border bg-white p-4">
         <div className="flex items-center gap-2">
