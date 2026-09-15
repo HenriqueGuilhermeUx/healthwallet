@@ -11,11 +11,13 @@ Apply manually, in this exact order:
 3. `SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql`
 4. `SQL_CONCIERGE_CONSENT_V1.sql`
 5. `SQL_CONCIERGE_ROSTER_GUARDS_V1.sql`
-6. `SQL_CONCIERGE_PROGRAM_GUARDS_V1.sql`
-7. `SQL_CONCIERGE_ALERT_ENGINE_V1.sql`
-8. `SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql`
-9. `SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql`
-10. `SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql`
+6. `SQL_CONCIERGE_REQUEST_INTEGRITY_V1.sql`
+7. `SQL_CONCIERGE_PROGRAM_GUARDS_V1.sql`
+8. `SQL_CONCIERGE_ALERT_ENGINE_V1.sql`
+9. `SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql`
+10. `SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql`
+11. `SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql`
+12. `SQL_CONCIERGE_PATIENT_AUDIT_V1.sql`
 
 All migrations are validation-first and are intentionally not executed by CI.
 
@@ -65,7 +67,16 @@ Expected:
 - immutable event appears in `concierge_consent_events`
 - patient can enter Concierge
 
-### 3.4 Revoke consent
+### 3.4 Patient-visible access trail
+
+After a professional explicitly loads authorized context, Patient A opens `/concierge/consent`.
+
+Expected:
+- patient can see professional display name/role, date and related case reference
+- access is resolved through `concierge_list_my_context_accesses()` rather than exposing staff tables directly
+- no clinical content is duplicated into the audit entry
+
+### 3.5 Revoke consent
 
 Patient A revokes consent.
 
@@ -76,6 +87,7 @@ Expected:
 - professional access through `concierge_can_access_patient` and `concierge_can_access_request` stops immediately
 - open proactive alerts are dismissed
 - no new Concierge alerts are accepted while consent is inactive
+- subsequent request-context loads fail
 - patient can re-authorize later
 
 ## 4. Care-team assignment
@@ -100,6 +112,7 @@ Expected:
 - patient timeline has `request_created`
 - automation event contains IDs/category/urgency, not raw health text
 - assigned reference nurse receives the request
+- original patient-authored title/description/category/context cannot be rewritten later by staff
 
 ### 5.2 Symptom — no red flag
 
@@ -128,6 +141,15 @@ Expected:
 - request stores `subject_family_member_id`
 - no duplicate family profile is created
 - subject name/relationship remain available for operational readability
+
+### 5.5 Request integrity / role transitions
+
+Expected:
+- nurse cannot assign a case to another nurse directly
+- doctor cannot assign a case to another doctor directly
+- nurse cannot put a request into doctor-only arbitrary states
+- doctor cannot move a request back into nurse-only arbitrary states
+- admin/coordinator remains the operational override layer
 
 ## 6. Exam review and second analysis
 
@@ -170,6 +192,7 @@ Expected:
 - access is recorded in `concierge_context_access_logs`
 - Nurse B / Doctor B cannot load Patient A context unless assigned/eligible under the routing rules
 - revoking consent causes subsequent context loads to fail
+- patient can see the resulting access trail in consent controls
 
 ## 8. Action plan
 
@@ -182,7 +205,17 @@ Expected:
 - patient cannot rewrite title, due date, category, creator, assignment or operational metadata
 - overdue action can generate a workflow alert after alert refresh
 
-## 9. Programs
+## 9. Agenda
+
+Patient opens `/concierge/agenda`.
+
+Expected:
+- pending Concierge actions, telemedicine appointments and HealthWallet reminders are combined
+- no second appointment/reminder table is created
+- overdue action is visually identified
+- links return to the canonical HealthWallet/Concierge source of each item
+
+## 10. Programs
 
 ### Self-service programs
 
@@ -206,7 +239,7 @@ Expected:
 - enrollment records `assigned_by`
 - patient may later pause/cancel their own participation without rewriting assignment metadata
 
-## 10. Alerts
+## 11. Alerts
 
 Validate at least:
 - overdue action
@@ -223,7 +256,7 @@ Expected:
 - no new alert survives insertion after consent has been revoked
 - revocation dismisses outstanding Concierge alerts for that patient
 
-## 11. Workload and pilot economics
+## 12. Workload and pilot economics
 
 For synthetic interactions record human work minutes.
 
@@ -240,7 +273,7 @@ Expected metrics:
 
 No pricing decision should be hard-coded from test data.
 
-## 12. Security / privacy negative tests
+## 13. Security / privacy negative tests
 
 Must fail:
 - patient reading another patient's request
@@ -254,8 +287,11 @@ Must fail:
 - request-context RPC returning an unlinked exam
 - patient self-enrolling into a team-started clinical program
 - creation of proactive alert after consent revocation
+- professional rewriting original patient-authored request text/context
+- nurse assigning a different nurse through a direct database call
+- doctor assigning a different doctor through a direct database call
 
-## 13. Regression checks
+## 14. Regression checks
 
 The Concierge branch must not break:
 - HealthWallet login/consent
@@ -271,7 +307,7 @@ The Concierge branch must not break:
 
 The main HealthWallet Android Health Connect permission strategy remains unchanged. Concierge development must not broaden the protected main-app Health Connect permission set.
 
-## 14. Definition of validation success
+## 15. Definition of validation success
 
 The MVP is ready for a controlled pilot only when:
 
@@ -281,6 +317,8 @@ The MVP is ready for a controlled pilot only when:
 - patient consent/revocation works end-to-end
 - patient → nurse → physician → patient second-analysis flow passes
 - action-plan recurrence passes
+- patient access audit is visible and accurate
+- unified agenda renders canonical data without duplication
 - workload metrics are recorded
 - HealthWallet existing features regress cleanly
 
