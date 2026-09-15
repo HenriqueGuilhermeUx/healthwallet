@@ -12,6 +12,7 @@ on:
       - 'src/App.tsx'
       - 'src/components/BottomNav.tsx'
       - 'SQL_CONCIERGE_*.sql'
+      - 'SQL_FAMILIA_IDOSOS_FASE1.sql'
       - 'HEALTH_CONCIERGE_MVP.md'
       - 'HEALTH_CONCIERGE_VALIDATION.md'
       - '.github/workflows/health-concierge-ci.yml'
@@ -105,6 +106,7 @@ jobs:
           test -f SQL_CONCIERGE_PATIENT_AUDIT_V1.sql
           test -f SQL_CONCIERGE_SLA_METRICS_V1.sql
           test -f SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
+          test -f SQL_FAMILIA_IDOSOS_FASE1.sql
           test -f HEALTH_CONCIERGE_VALIDATION.md
 
       - name: SQL safety audit
@@ -159,6 +161,11 @@ jobs:
           grep -q 'não geram diagnóstico automático' src/pages/ConciergeHealth.tsx
           grep -q 'Coordenação familiar' src/pages/ConciergeFamily.tsx
           grep -q 'target_family_member_id' src/pages/ConciergeFamily.tsx
+          grep -q 'ALTER TABLE public.health_reminders' SQL_FAMILIA_IDOSOS_FASE1.sql
+          grep -q 'ADD COLUMN IF NOT EXISTS target_family_member_id' SQL_FAMILIA_IDOSOS_FASE1.sql
+          grep -q 'ADD COLUMN IF NOT EXISTS requires_confirmation' SQL_FAMILIA_IDOSOS_FASE1.sql
+          grep -q 'ADD COLUMN IF NOT EXISTS updated_at' SQL_FAMILIA_IDOSOS_FASE1.sql
+          grep -q 'idx_health_reminders_target_family_member' SQL_FAMILIA_IDOSOS_FASE1.sql
           grep -q 'Orientação rápida' src/pages/Concierge.tsx
           grep -q 'href="/concierge/family"' src/pages/Concierge.tsx
 
