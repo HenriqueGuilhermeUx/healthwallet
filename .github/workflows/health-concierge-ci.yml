@@ -1,0 +1,70 @@
+name: Health Concierge CI
+
+on:
+  push:
+    branches:
+      - feature/health-concierge-mvp
+    paths:
+      - 'src/pages/Concierge*.tsx'
+      - 'src/services/concierge.ts'
+      - 'src/App.tsx'
+      - 'src/components/BottomNav.tsx'
+      - 'SQL_CONCIERGE_MVP_V1.sql'
+      - '.github/workflows/health-concierge-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  concierge-build:
+    name: Build HealthWallet Concierge branch
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: TypeScript and Vite build
+        run: pnpm build
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key-for-static-build-only
+
+      - name: Concierge route audit
+        run: |
+          grep -q 'path="/concierge"' src/App.tsx
+          grep -q 'path="/concierge/request"' src/App.tsx
+          grep -q 'path="/concierge/requests/:id"' src/App.tsx
+          grep -q 'path="/concierge/plan"' src/App.tsx
+          grep -q 'path="/concierge/programs"' src/App.tsx
+          grep -q 'path="/concierge/team"' src/App.tsx
+          grep -q 'path="/concierge/ops"' src/App.tsx
+          grep -q 'path="/concierge/ops/case/:id"' src/App.tsx
+
+      - name: SQL safety audit
+        run: |
+          test -f SQL_CONCIERGE_MVP_V1.sql
+          grep -q 'ALTER TABLE public.concierge_requests ENABLE ROW LEVEL SECURITY' SQL_CONCIERGE_MVP_V1.sql
+          grep -q 'patient_id = auth.uid()' SQL_CONCIERGE_MVP_V1.sql
+          grep -q 'public.concierge_is_staff()' SQL_CONCIERGE_MVP_V1.sql
+          if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_MVP_V1.sql; then
+            echo 'Unsafe unrestricted RLS policy found in Concierge migration'
+            exit 1
+          fi
+
+      - name: Confirm no deployment in Concierge CI
+        run: |
+          if grep -Eqi 'netlify deploy|vercel deploy|firebase deploy|supabase db push|supabase migration up' .github/workflows/health-concierge-ci.yml; then
+            echo 'Deployment command found. Concierge CI must remain validation-only.'
+            exit 1
+          fi
+          echo 'Concierge CI is build/test only; nothing is published.'
