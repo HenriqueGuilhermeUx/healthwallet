@@ -51,6 +51,7 @@ jobs:
           grep -q 'path="/concierge/plan"' src/App.tsx
           grep -q 'path="/concierge/programs"' src/App.tsx
           grep -q 'path="/concierge/team"' src/App.tsx
+          grep -q 'path="/concierge/agenda"' src/App.tsx
           grep -q 'path="/concierge/ops"' src/App.tsx
           grep -q 'path="/concierge/ops/case/:id"' src/App.tsx
           grep -q 'path="/concierge/ops/pilot"' src/App.tsx
@@ -64,11 +65,13 @@ jobs:
           test -f SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql
           test -f SQL_CONCIERGE_CONSENT_V1.sql
           test -f SQL_CONCIERGE_ROSTER_GUARDS_V1.sql
+          test -f SQL_CONCIERGE_REQUEST_INTEGRITY_V1.sql
           test -f SQL_CONCIERGE_PROGRAM_GUARDS_V1.sql
           test -f SQL_CONCIERGE_ALERT_ENGINE_V1.sql
           test -f SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql
           test -f SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql
           test -f SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
+          test -f SQL_CONCIERGE_PATIENT_AUDIT_V1.sql
           test -f HEALTH_CONCIERGE_VALIDATION.md
 
       - name: SQL safety audit
@@ -81,12 +84,15 @@ jobs:
           grep -q 'concierge_accept_consent' SQL_CONCIERGE_CONSENT_V1.sql
           grep -q 'concierge_revoke_consent' SQL_CONCIERGE_CONSENT_V1.sql
           grep -q 'concierge_set_primary_assignment' SQL_CONCIERGE_ROSTER_GUARDS_V1.sql
+          grep -q 'concierge_guard_request_update' SQL_CONCIERGE_REQUEST_INTEGRITY_V1.sql
+          grep -q 'Patient-authored request content is immutable' SQL_CONCIERGE_REQUEST_INTEGRITY_V1.sql
           grep -q "enrollment_mode IN ('self','team')" SQL_CONCIERGE_PROGRAM_GUARDS_V1.sql
           grep -q 'concierge_guard_alert_consent' SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql
           grep -q 'concierge_close_alerts_on_consent_revocation' SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql
           grep -q 'concierge_guard_clinical_review' SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql
           grep -q 'concierge_get_request_context' SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
           grep -q 'concierge_context_access_logs' SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
+          grep -q 'concierge_list_my_context_accesses' SQL_CONCIERGE_PATIENT_AUDIT_V1.sql
           if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_*.sql; then
             echo 'Unsafe unrestricted RLS policy found in Concierge migrations'
             exit 1
@@ -96,11 +102,13 @@ jobs:
         run: |
           grep -q 'consent_status' src/pages/ConciergeConsent.tsx
           grep -q 'Revogar acesso' src/pages/ConciergeConsent.tsx
+          grep -q 'Quem acessou meu contexto' src/pages/ConciergeConsent.tsx
           grep -q 'membership.consent_status' src/components/ConciergeAccessGate.tsx
           grep -q 'Carregar contexto autorizado' src/components/ConciergeAuthorizedContextPanel.tsx
           grep -q 'subjectFamilyMemberId' src/pages/ConciergeRequest.tsx
           grep -q 'linked_exams' src/pages/ConciergeRequest.tsx
           grep -q "program.enrollment_mode === 'team'" src/pages/ConciergePrograms.tsx
+          grep -q 'concierge_list_my_context_accesses' src/services/conciergeConsent.ts
           if grep -Eq "file_url.*ConciergeAuthorizedContextPanel|file_url.*conciergeContext" src/components/ConciergeAuthorizedContextPanel.tsx src/services/conciergeContext.ts; then
             echo 'Raw file URL leaked into Concierge context UI/service'
             exit 1
