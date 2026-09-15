@@ -11,6 +11,7 @@ import {
   listConciergeRequestEvents,
   updateConciergeRequestStatus,
 } from '@/services/concierge'
+import { logConciergeWork } from '@/services/conciergeAnalytics'
 import { supabase } from '@/lib/supabase'
 
 function formatDate(value?: string) {
@@ -30,6 +31,8 @@ export default function ConciergeCase() {
   const [actions, setActions] = useState<any[]>([])
   const [note, setNote] = useState('')
   const [noteVisibility, setNoteVisibility] = useState<'patient' | 'staff_only'>('patient')
+  const [workMinutes, setWorkMinutes] = useState('')
+  const [workType, setWorkType] = useState<'triage' | 'message' | 'clinical_review' | 'care_coordination' | 'action_plan' | 'follow_up' | 'teleconsult' | 'other'>('care_coordination')
   const [actionTitle, setActionTitle] = useState('')
   const [actionDueDate, setActionDueDate] = useState('')
   const [busy, setBusy] = useState(false)
@@ -73,7 +76,26 @@ export default function ConciergeCase() {
     setBusy(true)
     try {
       await addStaffEvent(request.id, request.patient_id, staff, 'case_note', note.trim(), noteVisibility)
+
+      const minutes = Number(workMinutes)
+      if (Number.isFinite(minutes) && minutes > 0) {
+        try {
+          await logConciergeWork({
+            staffUserId: staff.user_id,
+            patientId: request.patient_id,
+            requestId: request.id,
+            staffRole: staff.role,
+            workType,
+            durationMinutes: minutes,
+            outcome: noteVisibility === 'patient' ? 'patient_update' : 'internal_coordination',
+          })
+        } catch (workError) {
+          console.warn('Work log unavailable until pilot analytics migration is active:', workError)
+        }
+      }
+
       setNote('')
+      setWorkMinutes('')
       toast.success(noteVisibility === 'patient' ? 'Atualização enviada ao paciente' : 'Nota interna registrada')
       await load()
     } catch (error) {
@@ -170,6 +192,25 @@ export default function ConciergeCase() {
         <div className="flex items-center gap-2"><MessageSquareText className="h-5 w-5 text-emerald-700" /><h2 className="font-bold">Registrar atualização</h2></div>
         <div className="mt-3 grid grid-cols-2 gap-2"><button onClick={() => setNoteVisibility('patient')} className={`rounded-xl border px-3 py-2 text-xs font-bold ${noteVisibility === 'patient' ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : ''}`}>Paciente vê</button><button onClick={() => setNoteVisibility('staff_only')} className={`rounded-xl border px-3 py-2 text-xs font-bold ${noteVisibility === 'staff_only' ? 'border-slate-700 bg-slate-100' : ''}`}>Nota interna</button></div>
         <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} placeholder="Atualização, orientação ou observação de coordenação..." className="mt-3 w-full resize-none rounded-xl border px-3 py-3 text-sm" />
+
+        <div className="mt-3 rounded-xl bg-slate-50 p-3">
+          <p className="text-xs font-semibold text-slate-700">Tempo real gasto nesta interação</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">Usado apenas para medir capacidade operacional e unit economics do piloto.</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <input type="number" min="1" max="480" value={workMinutes} onChange={(event) => setWorkMinutes(event.target.value)} placeholder="Minutos" className="rounded-xl border bg-white px-3 py-2.5 text-sm" />
+            <select value={workType} onChange={(event) => setWorkType(event.target.value as any)} className="rounded-xl border bg-white px-3 py-2.5 text-sm">
+              <option value="triage">Triagem</option>
+              <option value="message">Mensagem</option>
+              <option value="clinical_review">Revisão clínica</option>
+              <option value="care_coordination">Coordenação</option>
+              <option value="action_plan">Plano de ação</option>
+              <option value="follow_up">Follow-up</option>
+              <option value="teleconsult">Teleconsulta</option>
+              <option value="other">Outro</option>
+            </select>
+          </div>
+        </div>
+
         <button disabled={busy || !note.trim()} onClick={addNote} className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-50 flex items-center justify-center gap-2"><Send className="h-4 w-4" /> Registrar</button>
       </section>
 
