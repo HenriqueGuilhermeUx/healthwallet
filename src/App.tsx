@@ -52,11 +52,13 @@ import ConciergeOperations from '@/pages/ConciergeOperations'
 import ConciergeCase from '@/pages/ConciergeCase'
 import ConciergePilotDashboard from '@/pages/ConciergePilotDashboard'
 import ConciergeRoster from '@/pages/ConciergeRoster'
+import ConciergeConsent from '@/pages/ConciergeConsent'
 
 // Components
 import BottomNav from '@/components/BottomNav'
 import AppHeader from '@/components/AppHeader'
 import AppErrorBoundary from '@/components/AppErrorBoundary'
+import ConciergeAccessGate from '@/components/ConciergeAccessGate'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -166,6 +168,14 @@ function ProtectedPage({ children }: { children: React.ReactNode }) {
   )
 }
 
+function ConciergePatientPage({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedPage>
+      <ConciergeAccessGate>{children}</ConciergeAccessGate>
+    </ProtectedPage>
+  )
+}
+
 function ConnectReturnBridge() {
   const navigate = useNavigate()
 
@@ -244,13 +254,14 @@ export default function App() {
             {/* Protected patient routes */}
             <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
             <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
-            <Route path="/concierge" element={<ProtectedPage><Concierge /></ProtectedPage>} />
-            <Route path="/concierge/request" element={<ProtectedPage><ConciergeRequest /></ProtectedPage>} />
-            <Route path="/concierge/requests" element={<ProtectedPage><ConciergeRequests /></ProtectedPage>} />
-            <Route path="/concierge/requests/:id" element={<ProtectedPage><ConciergeRequestDetail /></ProtectedPage>} />
-            <Route path="/concierge/plan" element={<ProtectedPage><ConciergePlan /></ProtectedPage>} />
-            <Route path="/concierge/programs" element={<ProtectedPage><ConciergePrograms /></ProtectedPage>} />
-            <Route path="/concierge/team" element={<ProtectedPage><ConciergeTeam /></ProtectedPage>} />
+            <Route path="/concierge/consent" element={<ProtectedPage><ConciergeConsent /></ProtectedPage>} />
+            <Route path="/concierge" element={<ConciergePatientPage><Concierge /></ConciergePatientPage>} />
+            <Route path="/concierge/request" element={<ConciergePatientPage><ConciergeRequest /></ConciergePatientPage>} />
+            <Route path="/concierge/requests" element={<ConciergePatientPage><ConciergeRequests /></ConciergePatientPage>} />
+            <Route path="/concierge/requests/:id" element={<ConciergePatientPage><ConciergeRequestDetail /></ConciergePatientPage>} />
+            <Route path="/concierge/plan" element={<ConciergePatientPage><ConciergePlan /></ConciergePatientPage>} />
+            <Route path="/concierge/programs" element={<ConciergePatientPage><ConciergePrograms /></ConciergePatientPage>} />
+            <Route path="/concierge/team" element={<ConciergePatientPage><ConciergeTeam /></ConciergePatientPage>} />
             <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
             <Route path="/devices" element={<ProtectedPage><DeviceData /></ProtectedPage>} />
             <Route path="/clinic-checkin" element={<ProtectedPage><ClinicCheckin /></ProtectedPage>} />
