@@ -19,6 +19,7 @@ Apply manually, in this exact order:
 11. `SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql`
 12. `SQL_CONCIERGE_PATIENT_AUDIT_V1.sql`
 13. `SQL_CONCIERGE_SLA_METRICS_V1.sql`
+14. `SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql`
 
 All migrations are validation-first and are intentionally not executed by CI.
 
@@ -152,6 +153,19 @@ Expected:
 - doctor cannot move a request back into nurse-only arbitrary states
 - admin/coordinator remains the operational override layer
 
+### 5.6 Patient reply routing
+
+Put one nurse-owned case and one physician-owned case into `waiting_patient`, then reply as the patient.
+
+Expected:
+- reply is written atomically through `concierge_patient_reply()`
+- raw reply text is not copied into the automation queue
+- nurse-owned case returns to `waiting_nurse`
+- physician-owned case returns to `medical_review`
+- closed/resolved case rejects new reply through the RPC
+- revoked/pending consent rejects reply through the RPC
+- patient cannot directly rewrite any other request field or status
+
 ## 6. Exam review and second analysis
 
 Patient creates `exam_review` or `second_analysis` and selects existing HealthWallet exams.
@@ -215,6 +229,33 @@ Expected:
 - no second appointment/reminder table is created
 - overdue action is visually identified
 - links return to the canonical HealthWallet/Concierge source of each item
+
+## 9.1 Longitudinal My Health
+
+Patient opens `/concierge/health` with synthetic MedScore and device summaries, then repeat with no device data.
+
+Expected:
+- page reuses canonical HealthWallet `health_scores`, `health_daily_summaries`, `medical_records`, `medications` and `medical_events`
+- no duplicate longitudinal-health table is created
+- current MedScore and prior-score delta render when available
+- 7-day steps/sleep/resting-heart-rate/weight trends compare with the previous 7-day window only when data exists
+- pressure, SpO2, activity minutes and active calories are presented as recorded context, not diagnosis
+- zero-device state renders without failure and points to the existing device flow
+- user can navigate back to canonical Exams, Medications, Timeline, Passport and Device Data
+- wording explicitly states device signals are complementary and do not create an automatic diagnosis
+- main HealthWallet Health Connect permission architecture remains unchanged
+
+## 9.2 Family coordination cockpit
+
+Patient opens `/concierge/family` with synthetic existing family profiles.
+
+Expected:
+- profiles come from canonical `family_members`; no duplicate family record is created
+- active family-targeted medications and reminders are summarized by `target_family_member_id`
+- overdue reminders may be highlighted as operational attention, not a medical-risk score
+- if no family profile exists, CTA returns to canonical HealthWallet Family setup
+- requesting help still enters the normal tracked Concierge case flow
+- Concierge does not fabricate a Health Score for a family member without a real authorized longitudinal record
 
 ## 10. Programs
 
@@ -337,6 +378,8 @@ Must fail:
 - professional rewriting original patient-authored request text/context
 - nurse assigning a different nurse through a direct database call
 - doctor assigning a different doctor through a direct database call
+- patient using reply routing to change a non-waiting request to another operational status
+- patient reply RPC after Concierge consent revocation
 
 ## 16. Regression checks
 
@@ -359,13 +402,16 @@ The main HealthWallet Android Health Connect permission strategy remains unchang
 The MVP is ready for a controlled human-led pilot only when:
 
 - latest branch CI is green
-- all 13 migrations apply cleanly in validation
+- all 14 migrations apply cleanly in validation
 - all role-access negative tests pass
 - patient consent/revocation works end-to-end
 - patient → nurse → physician → patient second-analysis flow passes
+- patient reply returns a waiting case to the correct professional lane
 - action-plan recurrence passes
 - patient access audit is visible and accurate
 - unified agenda renders canonical data without duplication
+- longitudinal My Health renders with and without device data without diagnostic claims
+- family coordination reuses existing HealthWallet family records without duplication
 - first-response SLA instrumentation is verified
 - workload metrics are recorded
 - plan-vs-no-plan segmentation and data-quality coverage render correctly
