@@ -12,6 +12,7 @@ import {
   updateConciergeRequestStatus,
 } from '@/services/concierge'
 import { logConciergeWork } from '@/services/conciergeAnalytics'
+import ConciergeClinicalReviewPanel from '@/components/ConciergeClinicalReviewPanel'
 import { supabase } from '@/lib/supabase'
 
 function formatDate(value?: string) {
@@ -110,15 +111,24 @@ export default function ConciergeCase() {
     if (!staff || !request || !actionTitle.trim()) return
     setBusy(true)
     try {
+      const title = actionTitle.trim()
       await createConciergeAction({
         patientId: request.patient_id,
         requestId: request.id,
         createdBy: staff.user_id,
-        title: actionTitle.trim(),
+        title,
         dueDate: actionDueDate || undefined,
         priority: request.urgency === 'priority' ? 'high' : 'normal',
       })
-      await addStaffEvent(request.id, request.patient_id, staff, 'action_created', `Novo próximo passo: ${actionTitle.trim()}.`)
+      await addStaffEvent(request.id, request.patient_id, staff, 'action_created', `Novo próximo passo: ${title}.`)
+      if (!['action_plan', 'resolved', 'closed'].includes(request.status)) {
+        await updateConciergeRequestStatus(
+          request,
+          staff,
+          'action_plan',
+          'A equipe criou um plano de ação para acompanhar os próximos passos.',
+        )
+      }
       setActionTitle('')
       setActionDueDate('')
       toast.success('Ação adicionada ao plano do paciente')
@@ -170,12 +180,14 @@ export default function ConciergeCase() {
         </section>
       )}
 
+      <ConciergeClinicalReviewPanel request={request} staff={staff} onSaved={load} />
+
       <section className="rounded-2xl border bg-white p-4">
         <h2 className="font-bold">Fluxo assistencial</h2>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button disabled={busy} onClick={() => changeStatus('in_triage', 'A equipe iniciou a triagem da solicitação.')} className="rounded-xl border px-3 py-3 text-xs font-bold">Em triagem</button>
           <button disabled={busy} onClick={() => changeStatus('waiting_patient', 'A equipe precisa de uma informação adicional do paciente.')} className="rounded-xl border px-3 py-3 text-xs font-bold">Aguardar paciente</button>
-          <button disabled={busy} onClick={() => changeStatus('escalated_medical', 'Caso encaminhado para avaliação médica.')} className="rounded-xl bg-emerald-700 px-3 py-3 text-xs font-bold text-white">Encaminhar médico</button>
+          <button disabled={busy || staff.role === 'doctor'} onClick={() => changeStatus('escalated_medical', 'Caso encaminhado para avaliação médica.')} className="rounded-xl bg-emerald-700 px-3 py-3 text-xs font-bold text-white disabled:opacity-50">Encaminhar médico</button>
           <button disabled={busy} onClick={() => changeStatus('resolved', 'Caso concluído pela equipe Concierge. Os próximos passos permanecem no Plano de Ação.')} className="rounded-xl bg-slate-900 px-3 py-3 text-xs font-bold text-white">Resolver caso</button>
         </div>
       </section>
