@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
+  BarChart3,
   BellRing,
   CheckCircle2,
   ChevronRight,
@@ -42,10 +43,30 @@ const categoryLabels: Record<string, string> = {
   other: 'Outro',
 }
 
+const roleLabels: Record<string, string> = {
+  nurse: 'Enfermagem',
+  doctor: 'Médico',
+  care_coordinator: 'Coordenação',
+  admin: 'Administração',
+}
+
 function ageInHours(value?: string) {
   if (!value) return 0
   const created = new Date(value).getTime()
   return Math.max(0, Math.floor((Date.now() - created) / 36e5))
+}
+
+function visibleForRole(item: any, role: string, userId?: string) {
+  if (role === 'admin' || role === 'care_coordinator') return true
+  if (role === 'doctor') {
+    return item.assigned_doctor_id === userId
+      || (!item.assigned_doctor_id && ['escalated_medical', 'medical_review'].includes(item.status))
+  }
+  if (role === 'nurse') {
+    return item.assigned_nurse_id === userId
+      || (!item.assigned_nurse_id && !item.assigned_doctor_id && ['new', 'waiting_nurse'].includes(item.status))
+  }
+  return false
 }
 
 export default function ConciergeOperations() {
@@ -86,12 +107,17 @@ export default function ConciergeOperations() {
     }
   }
 
+  const roleRequests = useMemo(
+    () => requests.filter((item) => visibleForRole(item, staff?.role || '', user?.id)),
+    [requests, staff?.role, user?.id],
+  )
+
   const stats = useMemo(() => ({
-    new: requests.filter((item) => item.status === 'new').length,
-    triage: requests.filter((item) => ['in_triage', 'waiting_nurse'].includes(item.status)).length,
-    medical: requests.filter((item) => ['escalated_medical', 'medical_review'].includes(item.status)).length,
+    new: roleRequests.filter((item) => item.status === 'new').length,
+    triage: roleRequests.filter((item) => ['in_triage', 'waiting_nurse'].includes(item.status)).length,
+    medical: roleRequests.filter((item) => ['escalated_medical', 'medical_review'].includes(item.status)).length,
     alerts: alerts.length,
-  }), [requests, alerts])
+  }), [roleRequests, alerts])
 
   async function takeCase(item: any) {
     if (!staff) return
@@ -137,14 +163,31 @@ export default function ConciergeOperations() {
     )
   }
 
+  const canCoordinate = ['admin', 'care_coordinator'].includes(staff.role)
+
   return (
     <div className="space-y-5 pb-28">
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-teal-950 to-emerald-900 p-5 text-white">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-white/60"><Stethoscope className="h-4 w-4" /> MyDataMed · Health Operations</div>
         <h1 className="mt-2 text-2xl font-bold">Fila Concierge</h1>
-        <p className="mt-2 text-sm text-white/75">{staff.display_name || 'Profissional'} · {staff.role}</p>
-        <p className="mt-1 text-xs text-white/55">A prioridade é coordenar, resolver no nível adequado e escalar somente quando necessário.</p>
+        <p className="mt-2 text-sm text-white/75">{staff.display_name || 'Profissional'} · {roleLabels[staff.role] || staff.role}</p>
+        <p className="mt-1 text-xs text-white/55">A prioridade é resolver no nível adequado. Enfermagem coordena; médico recebe o que realmente precisa de revisão médica.</p>
       </section>
+
+      {canCoordinate && (
+        <section className="grid grid-cols-2 gap-3">
+          <Link to="/concierge/ops/roster" className="rounded-2xl border bg-white p-4">
+            <Users className="h-5 w-5 text-emerald-700" />
+            <p className="mt-2 text-sm font-bold">Carteira</p>
+            <p className="mt-1 text-xs text-muted-foreground">Pacientes e equipe</p>
+          </Link>
+          <Link to="/concierge/ops/pilot" className="rounded-2xl border bg-white p-4">
+            <BarChart3 className="h-5 w-5 text-emerald-700" />
+            <p className="mt-2 text-sm font-bold">Métricas do piloto</p>
+            <p className="mt-1 text-xs text-muted-foreground">Uso, custo e escala</p>
+          </Link>
+        </section>
+      )}
 
       <section className="grid grid-cols-2 gap-3">
         <Stat icon={BellRing} label="Novos" value={stats.new} />
@@ -153,7 +196,7 @@ export default function ConciergeOperations() {
         <Stat icon={AlertTriangle} label="Alertas" value={stats.alerts} />
       </section>
 
-      {alerts.length > 0 && (
+      {alerts.length > 0 && staff.role !== 'doctor' && (
         <section>
           <h2 className="mb-3 font-bold text-gray-900">Alertas para revisar</h2>
           <div className="space-y-2">
@@ -170,14 +213,23 @@ export default function ConciergeOperations() {
       )}
 
       <section>
-        <div className="mb-3 flex items-center justify-between"><h2 className="font-bold text-gray-900">Casos ativos</h2><span className="text-xs text-muted-foreground">{requests.length} na fila</span></div>
-        {requests.length === 0 ? (
-          <div className="rounded-2xl border border-dashed bg-white p-6 text-center"><CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" /><p className="mt-3 font-semibold">Fila limpa</p><p className="mt-1 text-sm text-muted-foreground">Nenhuma solicitação ativa agora.</p></div>
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-gray-900">{staff.role === 'doctor' ? 'Casos para revisão médica' : staff.role === 'nurse' ? 'Minha fila de enfermagem' : 'Casos ativos'}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{staff.role === 'doctor' ? 'Somente escalados ou atribuídos a você.' : staff.role === 'nurse' ? 'Novos casos não atribuídos e casos sob sua responsabilidade.' : 'Visão operacional completa.'}</p>
+          </div>
+          <span className="text-xs text-muted-foreground">{roleRequests.length}</span>
+        </div>
+        {roleRequests.length === 0 ? (
+          <div className="rounded-2xl border border-dashed bg-white p-6 text-center"><CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" /><p className="mt-3 font-semibold">Fila limpa</p><p className="mt-1 text-sm text-muted-foreground">Nenhum caso para seu papel agora.</p></div>
         ) : (
           <div className="space-y-3">
-            {requests.map((item) => {
+            {roleRequests.map((item) => {
               const assignedToMe = item.assigned_nurse_id === user?.id || item.assigned_doctor_id === user?.id
-              const unassigned = !item.assigned_nurse_id && !item.assigned_doctor_id
+              const unassignedForRole = staff.role === 'doctor'
+                ? !item.assigned_doctor_id
+                : !item.assigned_nurse_id && !item.assigned_doctor_id
+              const canTake = ['nurse', 'doctor'].includes(staff.role) && unassignedForRole
               return (
                 <div key={item.id} className="rounded-2xl border bg-white p-4">
                   <div className="flex items-start gap-3">
@@ -190,8 +242,8 @@ export default function ConciergeOperations() {
                     <Link to={`/concierge/ops/case/${item.id}`} className="mt-1"><ChevronRight className="h-5 w-5 text-muted-foreground" /></Link>
                   </div>
                   <div className="mt-4 flex gap-2">
-                    {unassigned && <button type="button" disabled={busyId === item.id} onClick={() => takeCase(item)} className="flex-1 rounded-xl bg-slate-900 px-3 py-2.5 text-xs font-bold text-white flex items-center justify-center gap-1"><UserCheck className="h-4 w-4" /> Assumir</button>}
-                    {(assignedToMe || staff.role === 'admin' || staff.role === 'care_coordinator') && !['escalated_medical', 'medical_review'].includes(item.status) && <button type="button" disabled={busyId === item.id} onClick={() => escalate(item)} className="flex-1 rounded-xl bg-emerald-700 px-3 py-2.5 text-xs font-bold text-white">Encaminhar médico</button>}
+                    {canTake && <button type="button" disabled={busyId === item.id} onClick={() => takeCase(item)} className="flex-1 rounded-xl bg-slate-900 px-3 py-2.5 text-xs font-bold text-white flex items-center justify-center gap-1"><UserCheck className="h-4 w-4" /> Assumir</button>}
+                    {(assignedToMe || canCoordinate) && staff.role !== 'doctor' && !['escalated_medical', 'medical_review'].includes(item.status) && <button type="button" disabled={busyId === item.id} onClick={() => escalate(item)} className="flex-1 rounded-xl bg-emerald-700 px-3 py-2.5 text-xs font-bold text-white">Encaminhar médico</button>}
                     <Link to={`/concierge/ops/case/${item.id}`} className="flex-1 rounded-xl border px-3 py-2.5 text-center text-xs font-bold">Abrir caso</Link>
                   </div>
                 </div>
