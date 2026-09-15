@@ -1,12 +1,11 @@
-import { Home, FileText, User, Mail, Video, ShieldCheck, QrCode, Watch } from 'lucide-react'
+import { Home, FileText, User, Video, ShieldCheck, Watch, HeartPulse } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 const navItems = [
   { icon: Home, label: 'Início', path: '/dashboard' },
-  { icon: QrCode, label: 'Check-in', path: '/clinic-checkin' },
+  { icon: HeartPulse, label: 'Concierge', path: '/concierge' },
   { icon: Watch, label: 'Dados', path: '/devices' },
   { icon: FileText, label: 'Exames', path: '/exams' },
-  { icon: Mail, label: 'E-mail', path: '/exam-inbox' },
   { icon: Video, label: 'Consulta', path: '/telemedicine' },
   { icon: ShieldCheck, label: 'Vínculos', path: '/care-links' },
   { icon: User, label: 'Perfil', path: '/profile' },
