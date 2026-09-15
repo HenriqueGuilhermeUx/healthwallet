@@ -33,6 +33,7 @@ BEGIN
       ('function', 'concierge_list_my_context_accesses()', to_regprocedure('public.concierge_list_my_context_accesses()') IS NOT NULL),
       ('function', 'concierge_set_primary_assignment(uuid,uuid,text)', to_regprocedure('public.concierge_set_primary_assignment(uuid,uuid,text)') IS NOT NULL),
       ('function', 'concierge_patient_reply(uuid,text)', to_regprocedure('public.concierge_patient_reply(uuid,text)') IS NOT NULL),
+      ('function', 'concierge_reference_team(uuid)', to_regprocedure('public.concierge_reference_team(uuid)') IS NOT NULL),
       ('function', 'concierge_refresh_time_alerts()', to_regprocedure('public.concierge_refresh_time_alerts()') IS NOT NULL)
   )
   SELECT string_agg(kind || ':' || object_name, ', ' ORDER BY kind, object_name)
@@ -127,7 +128,36 @@ BEGIN
   END IF;
 END $$;
 
+-- Reference-team routing triggers are part of the continuity promise.
+DO $$
+DECLARE
+  missing_triggers TEXT;
+BEGIN
+  WITH expected(trigger_name) AS (
+    VALUES
+      ('trg_10_concierge_reference_team_route'),
+      ('trg_20_concierge_guard_clinician_assignment')
+  )
+  SELECT string_agg(e.trigger_name, ', ' ORDER BY e.trigger_name)
+    INTO missing_triggers
+  FROM expected e
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'concierge_requests'
+      AND t.tgname = e.trigger_name
+      AND NOT t.tgisinternal
+  );
+
+  IF missing_triggers IS NOT NULL THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Missing routing triggers: %', missing_triggers;
+  END IF;
+END $$;
+
 SELECT
   'PASS' AS validation_precheck,
   NOW() AS checked_at,
-  'Schema, functions and RLS baseline are ready for controlled Concierge validation.' AS message;
+  'Schema, functions, RLS and reference-team routing are ready for controlled Concierge validation.' AS message;
