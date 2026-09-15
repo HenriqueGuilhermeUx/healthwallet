@@ -50,6 +50,7 @@ import ConciergePrograms from '@/pages/ConciergePrograms'
 import ConciergeTeam from '@/pages/ConciergeTeam'
 import ConciergeAgenda from '@/pages/ConciergeAgenda'
 import ConciergeHealth from '@/pages/ConciergeHealth'
+import ConciergeFamily from '@/pages/ConciergeFamily'
 import ConciergeOperations from '@/pages/ConciergeOperations'
 import ConciergeCase from '@/pages/ConciergeCase'
 import ConciergePilotDashboard from '@/pages/ConciergePilotDashboard'
@@ -259,6 +260,7 @@ export default function App() {
             <Route path="/concierge/consent" element={<ProtectedPage><ConciergeConsent /></ProtectedPage>} />
             <Route path="/concierge" element={<ConciergePatientPage><Concierge /></ConciergePatientPage>} />
             <Route path="/concierge/health" element={<ConciergePatientPage><ConciergeHealth /></ConciergePatientPage>} />
+            <Route path="/concierge/family" element={<ConciergePatientPage><ConciergeFamily /></ConciergePatientPage>} />
             <Route path="/concierge/request" element={<ConciergePatientPage><ConciergeRequest /></ConciergePatientPage>} />
             <Route path="/concierge/requests" element={<ConciergePatientPage><ConciergeRequests /></ConciergePatientPage>} />
             <Route path="/concierge/requests/:id" element={<ConciergePatientPage><ConciergeRequestDetail /></ConciergePatientPage>} />
