@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
-      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_TOKEN }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_TOKEN || secrets.NETLIFY_ACCESS_TOKEN || secrets.NETLIFY_API_TOKEN }}
     steps:
       - name: Checkout exact production commit
         uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Verify transition-safe source
         run: |
@@ -47,7 +47,7 @@ jobs:
       - name: Require Netlify credential
         run: |
           if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
-            echo "NETLIFY_AUTH_TOKEN/NETLIFY_TOKEN GitHub secret is not configured."
+            echo "No supported Netlify GitHub secret is configured."
             exit 2
           fi
 
