@@ -312,11 +312,11 @@ BEGIN
       'Dados de dispositivo sem atualização recente',
       format('A conexão de dados não registra sincronização recente há mais de %s dias.', device_days),
       'Confirmar se o paciente ainda deseja usar a integração e orientar nova sincronização quando necessário.',
-      jsonb_build_object('provider', d.provider, 'last_synced_at', d.last_synced_at, 'generated_by', 'concierge_alert_engine')
+      jsonb_build_object('provider', d.provider, 'last_sync_at', d.last_sync_at, 'generated_by', 'concierge_alert_engine')
     FROM public.health_device_connections d
     JOIN public.concierge_memberships m ON m.patient_id = d.user_id AND m.status IN ('pilot','active')
     WHERE d.status = 'connected'
-      AND COALESCE(d.last_synced_at, d.updated_at) < NOW() - make_interval(days => device_days::integer)
+      AND COALESCE(d.last_sync_at, d.updated_at) < NOW() - make_interval(days => device_days::integer)
       AND NOT EXISTS (
         SELECT 1 FROM public.concierge_alerts x
         WHERE x.patient_id = d.user_id
