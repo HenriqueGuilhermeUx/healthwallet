@@ -11,6 +11,32 @@ ALTER TABLE public.concierge_memberships
   ADD COLUMN IF NOT EXISTS monthly_price_cents INTEGER,
   ADD COLUMN IF NOT EXISTS pilot_cohort TEXT DEFAULT 'mvp_100';
 
+-- Role helper used only for operational administration.
+CREATE OR REPLACE FUNCTION public.concierge_has_staff_role(required_roles TEXT[])
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.concierge_staff s
+    WHERE s.user_id = auth.uid()
+      AND s.active = true
+      AND s.role = ANY(required_roles)
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.concierge_has_staff_role(TEXT[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.concierge_has_staff_role(TEXT[]) TO authenticated;
+
+-- Coordinators need to see the staff roster to assign longitudinal care teams.
+DROP POLICY IF EXISTS concierge_staff_coordination_read ON public.concierge_staff;
+CREATE POLICY concierge_staff_coordination_read ON public.concierge_staff
+  FOR SELECT TO authenticated
+  USING (public.concierge_has_staff_role(ARRAY['admin','care_coordinator']::TEXT[]));
+
 -- 2) Human workload log. This is the core unit-economics instrument.
 CREATE TABLE IF NOT EXISTS public.concierge_work_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
