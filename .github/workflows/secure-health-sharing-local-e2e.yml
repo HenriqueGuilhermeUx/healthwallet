@@ -1,0 +1,189 @@
+name: Secure Health Sharing Local E2E
+
+on:
+  push:
+    branches:
+      - feature/health-concierge-mvp
+    paths:
+      - 'SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql'
+      - 'SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql'
+      - 'SQL_SECURE_HEALTH_SHARING_VALIDATION_BASE_V2.sql'
+      - 'scripts/secure-health-sharing-local-e2e.mjs'
+      - '.github/workflows/secure-health-sharing-local-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secure-sharing-local-e2e:
+    name: Ephemeral Auth + PostgREST + RLS sharing E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Assert local-only workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow='.github/workflows/secure-health-sharing-local-e2e.yml'
+          remote_link="supabase l""ink"
+          remote_push="supabase db p""ush"
+          remote_flag="--li""nked"
+          for needle in "$remote_link" "$remote_push" "$remote_flag"; do
+            if grep -Fq -- "$needle" "$workflow"; then
+              echo 'Remote Supabase operation found in secure sharing local workflow.'
+              exit 1
+            fi
+          done
+          echo 'PASS: workflow is ephemeral/local only.'
+
+      - name: Start ephemeral Supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f supabase/config.toml ]; then
+            supabase init
+          fi
+          supabase start
+          supabase status -o env > /tmp/secure-sharing-supabase.env
+
+      - name: Apply legacy validation base
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/secure-sharing-supabase.env
+          set +a
+          : "${DB_URL:?}"
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_SECURE_HEALTH_SHARING_VALIDATION_BASE_V2.sql | tee /tmp/secure-sharing-base.log
+          grep -q 'PASS' /tmp/secure-sharing-base.log
+
+      - name: Apply secure sharing V2
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/secure-sharing-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql | tee /tmp/secure-sharing-v2.log
+          grep -q 'PASS' /tmp/secure-sharing-v2.log
+
+      - name: Apply security-invoker view hardening V3
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/secure-sharing-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql | tee /tmp/secure-sharing-v3.log
+          grep -q 'PASS' /tmp/secure-sharing-v3.log
+
+      - name: Runtime schema contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/secure-sharing-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            failures TEXT[] := ARRAY[]::TEXT[];
+            view_name TEXT;
+            options TEXT[];
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='access_codes'
+                AND column_name='code' AND data_type='text'
+            ) THEN failures := array_append(failures, 'access_codes.code-not-text'); END IF;
+
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='access_codes' AND column_name='code_version'
+            ) THEN failures := array_append(failures, 'access_codes.code_version-missing'); END IF;
+
+            IF has_table_privilege('anon','public.access_codes','SELECT') THEN
+              failures := array_append(failures, 'anon-access_codes-select');
+            END IF;
+            IF has_table_privilege('anon','public.shared_access','SELECT') THEN
+              failures := array_append(failures, 'anon-shared_access-select');
+            END IF;
+
+            FOREACH view_name IN ARRAY ARRAY[
+              'patient_device_score_latest','vw_document_deliveries_public','vw_exames_autocomplete',
+              'vw_medicamentos_autocomplete','vw_patient_clinical_context'
+            ] LOOP
+              SELECT COALESCE(c.reloptions, ARRAY[]::TEXT[]) INTO options
+              FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+              WHERE n.nspname='public' AND c.relname=view_name AND c.relkind='v';
+              IF NOT ('security_invoker=true' = ANY(options)) THEN
+                failures := array_append(failures, 'not-invoker:' || view_name);
+              END IF;
+              IF has_table_privilege('anon', format('public.%I',view_name), 'SELECT') THEN
+                failures := array_append(failures, 'anon-view:' || view_name);
+              END IF;
+            END LOOP;
+
+            IF cardinality(failures) > 0 THEN
+              RAISE EXCEPTION 'Secure sharing runtime schema contract failed: %', array_to_string(failures, ', ');
+            END IF;
+          END $$;
+          SELECT 'PASS' AS secure_sharing_runtime_schema;
+          SQL
+
+      - name: Run three-persona Auth/PostgREST/RLS E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/secure-sharing-supabase.env
+          set +a
+
+          ANON="${ANON_KEY:-${PUBLISHABLE_KEY:-}}"
+          SERVICE_KEY="${SERVICE_ROLE_KEY:-${SECRET_KEY:-}}"
+          : "${API_URL:?}"
+          if [ -z "$ANON" ] || [ -z "$SERVICE_KEY" ]; then
+            echo 'Supabase CLI did not expose local API keys.'
+            exit 1
+          fi
+
+          VALIDATION_PASSWORD="$(openssl rand -hex 24)Aa1!"
+          echo "::add-mask::$VALIDATION_PASSWORD"
+
+          SUPABASE_URL="$API_URL" \
+          SUPABASE_ANON_KEY="$ANON" \
+          SUPABASE_SERVICE_ROLE_KEY="$SERVICE_KEY" \
+          SECURE_SHARING_VALIDATION_PASSWORD="$VALIDATION_PASSWORD" \
+          node scripts/secure-health-sharing-local-e2e.mjs | tee /tmp/secure-sharing-e2e.log
+
+          grep -q '"secure_health_sharing_e2e":"PASS"' /tmp/secure-sharing-e2e.log
+
+      - name: Result
+        run: |
+          echo 'SECURE HEALTH SHARING V2 + VIEW HARDENING V3: LOCAL E2E PASS'
+          echo 'No production database, remote Supabase project, deployment or branch merge was touched.'
+
+      - name: Stop ephemeral Supabase
+        if: always()
+        run: supabase stop --no-backup || true
