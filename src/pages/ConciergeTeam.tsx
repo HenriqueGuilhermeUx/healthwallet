@@ -75,8 +75,13 @@ export default function ConciergeTeam() {
         ))}
       </div>
 
+      <Link to="/concierge/consent" className="block rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+        <div className="flex items-center gap-2 font-bold"><ShieldCheck className="h-4 w-4" /> Acesso do Concierge</div>
+        <p className="mt-1 text-xs leading-relaxed text-blue-900/75">Revise as categorias autorizadas ou revogue o acesso da equipe a qualquer momento.</p>
+      </Link>
+
       <Link to="/care-links" className="block rounded-2xl border bg-slate-50 p-4 text-sm text-slate-700">
-        Seus vínculos e autorizações de acesso continuam sob seu controle. Toque aqui para gerenciar permissões profissionais.
+        Seus outros vínculos e autorizações profissionais continuam sob seu controle. Toque aqui para gerenciar permissões fora do Concierge.
       </Link>
     </div>
   )
