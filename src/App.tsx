@@ -42,6 +42,14 @@ import CareLinks from '@/pages/CareLinks'
 import ClinicCheckin from '@/pages/ClinicCheckin'
 import DeviceData from '@/pages/DeviceData'
 import Concierge from '@/pages/Concierge'
+import ConciergeRequest from '@/pages/ConciergeRequest'
+import ConciergeRequests from '@/pages/ConciergeRequests'
+import ConciergeRequestDetail from '@/pages/ConciergeRequestDetail'
+import ConciergePlan from '@/pages/ConciergePlan'
+import ConciergePrograms from '@/pages/ConciergePrograms'
+import ConciergeTeam from '@/pages/ConciergeTeam'
+import ConciergeOperations from '@/pages/ConciergeOperations'
+import ConciergeCase from '@/pages/ConciergeCase'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -231,10 +239,16 @@ export default function App() {
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/delete-account" element={<DeleteAccount />} />
 
-            {/* Protected routes */}
+            {/* Protected patient routes */}
             <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
             <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
             <Route path="/concierge" element={<ProtectedPage><Concierge /></ProtectedPage>} />
+            <Route path="/concierge/request" element={<ProtectedPage><ConciergeRequest /></ProtectedPage>} />
+            <Route path="/concierge/requests" element={<ProtectedPage><ConciergeRequests /></ProtectedPage>} />
+            <Route path="/concierge/requests/:id" element={<ProtectedPage><ConciergeRequestDetail /></ProtectedPage>} />
+            <Route path="/concierge/plan" element={<ProtectedPage><ConciergePlan /></ProtectedPage>} />
+            <Route path="/concierge/programs" element={<ProtectedPage><ConciergePrograms /></ProtectedPage>} />
+            <Route path="/concierge/team" element={<ProtectedPage><ConciergeTeam /></ProtectedPage>} />
             <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
             <Route path="/devices" element={<ProtectedPage><DeviceData /></ProtectedPage>} />
             <Route path="/clinic-checkin" element={<ProtectedPage><ClinicCheckin /></ProtectedPage>} />
@@ -256,9 +270,13 @@ export default function App() {
             <Route path="/medscore" element={<ProtectedPage><MedScore /></ProtectedPage>} />
             <Route path="/marketplace" element={<ProtectedPage><Marketplace /></ProtectedPage>} />
             <Route path="/telemedicine" element={<ProtectedPage><Telemedicine /></ProtectedPage>} />
-            <Route path="/telemedicine-admin" element={<ProtectedPage><TelemedicineAdmin /></ProtectedPage>} />
             <Route path="/emergency" element={<ProtectedPage><Emergency /></ProtectedPage>} />
             <Route path="/care-links" element={<ProtectedPage><CareLinks /></ProtectedPage>} />
+
+            {/* Professional operations routes. Page-level role guard checks concierge_staff. */}
+            <Route path="/concierge/ops" element={<ProtectedPage><ConciergeOperations /></ProtectedPage>} />
+            <Route path="/concierge/ops/case/:id" element={<ProtectedPage><ConciergeCase /></ProtectedPage>} />
+            <Route path="/telemedicine-admin" element={<ProtectedPage><TelemedicineAdmin /></ProtectedPage>} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
