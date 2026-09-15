@@ -56,6 +56,7 @@ import ConciergeCase from '@/pages/ConciergeCase'
 import ConciergePilotDashboard from '@/pages/ConciergePilotDashboard'
 import ConciergeRoster from '@/pages/ConciergeRoster'
 import ConciergeConsent from '@/pages/ConciergeConsent'
+import ConciergePatientOps from '@/pages/ConciergePatientOps'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -320,6 +321,7 @@ export default function App() {
             {/* MyDataMed / professional operations */}
             <Route path="/concierge/ops" element={<ProfessionalPage><ConciergeOperations /></ProfessionalPage>} />
             <Route path="/concierge/ops/case/:id" element={<ProfessionalPage><ConciergeCase /></ProfessionalPage>} />
+            <Route path="/concierge/ops/patient/:patientId" element={<ProfessionalPage><ConciergePatientOps /></ProfessionalPage>} />
             <Route path="/concierge/ops/pilot" element={<ProfessionalPage><ConciergePilotDashboard /></ProfessionalPage>} />
             <Route path="/concierge/ops/roster" element={<ProfessionalPage><ConciergeRoster /></ProfessionalPage>} />
             <Route path="/telemedicine-admin" element={<ProfessionalPage><TelemedicineAdmin /></ProfessionalPage>} />
