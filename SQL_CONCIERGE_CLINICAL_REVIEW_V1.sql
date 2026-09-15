@@ -91,20 +91,20 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  current_role TEXT;
+  staff_role TEXT;
 BEGIN
-  SELECT s.role INTO current_role
+  SELECT s.role INTO staff_role
   FROM public.concierge_staff s
   WHERE s.user_id = auth.uid() AND s.active = true;
 
-  IF current_role IS NULL THEN
+  IF staff_role IS NULL THEN
     RAISE EXCEPTION 'Concierge staff role required';
   END IF;
 
   -- Nurses/coordinators can prepare a structured case, but a final patient-visible
   -- clinical review requires physician/admin completion.
   IF NEW.status = 'completed' AND NEW.patient_visible = true THEN
-    IF current_role NOT IN ('doctor','admin') THEN
+    IF staff_role NOT IN ('doctor','admin') THEN
       RAISE EXCEPTION 'Physician review required before publishing a clinical review';
     END IF;
 
