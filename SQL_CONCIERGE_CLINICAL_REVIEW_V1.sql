@@ -136,10 +136,19 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  should_publish BOOLEAN := false;
 BEGIN
-  IF NEW.status = 'completed'
-     AND NEW.patient_visible = true
-     AND (OLD.status IS DISTINCT FROM NEW.status OR OLD.patient_visible IS DISTINCT FROM NEW.patient_visible) THEN
+  IF NEW.status = 'completed' AND NEW.patient_visible = true THEN
+    IF TG_OP = 'INSERT' THEN
+      should_publish := true;
+    ELSE
+      should_publish := OLD.status IS DISTINCT FROM NEW.status
+        OR OLD.patient_visible IS DISTINCT FROM NEW.patient_visible;
+    END IF;
+  END IF;
+
+  IF should_publish THEN
     INSERT INTO public.concierge_request_events (
       request_id,
       patient_id,
@@ -167,5 +176,5 @@ $$;
 
 DROP TRIGGER IF EXISTS trg_concierge_publish_review_event ON public.concierge_clinical_reviews;
 CREATE TRIGGER trg_concierge_publish_review_event
-AFTER UPDATE ON public.concierge_clinical_reviews
+AFTER INSERT OR UPDATE ON public.concierge_clinical_reviews
 FOR EACH ROW EXECUTE FUNCTION public.concierge_publish_review_event();
