@@ -89,8 +89,8 @@ BEGIN
   WHERE schemaname = 'public'
     AND tablename LIKE 'concierge_%'
     AND (
-      regexp_replace(COALESCE(qual, ''), '\\s+', '', 'g') IN ('true','(true)')
-      OR regexp_replace(COALESCE(with_check, ''), '\\s+', '', 'g') IN ('true','(true)')
+      regexp_replace(COALESCE(qual, ''), '\s+', '', 'g') IN ('true','(true)')
+      OR regexp_replace(COALESCE(with_check, ''), '\s+', '', 'g') IN ('true','(true)')
     );
 
   IF unsafe_policies IS NOT NULL THEN
@@ -128,15 +128,20 @@ BEGIN
   END IF;
 END $$;
 
--- Reference-team routing triggers are part of the continuity promise.
+-- Reference-team routing triggers are part of the continuity promise. Verify not
+-- only that they exist, but that PostgreSQL has them enabled and bound to the
+-- expected runtime functions after the complete 15-migration chain.
 DO $$
 DECLARE
   missing_triggers TEXT;
+  disabled_triggers TEXT;
+  wrong_bindings TEXT;
 BEGIN
-  WITH expected(trigger_name) AS (
+  WITH expected(trigger_name, function_name) AS (
     VALUES
-      ('trg_10_concierge_reference_team_route'),
-      ('trg_20_concierge_guard_clinician_assignment')
+      ('trg_10_concierge_reference_team_route', 'concierge_route_reference_team'),
+      ('trg_20_concierge_guard_clinician_assignment', 'concierge_guard_clinician_assignment'),
+      ('trg_concierge_guard_request_update', 'concierge_guard_request_update')
   )
   SELECT string_agg(e.trigger_name, ', ' ORDER BY e.trigger_name)
     INTO missing_triggers
@@ -153,11 +158,74 @@ BEGIN
   );
 
   IF missing_triggers IS NOT NULL THEN
-    RAISE EXCEPTION 'Concierge validation precheck failed. Missing routing triggers: %', missing_triggers;
+    RAISE EXCEPTION 'Concierge validation precheck failed. Missing routing/integrity triggers: %', missing_triggers;
+  END IF;
+
+  SELECT string_agg(t.tgname, ', ' ORDER BY t.tgname)
+    INTO disabled_triggers
+  FROM pg_trigger t
+  JOIN pg_class c ON c.oid = t.tgrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+    AND c.relname = 'concierge_requests'
+    AND t.tgname = ANY(ARRAY[
+      'trg_10_concierge_reference_team_route',
+      'trg_20_concierge_guard_clinician_assignment',
+      'trg_concierge_guard_request_update'
+    ])
+    AND NOT t.tgisinternal
+    AND t.tgenabled <> 'O';
+
+  IF disabled_triggers IS NOT NULL THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Assignment guard triggers not enabled for origin sessions: %', disabled_triggers;
+  END IF;
+
+  WITH expected(trigger_name, function_name) AS (
+    VALUES
+      ('trg_10_concierge_reference_team_route', 'concierge_route_reference_team'),
+      ('trg_20_concierge_guard_clinician_assignment', 'concierge_guard_clinician_assignment'),
+      ('trg_concierge_guard_request_update', 'concierge_guard_request_update')
+  )
+  SELECT string_agg(e.trigger_name || '->' || p.proname, ', ' ORDER BY e.trigger_name)
+    INTO wrong_bindings
+  FROM expected e
+  JOIN pg_trigger t ON t.tgname = e.trigger_name AND NOT t.tgisinternal
+  JOIN pg_class c ON c.oid = t.tgrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_proc p ON p.oid = t.tgfoid
+  WHERE n.nspname = 'public'
+    AND c.relname = 'concierge_requests'
+    AND p.proname <> e.function_name;
+
+  IF wrong_bindings IS NOT NULL THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Unexpected trigger/function binding: %', wrong_bindings;
+  END IF;
+END $$;
+
+-- Final function bodies must retain assignment-integrity invariants. This catches
+-- later CREATE OR REPLACE migrations accidentally weakening an earlier guard.
+DO $$
+DECLARE
+  request_guard TEXT;
+  clinician_guard TEXT;
+BEGIN
+  SELECT pg_get_functiondef('public.concierge_guard_request_update()'::regprocedure)
+    INTO request_guard;
+  SELECT pg_get_functiondef('public.concierge_guard_clinician_assignment()'::regprocedure)
+    INTO clinician_guard;
+
+  IF request_guard NOT LIKE '%Nurse cannot assign an arbitrary physician%'
+     OR request_guard NOT LIKE '%Doctor cannot change nursing assignment%' THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Final request guard lost clinician-assignment protections';
+  END IF;
+
+  IF clinician_guard NOT LIKE '%Nurse cannot assign an arbitrary physician%'
+     OR clinician_guard NOT LIKE '%Doctor cannot change nursing assignment%' THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Reference-team clinician guard is incomplete';
   END IF;
 END $$;
 
 SELECT
   'PASS' AS validation_precheck,
   NOW() AS checked_at,
-  'Schema, functions, RLS and reference-team routing are ready for controlled Concierge validation.' AS message;
+  'Schema, functions, RLS and enabled runtime reference-team guards are ready for controlled Concierge validation.' AS message;
