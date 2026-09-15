@@ -9,6 +9,7 @@ SET search_path = public
 AS $$
 DECLARE
   current_role TEXT;
+  expected_reference_doctor UUID;
 BEGIN
   SELECT s.role INTO current_role
   FROM public.concierge_staff s
@@ -41,11 +42,47 @@ BEGIN
     RAISE EXCEPTION 'Nurse cannot assign request to another nurse';
   END IF;
 
+  -- A nurse never chooses an arbitrary physician. On a medical escalation the
+  -- reference-team router (which runs before this guard) may populate only the
+  -- patient's active primary reference physician. Open medical queue remains the
+  -- fallback when there is no reference physician.
+  IF current_role = 'nurse'
+     AND NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id THEN
+
+    SELECT a.professional_id
+      INTO expected_reference_doctor
+    FROM public.concierge_assignments a
+    JOIN public.concierge_staff s ON s.user_id = a.professional_id
+    WHERE a.patient_id = NEW.patient_id
+      AND a.status = 'active'
+      AND a.is_primary = true
+      AND a.role = 'doctor'
+      AND s.active = true
+    ORDER BY a.started_at ASC
+    LIMIT 1;
+
+    IF NOT (
+      NEW.status = 'escalated_medical'
+      AND NEW.status IS DISTINCT FROM OLD.status
+      AND expected_reference_doctor IS NOT NULL
+      AND NEW.assigned_doctor_id = expected_reference_doctor
+    ) THEN
+      RAISE EXCEPTION 'Nurse cannot assign an arbitrary physician';
+    END IF;
+  END IF;
+
   -- A doctor can take an eligible medical case themselves, not assign another doctor.
   IF current_role = 'doctor'
      AND NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id
      AND NEW.assigned_doctor_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'Doctor cannot assign request to another doctor';
+  END IF;
+
+  -- Medical reviewers cannot alter the nursing continuity owner. Reassignment is
+  -- an explicit coordination/admin operation.
+  IF current_role = 'doctor'
+     AND NEW.assigned_nurse_id IS DISTINCT FROM OLD.assigned_nurse_id THEN
+    RAISE EXCEPTION 'Doctor cannot change nursing assignment';
   END IF;
 
   IF current_role = 'nurse'
