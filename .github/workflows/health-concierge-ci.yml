@@ -8,6 +8,7 @@ on:
       - 'src/pages/Concierge*.tsx'
       - 'src/components/Concierge*.tsx'
       - 'src/services/concierge*.ts'
+      - 'netlify/functions/concierge-ai-assist.js'
       - 'src/App.tsx'
       - 'src/components/BottomNav.tsx'
       - 'SQL_CONCIERGE_*.sql'
@@ -72,6 +73,7 @@ jobs:
           test -f SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql
           test -f SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
           test -f SQL_CONCIERGE_PATIENT_AUDIT_V1.sql
+          test -f SQL_CONCIERGE_SLA_METRICS_V1.sql
           test -f HEALTH_CONCIERGE_VALIDATION.md
 
       - name: SQL safety audit
@@ -93,6 +95,8 @@ jobs:
           grep -q 'concierge_get_request_context' SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
           grep -q 'concierge_context_access_logs' SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
           grep -q 'concierge_list_my_context_accesses' SQL_CONCIERGE_PATIENT_AUDIT_V1.sql
+          grep -q 'concierge_capture_first_response_on_request_update' SQL_CONCIERGE_SLA_METRICS_V1.sql
+          grep -q 'concierge_capture_first_response_on_staff_event' SQL_CONCIERGE_SLA_METRICS_V1.sql
           if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_*.sql; then
             echo 'Unsafe unrestricted RLS policy found in Concierge migrations'
             exit 1
@@ -114,6 +118,33 @@ jobs:
             exit 1
           fi
 
+      - name: Pilot economics audit
+        run: |
+          grep -q 'planSegments' src/services/conciergeAnalytics.ts
+          grep -q 'humanMinutesPerPatient' src/services/conciergeAnalytics.ts
+          grep -q 'doctorMinutesPerPatient' src/services/conciergeAnalytics.ts
+          grep -q 'repeatRate' src/services/conciergeAnalytics.ts
+          grep -q 'Com plano × sem plano' src/pages/ConciergePilotDashboard.tsx
+
+      - name: Dormant AI assist safety audit
+        run: |
+          test -f netlify/functions/concierge-ai-assist.js
+          test -f src/services/conciergeAI.ts
+          node --check netlify/functions/concierge-ai-assist.js
+          grep -Fq "consent_scope?.ai_assist === true" netlify/functions/concierge-ai-assist.js
+          grep -Fq "AI_ASSIST_CONSENT_REQUIRED" netlify/functions/concierge-ai-assist.js
+          grep -Fq "store: false" netlify/functions/concierge-ai-assist.js
+          grep -Fq "visibility: 'staff_only'" netlify/functions/concierge-ai-assist.js
+          grep -Fq "autonomous_action: false" netlify/functions/concierge-ai-assist.js
+          if grep -R "OPENAI_API_KEY" src/; then
+            echo 'OPENAI_API_KEY must remain server-side only'
+            exit 1
+          fi
+          if grep -Eq "method: ['\"]PATCH['\"]|method: ['\"]DELETE['\"]" netlify/functions/concierge-ai-assist.js; then
+            echo 'AI assist must not mutate or delete clinical workflow records'
+            exit 1
+          fi
+
       - name: Patient safety audit
         run: |
           grep -q 'Concierge não é serviço de emergência' src/pages/ConciergeRequest.tsx
@@ -124,7 +155,7 @@ jobs:
       - name: Health Connect regression guard
         run: |
           echo 'Concierge CI must not alter HealthWallet Connect permission architecture.'
-          git diff HEAD^ -- . ':!src/pages/Concierge*' ':!src/components/Concierge*' ':!src/services/concierge*' ':!src/App.tsx' ':!src/components/BottomNav.tsx' ':!SQL_CONCIERGE_*.sql' ':!HEALTH_CONCIERGE_*.md' > /tmp/non_concierge.diff || true
+          git diff HEAD^ -- . ':!src/pages/Concierge*' ':!src/components/Concierge*' ':!src/services/concierge*' ':!netlify/functions/concierge-ai-assist.js' ':!src/App.tsx' ':!src/components/BottomNav.tsx' ':!SQL_CONCIERGE_*.sql' ':!HEALTH_CONCIERGE_*.md' > /tmp/non_concierge.diff || true
           if grep -E 'READ_(SLEEP|HEART_RATE|RESTING_HEART_RATE|OXYGEN_SATURATION|HEART_RATE_VARIABILITY|BLOOD_PRESSURE|WEIGHT|ACTIVE_CALORIES_BURNED|EXERCISE)' /tmp/non_concierge.diff; then
             echo 'Unexpected Health Connect permission change outside Concierge scope'
             exit 1
