@@ -41,6 +41,7 @@ import Emergency from '@/pages/Emergency'
 import CareLinks from '@/pages/CareLinks'
 import ClinicCheckin from '@/pages/ClinicCheckin'
 import DeviceData from '@/pages/DeviceData'
+import Concierge from '@/pages/Concierge'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -233,6 +234,7 @@ export default function App() {
             {/* Protected routes */}
             <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
             <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
+            <Route path="/concierge" element={<ProtectedPage><Concierge /></ProtectedPage>} />
             <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
             <Route path="/devices" element={<ProtectedPage><DeviceData /></ProtectedPage>} />
             <Route path="/clinic-checkin" element={<ProtectedPage><ClinicCheckin /></ProtectedPage>} />
