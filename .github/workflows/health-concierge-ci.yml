@@ -75,6 +75,7 @@ jobs:
           test -f SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
           test -f SQL_CONCIERGE_PATIENT_AUDIT_V1.sql
           test -f SQL_CONCIERGE_SLA_METRICS_V1.sql
+          test -f SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
           test -f HEALTH_CONCIERGE_VALIDATION.md
 
       - name: SQL safety audit
@@ -98,6 +99,9 @@ jobs:
           grep -q 'concierge_list_my_context_accesses' SQL_CONCIERGE_PATIENT_AUDIT_V1.sql
           grep -q 'concierge_capture_first_response_on_request_update' SQL_CONCIERGE_SLA_METRICS_V1.sql
           grep -q 'concierge_capture_first_response_on_staff_event' SQL_CONCIERGE_SLA_METRICS_V1.sql
+          grep -q 'concierge_patient_reply' SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
+          grep -q "OLD.status = 'waiting_patient'" SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
+          grep -q 'Active Concierge consent required' SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
           if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_*.sql; then
             echo 'Unsafe unrestricted RLS policy found in Concierge migrations'
             exit 1
@@ -118,6 +122,13 @@ jobs:
             echo 'Raw file URL leaked into Concierge context UI/service'
             exit 1
           fi
+
+      - name: Messaging routing audit
+        run: |
+          test -f src/services/conciergeMessaging.ts
+          grep -q 'concierge_patient_reply' src/services/conciergeMessaging.ts
+          grep -q 'sendConciergePatientReply' src/pages/ConciergeRequestDetail.tsx
+          grep -q 'caso volta automaticamente' src/pages/ConciergeRequestDetail.tsx
 
       - name: Pilot economics audit
         run: |
