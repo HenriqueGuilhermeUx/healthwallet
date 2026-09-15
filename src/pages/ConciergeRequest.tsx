@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -44,10 +44,15 @@ const titles: Record<ConciergeRequestCategory, string> = {
   other: 'Solicitação Concierge',
 }
 
+function validCategory(value: string | null): ConciergeRequestCategory | null {
+  return categories.some((item) => item.key === value) ? value as ConciergeRequestCategory : null
+}
+
 export default function ConciergeRequest() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [category, setCategory] = useState<ConciergeRequestCategory | null>(null)
+  const [searchParams] = useSearchParams()
+  const [category, setCategory] = useState<ConciergeRequestCategory | null>(() => validCategory(searchParams.get('category')))
   const [description, setDescription] = useState('')
   const [duration, setDuration] = useState('')
   const [intensity, setIntensity] = useState('')
@@ -210,7 +215,7 @@ export default function ConciergeRequest() {
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             rows={6}
-            placeholder={category === 'symptom' ? 'Ex.: estou com dor de garganta desde ontem, piora para engolir...' : 'Explique sua dúvida, contexto e o que você gostaria de entender.'}
+            placeholder={category === 'symptom' ? 'Ex.: estou com dor de garganta desde ontem, piora para engolir...' : category === 'second_analysis' ? 'Explique o que já foi avaliado, qual dúvida ainda ficou aberta e o que você gostaria que a equipe revisasse.' : category === 'navigation' ? 'Ex.: preciso fazer uma ressonância; quero saber como me organizar, qual especialidade procurar depois e o que levar.' : 'Explique sua dúvida, contexto e o que você gostaria de entender.'}
             className="mt-2 w-full resize-none rounded-xl border px-3 py-3 text-sm"
           />
         </div>
@@ -261,7 +266,7 @@ export default function ConciergeRequest() {
 
       {(category === 'exam_review' || category === 'second_analysis') && (
         <section className="rounded-2xl border bg-slate-50 p-4 text-sm text-slate-700">
-          Você pode enviar ou organizar exames pelo HealthWallet. Depois de criar o caso, anexos e documentos poderão ser relacionados à revisão sem duplicar seus arquivos.
+          Seus exames continuam no HealthWallet. Se algum documento ainda não estiver lá, use <button type="button" onClick={() => navigate('/upload')} className="font-bold text-emerald-700 underline">Enviar exame</button> e depois volte para concluir a solicitação.
         </section>
       )}
 
