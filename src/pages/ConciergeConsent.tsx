@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Check, Loader2, ShieldCheck, ShieldOff } from 'lucide-react'
+import { ArrowLeft, Check, Eye, History, Loader2, ShieldCheck, ShieldOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import {
   acceptConciergeConsent,
   DEFAULT_CONCIERGE_SCOPE,
   getConciergeMembershipForPatient,
+  listConciergeConsentEvents,
+  listConciergeContextAccessLogs,
   revokeConciergeConsent,
   type ConciergeConsentScope,
 } from '@/services/conciergeConsent'
@@ -24,6 +26,19 @@ const scopeOptions: Array<{ key: keyof ConciergeConsentScope; title: string; des
   { key: 'family', title: 'Contexto familiar', description: 'Somente quando você também estiver coordenando um familiar autorizado.' },
 ]
 
+const roleLabels: Record<string, string> = {
+  nurse: 'Enfermagem',
+  doctor: 'Médico',
+  care_coordinator: 'Coordenação',
+  admin: 'Administração assistencial',
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+}
+
 export default function ConciergeConsent() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -31,6 +46,8 @@ export default function ConciergeConsent() {
   const [saving, setSaving] = useState(false)
   const [membership, setMembership] = useState<any>(null)
   const [scope, setScope] = useState<ConciergeConsentScope>({ ...DEFAULT_CONCIERGE_SCOPE })
+  const [consentEvents, setConsentEvents] = useState<any[]>([])
+  const [accessLogs, setAccessLogs] = useState<any[]>([])
 
   useEffect(() => {
     if (!user) return
@@ -43,8 +60,15 @@ export default function ConciergeConsent() {
     try {
       const data = await getConciergeMembershipForPatient(user.id)
       setMembership(data)
-      if (data?.consent_scope) {
-        setScope({ ...DEFAULT_CONCIERGE_SCOPE, ...data.consent_scope })
+      if (data?.consent_scope) setScope({ ...DEFAULT_CONCIERGE_SCOPE, ...data.consent_scope })
+
+      if (data) {
+        const [eventsResult, accessResult] = await Promise.allSettled([
+          listConciergeConsentEvents(user.id),
+          listConciergeContextAccessLogs(),
+        ])
+        setConsentEvents(eventsResult.status === 'fulfilled' ? eventsResult.value : [])
+        setAccessLogs(accessResult.status === 'fulfilled' ? accessResult.value : [])
       }
     } catch (error) {
       console.warn('Concierge consent unavailable:', error)
@@ -60,6 +84,7 @@ export default function ConciergeConsent() {
     try {
       await acceptConciergeConsent(scope)
       toast.success('Preferências de acesso do Concierge salvas')
+      await load()
       navigate('/concierge', { replace: true })
     } catch (error: any) {
       console.error('Concierge consent failed:', error)
@@ -110,8 +135,9 @@ export default function ConciergeConsent() {
         <p className="mt-2 text-sm leading-relaxed text-white/80">Você escolhe quais partes da sua HealthWallet podem ser usadas pela sua equipe de referência para coordenar seu cuidado.</p>
       </section>
 
-      <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-relaxed text-blue-950">
-        Entrar no piloto não libera seus dados automaticamente. O acesso profissional depende desta autorização, fica limitado ao Concierge e pode ser revogado por você.
+      <section className={`rounded-2xl border p-4 text-sm ${accepted ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : membership.consent_status === 'revoked' ? 'border-red-200 bg-red-50 text-red-950' : 'border-blue-200 bg-blue-50 text-blue-950'}`}>
+        <p className="font-bold">Status: {accepted ? 'autorizado' : membership.consent_status === 'revoked' ? 'revogado' : 'aguardando sua autorização'}</p>
+        <p className="mt-1 leading-relaxed">Entrar no piloto não libera seus dados automaticamente. O acesso profissional depende desta autorização, fica limitado ao Concierge e pode ser revogado por você.</p>
       </section>
 
       <section className="space-y-3">
@@ -150,6 +176,31 @@ export default function ConciergeConsent() {
           <ShieldOff className="h-4 w-4" /> Revogar acesso e pausar acompanhamento
         </button>
       )}
+
+      {accepted && (
+        <section className="rounded-2xl border bg-white p-4">
+          <div className="flex items-center gap-2"><Eye className="h-5 w-5 text-blue-700" /><h2 className="font-bold">Quem acessou meu contexto</h2></div>
+          <p className="mt-1 text-xs text-muted-foreground">O acesso ao contexto autorizado de um caso é registrado.</p>
+          <div className="mt-3 space-y-2">
+            {accessLogs.length === 0 ? <p className="rounded-xl bg-slate-50 p-3 text-sm text-muted-foreground">Nenhum acesso profissional registrado ainda.</p> : accessLogs.map((item) => (
+              <div key={item.access_id} className="rounded-xl bg-blue-50 p-3 text-sm">
+                <p className="font-semibold text-blue-950">{item.professional_name}</p>
+                <p className="mt-1 text-xs text-blue-900/70">{roleLabels[item.professional_role] || item.professional_role} · {formatDate(item.accessed_at)}</p>
+                {item.request_id && <p className="mt-1 text-[11px] text-blue-900/55">Caso {String(item.request_id).slice(0, 8)}</p>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="rounded-2xl border bg-white p-4">
+        <div className="flex items-center gap-2"><History className="h-5 w-5 text-slate-700" /><h2 className="font-bold">Histórico de autorização</h2></div>
+        <div className="mt-3 space-y-2">
+          {consentEvents.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum evento de consentimento registrado ainda.</p> : consentEvents.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 text-sm"><div><p className="font-semibold">{item.event_type === 'accepted' ? 'Acesso autorizado' : 'Acesso revogado'}</p><p className="mt-1 text-xs text-muted-foreground">{formatDate(item.created_at)}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${item.event_type === 'accepted' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{item.event_type}</span></div>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }
