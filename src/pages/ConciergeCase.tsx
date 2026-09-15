@@ -14,6 +14,7 @@ import {
 import { logConciergeWork } from '@/services/conciergeAnalytics'
 import ConciergeClinicalReviewPanel from '@/components/ConciergeClinicalReviewPanel'
 import ConciergeAuthorizedContextPanel from '@/components/ConciergeAuthorizedContextPanel'
+import ConciergeProgramAssignmentPanel from '@/components/ConciergeProgramAssignmentPanel'
 import { supabase } from '@/lib/supabase'
 
 function formatDate(value?: string) {
@@ -202,6 +203,13 @@ export default function ConciergeCase() {
         <button disabled={busy || !actionTitle.trim()} onClick={createAction} className="mt-3 w-full rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 disabled:opacity-50">Adicionar ao Plano de Ação</button>
         {actions.length > 0 && <div className="mt-4 space-y-2">{actions.map((item) => <div key={item.id} className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-sm"><CheckCircle2 className={`mt-0.5 h-4 w-4 ${item.status === 'completed' ? 'text-emerald-600' : 'text-slate-400'}`} /><div><p className="font-medium">{item.title}</p><p className="mt-1 text-xs text-muted-foreground">{item.status}{item.due_date ? ` · prazo ${item.due_date}` : ''}</p></div></div>)}</div>}
       </section>
+
+      <ConciergeProgramAssignmentPanel
+        patientId={request.patient_id}
+        requestId={request.id}
+        staff={staff}
+        onChanged={load}
+      />
 
       <section className="rounded-2xl border bg-white p-4">
         <div className="flex items-center gap-2"><MessageSquareText className="h-5 w-5 text-emerald-700" /><h2 className="font-bold">Registrar atualização</h2></div>
