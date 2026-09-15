@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -53,6 +53,7 @@ export default function ConciergeRequest() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const requestedFamilyMemberId = searchParams.get('family_member')?.trim() || ''
   const [category, setCategory] = useState<ConciergeRequestCategory | null>(() => validCategory(searchParams.get('category')))
   const [description, setDescription] = useState('')
   const [duration, setDuration] = useState('')
@@ -60,16 +61,45 @@ export default function ConciergeRequest() {
   const [fever, setFever] = useState('unknown')
   const [pain, setPain] = useState('unknown')
   const [redFlag, setRedFlag] = useState(false)
-  const [forFamily, setForFamily] = useState(false)
+  const [forFamily, setForFamily] = useState(Boolean(requestedFamilyMemberId))
   const [subjectName, setSubjectName] = useState('')
   const [subjectRelationship, setSubjectRelationship] = useState('')
-  const [selectedFamilyMemberId, setSelectedFamilyMemberId] = useState('')
+  const [selectedFamilyMemberId, setSelectedFamilyMemberId] = useState(requestedFamilyMemberId)
   const [selectedExamIds, setSelectedExamIds] = useState<string[]>([])
   const [linkedExams, setLinkedExams] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
 
   const selected = useMemo(() => categories.find((item) => item.key === category), [category])
   const showExamPicker = category === 'exam_review' || category === 'second_analysis'
+
+  useEffect(() => {
+    if (!user || !requestedFamilyMemberId) return
+    let cancelled = false
+
+    async function resolveFamilyMember() {
+      const { data, error } = await supabase
+        .from('family_members')
+        .select('id,name,relationship')
+        .eq('id', requestedFamilyMemberId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+      if (cancelled) return
+      if (error || !data) {
+        setSelectedFamilyMemberId('')
+        setForFamily(false)
+        return
+      }
+
+      setForFamily(true)
+      setSelectedFamilyMemberId(data.id)
+      setSubjectName(data.name)
+      setSubjectRelationship(data.relationship || 'Familiar')
+    }
+
+    void resolveFamilyMember()
+    return () => { cancelled = true }
+  }, [user?.id, requestedFamilyMemberId])
 
   async function buildContextSnapshot() {
     if (!user) return {}
@@ -219,9 +249,10 @@ export default function ConciergeRequest() {
         <div>
           <label className="text-sm font-semibold text-gray-900">Esta solicitação é para</label>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => { setForFamily(false); setSelectedFamilyMemberId('') }} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${!forFamily ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'bg-white'}`}>Mim</button>
+            <button type="button" onClick={() => { setForFamily(false); setSelectedFamilyMemberId(''); setSubjectName(''); setSubjectRelationship('') }} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${!forFamily ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'bg-white'}`}>Mim</button>
             <button type="button" onClick={() => setForFamily(true)} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${forFamily ? 'border-emerald-600 bg-emerald-50 text-emerald-700' : 'bg-white'}`}>Minha família</button>
           </div>
+          {forFamily && selectedFamilyMemberId && subjectName && <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">Pessoa selecionada: {subjectName}{subjectRelationship ? ` · ${subjectRelationship}` : ''}</p>}
         </div>
 
         <div>
