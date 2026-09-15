@@ -11,9 +11,11 @@ Apply manually, in this exact order:
 3. `SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql`
 4. `SQL_CONCIERGE_CONSENT_V1.sql`
 5. `SQL_CONCIERGE_ROSTER_GUARDS_V1.sql`
-6. `SQL_CONCIERGE_ALERT_ENGINE_V1.sql`
-7. `SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql`
-8. `SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql`
+6. `SQL_CONCIERGE_PROGRAM_GUARDS_V1.sql`
+7. `SQL_CONCIERGE_ALERT_ENGINE_V1.sql`
+8. `SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql`
+9. `SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql`
+10. `SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql`
 
 All migrations are validation-first and are intentionally not executed by CI.
 
@@ -72,6 +74,8 @@ Expected:
 - membership is paused
 - revocation event is recorded
 - professional access through `concierge_can_access_patient` and `concierge_can_access_request` stops immediately
+- open proactive alerts are dismissed
+- no new Concierge alerts are accepted while consent is inactive
 - patient can re-authorize later
 
 ## 4. Care-team assignment
@@ -180,7 +184,9 @@ Expected:
 
 ## 9. Programs
 
-Patient enrolls in a program after consent.
+### Self-service programs
+
+Patient enrolls in an `enrollment_mode = self` program after consent.
 
 Expected:
 - enrollment is unique per patient/program
@@ -188,6 +194,17 @@ Expected:
 - default checklist generates actions once
 - re-running/duplicate logic does not duplicate generated checklist actions
 - patient without active consent cannot self-enroll
+
+### Team-started programs
+
+Validate hypertension, diabetes and pregnancy as `enrollment_mode = team`.
+
+Expected:
+- patient cannot directly self-enroll
+- patient UI routes them to discuss the program with the care team
+- assigned staff can enroll the patient when appropriate
+- enrollment records `assigned_by`
+- patient may later pause/cancel their own participation without rewriting assignment metadata
 
 ## 10. Alerts
 
@@ -203,6 +220,8 @@ Expected:
 - alerts are workflow attention signals, not diagnoses
 - assigned staff/coordinator sees only authorized patients
 - doctor queue remains focused on escalated medical review rather than every operational alert
+- no new alert survives insertion after consent has been revoked
+- revocation dismisses outstanding Concierge alerts for that patient
 
 ## 11. Workload and pilot economics
 
@@ -233,6 +252,8 @@ Must fail:
 - patient editing clinical review directly
 - nurse publishing patient-visible final clinical review
 - request-context RPC returning an unlinked exam
+- patient self-enrolling into a team-started clinical program
+- creation of proactive alert after consent revocation
 
 ## 13. Regression checks
 
