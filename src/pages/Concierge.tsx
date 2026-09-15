@@ -6,10 +6,12 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  FileSearch,
   FileUp,
   HeartPulse,
   Loader2,
   MessageCircle,
+  Navigation,
   ShieldCheck,
   Sparkles,
   Stethoscope,
@@ -211,6 +213,8 @@ export default function Concierge() {
         <h2 className="mb-3 font-bold text-gray-900">Como podemos ajudar?</h2>
         <div className="grid grid-cols-2 gap-3">
           <ActionCard icon={MessageCircle} title="Solicitar ajuda" subtitle="Sintoma, dúvida ou orientação" href="/concierge/request" />
+          <ActionCard icon={FileSearch} title="Segunda análise" subtitle="Revisar exames, laudos e contexto" href="/concierge/request?category=second_analysis" />
+          <ActionCard icon={Navigation} title="Navegação em saúde" subtitle="Saiba qual é o próximo passo" href="/concierge/request?category=navigation" />
           <ActionCard icon={ClipboardList} title="Minhas solicitações" subtitle="Acompanhe cada caso" href="/concierge/requests" />
           <ActionCard icon={Target} title="Plano de ação" subtitle="Pendências e próximos passos" href="/concierge/plan" />
           <ActionCard icon={Activity} title="Programas" subtitle="Jornadas de acompanhamento" href="/concierge/programs" />
