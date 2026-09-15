@@ -9,6 +9,8 @@ on:
       - 'src/pages/AccessCode.tsx'
       - 'SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql'
       - 'SQL_PRE_CONCIERGE_SECURE_SHARING_PREFLIGHT_V2.sql'
+      - 'SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql'
+      - 'SQL_PRE_CONCIERGE_VIEW_HARDENING_PREFLIGHT_V3.sql'
       - '.github/workflows/secure-health-sharing-contract.yml'
   workflow_dispatch:
 
@@ -97,6 +99,40 @@ jobs:
 
           if grep -Ei 'GRANT[[:space:]]+EXECUTE.*TO[[:space:]]+anon' "$file"; then
             echo 'Secure sharing RPCs must never be executable by anon.'
+            exit 1
+          fi
+
+      - name: Security-invoker view contract
+        run: |
+          set -euo pipefail
+          file='SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql'
+          preflight='SQL_PRE_CONCIERGE_VIEW_HARDENING_PREFLIGHT_V3.sql'
+          test -f "$file"
+          test -f "$preflight"
+
+          for view in \
+            patient_device_score_latest \
+            vw_document_deliveries_public \
+            vw_exames_autocomplete \
+            vw_medicamentos_autocomplete \
+            vw_patient_clinical_context
+          do
+            grep -Fq "ALTER VIEW public.${view} SET (security_invoker = true);" "$file"
+          done
+
+          grep -Fq 'DROP POLICY IF EXISTS mu_professional_select' "$file"
+          grep -Fq 'DROP POLICY IF EXISTS pc_professional_select' "$file"
+          grep -Fq 'private.has_health_share_access' "$file"
+          grep -Fq 'professional_shared_allergies_select' "$file"
+          grep -Fq 'professional_shared_conditions_select' "$file"
+          grep -Fq 'professional_shared_medication_uses_select' "$file"
+          grep -Fq 'professional_shared_consultations_select' "$file"
+          grep -Fq 'FROM anon, authenticated' "$file"
+          grep -Fq 'TO authenticated' "$file"
+          grep -Fq 'PostgreSQL 15+ security_invoker views' "$preflight"
+
+          if grep -Eq 'GRANT[[:space:]]+SELECT.*TO[[:space:]]+anon' "$file"; then
+            echo 'View hardening must not regrant anonymous SELECT.'
             exit 1
           fi
 
