@@ -27,8 +27,8 @@ interface GeneratedCode {
   expires_at: string
   created_at: string
   revoked?: boolean
-  code_version?: number
-  redeemed_at?: string | null
+  professional_id?: string | null
+  used_at?: string | null
 }
 
 const DURATION_OPTIONS = [
@@ -66,6 +66,16 @@ const DEFAULT_SHARE: ShareData = {
   family_history: false,
 }
 
+function isSecureToken(code?: string | null) {
+  return Boolean(code && /^HW-[0-9A-F]{36}$/i.test(code))
+}
+
+function isRpcUnavailable(error: any) {
+  const code = String(error?.code || '')
+  const message = String(error?.message || '').toLowerCase()
+  return code === 'PGRST202' || message.includes('create_health_access_code') || message.includes('schema cache')
+}
+
 export default function ShareQRCode() {
   const { user } = useAuth()
   const [shareData, setShareData] = useState<ShareData>(DEFAULT_SHARE)
@@ -86,9 +96,13 @@ export default function ShareQRCode() {
   async function loadCodes() {
     if (!user) return
     setLoadingCodes(true)
+
+    // Deliberately select only columns that exist both before and after V2.
+    // This allows the secure frontend to be deployed before the DB migration,
+    // while refusing to create any new insecure legacy code.
     const { data, error } = await supabase
       .from('access_codes')
-      .select('id,code,permissions,share_categories,expires_at,created_at,revoked,code_version,redeemed_at')
+      .select('id,code,permissions,share_categories,expires_at,created_at,revoked,professional_id,used_at')
       .eq('patient_id', user.id)
       .order('created_at', { ascending: false })
       .limit(20)
@@ -121,14 +135,18 @@ export default function ShareQRCode() {
       if (error) throw error
 
       const row = (Array.isArray(data) ? data[0] : data) as GeneratedCode | null
-      if (!row?.id || !row?.code) throw new Error('secure_share_generation_failed')
+      if (!row?.id || !isSecureToken(row.code)) throw new Error('secure_share_generation_failed')
 
       setGeneratedCode(row)
       await loadCodes()
       toast.success('Compartilhamento seguro gerado.')
-    } catch (error) {
+    } catch (error: any) {
       console.error(error)
-      toast.error('Erro ao gerar o compartilhamento seguro.')
+      if (isRpcUnavailable(error)) {
+        toast.error('O compartilhamento seguro está em atualização. Nenhum código inseguro será gerado durante a transição.')
+      } else {
+        toast.error('Erro ao gerar o compartilhamento seguro.')
+      }
     } finally {
       setLoading(false)
     }
@@ -293,18 +311,27 @@ export default function ShareQRCode() {
           <div className="space-y-2">
             {codes.map((item) => {
               const inactive = Boolean(item.revoked) || isExpired(item)
-              const legacy = item.code_version !== 2
+              const secure = isSecureToken(item.code)
+              const redeemed = Boolean(item.professional_id || item.used_at)
               return (
-                <div key={item.id} className={`rounded-xl border p-3 ${inactive || legacy ? 'bg-gray-50' : 'bg-emerald-50 border-emerald-200'}`}>
+                <div key={item.id} className={`rounded-xl border p-3 ${inactive || !secure ? 'bg-gray-50' : 'border-emerald-200 bg-emerald-50'}`}>
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate font-mono text-sm font-bold">{legacy ? 'Código legado' : item.code}</p>
+                      <p className="truncate font-mono text-sm font-bold">{secure ? item.code : 'Código legado'}</p>
                       <p className="text-xs text-gray-500">
-                        {item.revoked ? 'Revogado' : isExpired(item) ? 'Expirado' : legacy ? 'Somente histórico — gere um novo token seguro' : item.redeemed_at ? 'Resgatado por profissional' : 'Aguardando resgate profissional'}
+                        {item.revoked
+                          ? 'Revogado'
+                          : isExpired(item)
+                            ? 'Expirado'
+                            : !secure
+                              ? 'Somente histórico — gere um novo token seguro após a atualização'
+                              : redeemed
+                                ? 'Resgatado por profissional'
+                                : 'Aguardando resgate profissional'}
                       </p>
                     </div>
                     <div className="flex gap-1">
-                      {!inactive && !legacy && (
+                      {!inactive && secure && (
                         <button type="button" onClick={() => setGeneratedCode(item)} className="rounded-lg p-2 text-emerald-700 hover:bg-emerald-100" aria-label="Abrir QR Code">
                           <QrCode className="h-4 w-4" />
                         </button>
