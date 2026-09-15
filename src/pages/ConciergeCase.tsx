@@ -13,6 +13,7 @@ import {
 } from '@/services/concierge'
 import { logConciergeWork } from '@/services/conciergeAnalytics'
 import ConciergeClinicalReviewPanel from '@/components/ConciergeClinicalReviewPanel'
+import ConciergeAuthorizedContextPanel from '@/components/ConciergeAuthorizedContextPanel'
 import { supabase } from '@/lib/supabase'
 
 function formatDate(value?: string) {
@@ -179,6 +180,8 @@ export default function ConciergeCase() {
           <p className="mt-1 text-xs text-muted-foreground">Snapshot de contexto; não substitui revisão clínica do histórico autorizado.</p>
         </section>
       )}
+
+      <ConciergeAuthorizedContextPanel requestId={request.id} />
 
       <ConciergeClinicalReviewPanel request={request} staff={staff} onSaved={load} />
 
