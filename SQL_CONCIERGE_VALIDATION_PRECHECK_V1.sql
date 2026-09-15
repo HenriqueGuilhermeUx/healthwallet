@@ -20,10 +20,11 @@ BEGIN
       ('table', 'concierge_programs', to_regclass('public.concierge_programs') IS NOT NULL),
       ('table', 'concierge_program_enrollments', to_regclass('public.concierge_program_enrollments') IS NOT NULL),
       ('table', 'concierge_alerts', to_regclass('public.concierge_alerts') IS NOT NULL),
+      ('table', 'concierge_work_logs', to_regclass('public.concierge_work_logs') IS NOT NULL),
       ('table', 'concierge_consent_events', to_regclass('public.concierge_consent_events') IS NOT NULL),
+      ('table', 'concierge_rules', to_regclass('public.concierge_rules') IS NOT NULL),
       ('table', 'concierge_context_access_logs', to_regclass('public.concierge_context_access_logs') IS NOT NULL),
       ('table', 'concierge_clinical_reviews', to_regclass('public.concierge_clinical_reviews') IS NOT NULL),
-      ('table', 'concierge_work_logs', to_regclass('public.concierge_work_logs') IS NOT NULL),
       ('function', 'concierge_has_active_consent(uuid)', to_regprocedure('public.concierge_has_active_consent(uuid)') IS NOT NULL),
       ('function', 'concierge_can_access_patient(uuid)', to_regprocedure('public.concierge_can_access_patient(uuid)') IS NOT NULL),
       ('function', 'concierge_can_access_request(uuid)', to_regprocedure('public.concierge_can_access_request(uuid)') IS NOT NULL),
@@ -68,15 +69,85 @@ BEGIN
       'concierge_programs',
       'concierge_program_enrollments',
       'concierge_alerts',
+      'concierge_work_logs',
       'concierge_consent_events',
+      'concierge_rules',
       'concierge_context_access_logs',
-      'concierge_clinical_reviews',
-      'concierge_work_logs'
+      'concierge_clinical_reviews'
     ])
     AND c.relrowsecurity = false;
 
   IF rls_missing IS NOT NULL THEN
     RAISE EXCEPTION 'Concierge validation precheck failed. RLS disabled on: %', rls_missing;
+  END IF;
+END $$;
+
+-- Data API table privileges are explicit and least-privilege. This check makes
+-- validation independent of the Supabase project's default grants for new tables.
+DO $$
+DECLARE
+  privilege_failures TEXT;
+  anon_failures TEXT;
+BEGIN
+  WITH expected(table_name, can_select, can_insert, can_update, can_delete) AS (
+    VALUES
+      ('concierge_staff',               true,  false, false, false),
+      ('concierge_memberships',         true,  true,  true,  true),
+      ('concierge_assignments',         true,  true,  true,  true),
+      ('concierge_requests',            true,  true,  true,  false),
+      ('concierge_request_events',      true,  true,  false, false),
+      ('concierge_actions',             true,  true,  true,  true),
+      ('concierge_programs',            true,  true,  true,  true),
+      ('concierge_program_enrollments', true,  true,  true,  true),
+      ('concierge_alerts',              true,  true,  true,  true),
+      ('concierge_work_logs',           true,  true,  false, false),
+      ('concierge_consent_events',      true,  false, false, false),
+      ('concierge_rules',               true,  true,  true,  true),
+      ('concierge_clinical_reviews',    true,  true,  true,  false),
+      ('concierge_context_access_logs', true,  false, false, false)
+  ), checked AS (
+    SELECT
+      e.*,
+      has_table_privilege('authenticated', format('public.%I', e.table_name), 'SELECT') AS actual_select,
+      has_table_privilege('authenticated', format('public.%I', e.table_name), 'INSERT') AS actual_insert,
+      has_table_privilege('authenticated', format('public.%I', e.table_name), 'UPDATE') AS actual_update,
+      has_table_privilege('authenticated', format('public.%I', e.table_name), 'DELETE') AS actual_delete
+    FROM expected e
+  )
+  SELECT string_agg(
+           table_name || '[expected=' || can_select || ',' || can_insert || ',' || can_update || ',' || can_delete ||
+           ';actual=' || actual_select || ',' || actual_insert || ',' || actual_update || ',' || actual_delete || ']',
+           ', ' ORDER BY table_name
+         )
+    INTO privilege_failures
+  FROM checked
+  WHERE actual_select IS DISTINCT FROM can_select
+     OR actual_insert IS DISTINCT FROM can_insert
+     OR actual_update IS DISTINCT FROM can_update
+     OR actual_delete IS DISTINCT FROM can_delete;
+
+  IF privilege_failures IS NOT NULL THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Authenticated Data API privilege mismatch: %', privilege_failures;
+  END IF;
+
+  WITH tables(table_name) AS (
+    VALUES
+      ('concierge_staff'),('concierge_memberships'),('concierge_assignments'),
+      ('concierge_requests'),('concierge_request_events'),('concierge_actions'),
+      ('concierge_programs'),('concierge_program_enrollments'),('concierge_alerts'),
+      ('concierge_work_logs'),('concierge_consent_events'),('concierge_rules'),
+      ('concierge_clinical_reviews'),('concierge_context_access_logs')
+  )
+  SELECT string_agg(table_name, ', ' ORDER BY table_name)
+    INTO anon_failures
+  FROM tables
+  WHERE has_table_privilege('anon', format('public.%I', table_name), 'SELECT')
+     OR has_table_privilege('anon', format('public.%I', table_name), 'INSERT')
+     OR has_table_privilege('anon', format('public.%I', table_name), 'UPDATE')
+     OR has_table_privilege('anon', format('public.%I', table_name), 'DELETE');
+
+  IF anon_failures IS NOT NULL THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Anonymous Data API privilege present on: %', anon_failures;
   END IF;
 END $$;
 
@@ -268,4 +339,4 @@ END $$;
 SELECT
   'PASS' AS validation_precheck,
   NOW() AS checked_at,
-  'Schema, functions, RLS, reference-team routing and runtime assignment/clinical guards are ready for controlled Concierge validation.' AS message;
+  'Schema, explicit Data API privileges, functions, RLS, reference-team routing and runtime assignment/clinical guards are ready for controlled Concierge validation.' AS message;
