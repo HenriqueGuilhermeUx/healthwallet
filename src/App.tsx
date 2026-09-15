@@ -50,6 +50,7 @@ import ConciergePrograms from '@/pages/ConciergePrograms'
 import ConciergeTeam from '@/pages/ConciergeTeam'
 import ConciergeOperations from '@/pages/ConciergeOperations'
 import ConciergeCase from '@/pages/ConciergeCase'
+import ConciergePilotDashboard from '@/pages/ConciergePilotDashboard'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -276,6 +277,7 @@ export default function App() {
             {/* Professional operations routes. Page-level role guard checks concierge_staff. */}
             <Route path="/concierge/ops" element={<ProtectedPage><ConciergeOperations /></ProtectedPage>} />
             <Route path="/concierge/ops/case/:id" element={<ProtectedPage><ConciergeCase /></ProtectedPage>} />
+            <Route path="/concierge/ops/pilot" element={<ProtectedPage><ConciergePilotDashboard /></ProtectedPage>} />
             <Route path="/telemedicine-admin" element={<ProtectedPage><TelemedicineAdmin /></ProtectedPage>} />
 
             {/* Fallback */}
