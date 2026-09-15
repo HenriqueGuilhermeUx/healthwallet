@@ -9,6 +9,7 @@ on:
       - 'HEALTH_CONCIERGE_VALIDATION.md'
       - 'HEALTH_CONCIERGE_E2E_RUNBOOK.md'
       - '.github/workflows/health-concierge-validation-contract.yml'
+      - '.github/workflows/health-concierge-pilot-bootstrap.yml'
   workflow_dispatch:
 
 jobs:
@@ -24,6 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           for file in \
+            SQL_CONCIERGE_PILOT_COMPAT_V1.sql \
             SQL_CONCIERGE_MVP_V1.sql \
             SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql \
             SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql \
@@ -43,7 +45,8 @@ jobs:
             SQL_CONCIERGE_VALIDATION_SEED_V1.sql \
             SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql \
             HEALTH_CONCIERGE_VALIDATION.md \
-            HEALTH_CONCIERGE_E2E_RUNBOOK.md
+            HEALTH_CONCIERGE_E2E_RUNBOOK.md \
+            .github/workflows/health-concierge-pilot-bootstrap.yml
           do
             test -f "$file" || { echo "Missing required validation artifact: $file"; exit 1; }
           done
@@ -99,6 +102,22 @@ jobs:
           grep -q 'Doctor cannot change nursing assignment' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
           grep -q 'concierge_reference_team' SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql
 
+      - name: Data API privilege contract audit
+        run: |
+          set -euo pipefail
+          grep -q 'EXPLICIT DATA API PRIVILEGES' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'FROM anon' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'FROM authenticated' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'GRANT SELECT ON TABLE public.concierge_staff TO authenticated' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'public.concierge_requests' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'public.concierge_clinical_reviews' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql
+          grep -q 'Authenticated Data API privilege mismatch' SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql
+          grep -q 'Anonymous Data API privilege present' SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql
+          if grep -Eq 'GRANT[[:space:]]+ALL.*authenticated' SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql; then
+            echo 'Concierge Data API grants must remain operation-specific, not GRANT ALL.'
+            exit 1
+          fi
+
       - name: Synthetic persona isolation audit
         run: |
           set -euo pipefail
@@ -120,6 +139,51 @@ jobs:
           grep -q 'Patient A latest request did not remain routed to Nurse A' SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql
           grep -q 'Patient A medical escalation did not route to Doctor A' SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql
           grep -q 'Patient A still has open Concierge alerts after consent revocation' SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql
+
+      - name: Pilot compatibility audit
+        run: |
+          set -euo pipefail
+          grep -q 'STAGING / PILOT ENVIRONMENT ONLY' SQL_CONCIERGE_PILOT_COMPAT_V1.sql
+          grep -q 'ADD COLUMN IF NOT EXISTS target_family_member_id' SQL_CONCIERGE_PILOT_COMPAT_V1.sql
+          grep -q 'ADD COLUMN IF NOT EXISTS requires_confirmation' SQL_CONCIERGE_PILOT_COMPAT_V1.sql
+          grep -q 'ADD COLUMN IF NOT EXISTS updated_at' SQL_CONCIERGE_PILOT_COMPAT_V1.sql
+          grep -q 'idx_health_reminders_target_family_member' SQL_CONCIERGE_PILOT_COMPAT_V1.sql
+          if grep -Eq 'INSERT[[:space:]]+INTO|CREATE[[:space:]]+TABLE[[:space:]]+public\.concierge_' SQL_CONCIERGE_PILOT_COMPAT_V1.sql; then
+            echo 'Pilot compatibility file must not seed data or create Concierge operational tables.'
+            exit 1
+          fi
+
+      - name: Pilot bootstrap isolation audit
+        run: |
+          set -euo pipefail
+          workflow='.github/workflows/health-concierge-pilot-bootstrap.yml'
+          grep -q 'workflow_dispatch' "$workflow"
+          grep -q 'BOOTSTRAP PILOT ONLY' "$workflow"
+          grep -q 'HEALTHWALLET_PRODUCTION_PROJECT_REF' "$workflow"
+          grep -q 'CONCIERGE_PILOT_DB_URL' "$workflow"
+          grep -q 'REFUSED: target project ref is the HealthWallet production project' "$workflow"
+          grep -q 'Target contains auth/patient/health rows' "$workflow"
+          grep -q 'Existing Concierge tables found' "$workflow"
+          grep -q 'SQL_CONCIERGE_PILOT_COMPAT_V1.sql' "$workflow"
+          grep -q 'SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql' "$workflow"
+          grep -q 'No validation personas were created' "$workflow"
+
+          if grep -q 'SQL_CONCIERGE_VALIDATION_BASE_V1.sql' "$workflow"; then
+            echo 'Remote pilot bootstrap must never install the synthetic validation base schema.'
+            exit 1
+          fi
+          if grep -q 'SQL_CONCIERGE_VALIDATION_SEED_V1.sql' "$workflow"; then
+            echo 'Remote pilot bootstrap must never seed validation personas.'
+            exit 1
+          fi
+          if grep -q 'SQL_CONCIERGE_VALIDATION_SESSION_DIAGNOSTICS_V1.sql' "$workflow"; then
+            echo 'Remote pilot bootstrap must never install validation-only diagnostics.'
+            exit 1
+          fi
+          if grep -Eq 'supabase[[:space:]]+link|supabase[[:space:]]+db[[:space:]]+push|--linked' "$workflow"; then
+            echo 'Remote pilot bootstrap must use the explicitly bound pilot DB URL only.'
+            exit 1
+          fi
 
       - name: E2E release gate audit
         run: |
