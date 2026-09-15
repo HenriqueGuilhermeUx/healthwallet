@@ -91,16 +91,16 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  current_role TEXT;
+  staff_role TEXT;
   expected_reference_doctor UUID;
 BEGIN
-  SELECT s.role INTO current_role
+  SELECT s.role INTO staff_role
   FROM public.concierge_staff s
   WHERE s.user_id = auth.uid()
     AND s.active = true;
 
   -- Patient/system-mediated updates do not receive assignment privileges here.
-  IF current_role IS NULL THEN
+  IF staff_role IS NULL THEN
     IF NEW.assigned_nurse_id IS DISTINCT FROM OLD.assigned_nurse_id
        OR NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id THEN
       RAISE EXCEPTION 'Patient cannot change Concierge professional assignment';
@@ -108,16 +108,16 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF current_role IN ('admin','care_coordinator') THEN
+  IF staff_role IN ('admin','care_coordinator') THEN
     RETURN NEW;
   END IF;
 
-  IF current_role = 'doctor'
+  IF staff_role = 'doctor'
      AND NEW.assigned_nurse_id IS DISTINCT FROM OLD.assigned_nurse_id THEN
     RAISE EXCEPTION 'Doctor cannot change nursing assignment';
   END IF;
 
-  IF current_role = 'nurse'
+  IF staff_role = 'nurse'
      AND NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id THEN
 
     expected_reference_doctor := public.concierge_reference_professional_id(NEW.patient_id, 'doctor');
