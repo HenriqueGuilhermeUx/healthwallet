@@ -34,6 +34,7 @@ BEGIN
       ('function', 'concierge_set_primary_assignment(uuid,uuid,text)', to_regprocedure('public.concierge_set_primary_assignment(uuid,uuid,text)') IS NOT NULL),
       ('function', 'concierge_patient_reply(uuid,text)', to_regprocedure('public.concierge_patient_reply(uuid,text)') IS NOT NULL),
       ('function', 'concierge_reference_team(uuid)', to_regprocedure('public.concierge_reference_team(uuid)') IS NOT NULL),
+      ('function', 'concierge_reference_professional_id(uuid,text)', to_regprocedure('public.concierge_reference_professional_id(uuid,text)') IS NOT NULL),
       ('function', 'concierge_refresh_time_alerts()', to_regprocedure('public.concierge_refresh_time_alerts()') IS NOT NULL)
   )
   SELECT string_agg(kind || ':' || object_name, ', ' ORDER BY kind, object_name)
@@ -225,7 +226,32 @@ BEGIN
   END IF;
 END $$;
 
+-- The final request UPDATE policy must independently enforce the reference team.
+-- This is the fail-closed layer that protects direct PostgREST mutations even if
+-- trigger behavior changes in a future runtime.
+DO $$
+DECLARE
+  policy_check TEXT;
+BEGIN
+  SELECT with_check
+    INTO policy_check
+  FROM pg_policies
+  WHERE schemaname = 'public'
+    AND tablename = 'concierge_requests'
+    AND policyname = 'concierge_requests_staff_update';
+
+  IF policy_check IS NULL THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Final request UPDATE policy is missing';
+  END IF;
+
+  IF policy_check NOT LIKE '%concierge_reference_professional_id%'
+     OR policy_check NOT LIKE '%assigned_doctor_id%'
+     OR policy_check NOT LIKE '%assigned_nurse_id%' THEN
+    RAISE EXCEPTION 'Concierge validation precheck failed. Final request UPDATE policy is not reference-team fail-closed';
+  END IF;
+END $$;
+
 SELECT
   'PASS' AS validation_precheck,
   NOW() AS checked_at,
-  'Schema, functions, RLS and enabled runtime reference-team guards are ready for controlled Concierge validation.' AS message;
+  'Schema, functions, RLS, reference-team routing and runtime assignment guards are ready for controlled Concierge validation.' AS message;
