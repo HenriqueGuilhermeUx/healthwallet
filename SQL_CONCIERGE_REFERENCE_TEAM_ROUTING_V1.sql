@@ -218,3 +218,71 @@ $$;
 
 REVOKE ALL ON FUNCTION public.concierge_reference_team(UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.concierge_reference_team(UUID) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- EXPLICIT DATA API PRIVILEGES
+-- ---------------------------------------------------------------------------
+-- Do not depend on project-level default grants for newly created public tables.
+-- Table privileges decide which operations reach RLS; RLS then decides which rows
+-- an authenticated caller can actually access. Anonymous callers receive no
+-- direct Concierge table privileges.
+REVOKE ALL ON TABLE
+  public.concierge_staff,
+  public.concierge_memberships,
+  public.concierge_assignments,
+  public.concierge_requests,
+  public.concierge_request_events,
+  public.concierge_actions,
+  public.concierge_programs,
+  public.concierge_program_enrollments,
+  public.concierge_alerts,
+  public.concierge_work_logs,
+  public.concierge_consent_events,
+  public.concierge_rules,
+  public.concierge_clinical_reviews,
+  public.concierge_context_access_logs
+FROM anon;
+
+REVOKE ALL ON TABLE
+  public.concierge_staff,
+  public.concierge_memberships,
+  public.concierge_assignments,
+  public.concierge_requests,
+  public.concierge_request_events,
+  public.concierge_actions,
+  public.concierge_programs,
+  public.concierge_program_enrollments,
+  public.concierge_alerts,
+  public.concierge_work_logs,
+  public.concierge_consent_events,
+  public.concierge_rules,
+  public.concierge_clinical_reviews,
+  public.concierge_context_access_logs
+FROM authenticated;
+
+GRANT SELECT ON TABLE public.concierge_staff TO authenticated;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+  public.concierge_memberships,
+  public.concierge_assignments,
+  public.concierge_actions,
+  public.concierge_programs,
+  public.concierge_program_enrollments,
+  public.concierge_alerts,
+  public.concierge_rules
+TO authenticated;
+
+GRANT SELECT, INSERT, UPDATE ON TABLE
+  public.concierge_requests,
+  public.concierge_clinical_reviews
+TO authenticated;
+
+GRANT SELECT, INSERT ON TABLE
+  public.concierge_request_events,
+  public.concierge_work_logs
+TO authenticated;
+
+GRANT SELECT ON TABLE
+  public.concierge_consent_events,
+  public.concierge_context_access_logs
+TO authenticated;
