@@ -7,6 +7,7 @@ on:
     paths:
       - 'SQL_CONCIERGE_*.sql'
       - 'scripts/health-concierge-local-e2e.mjs'
+      - 'scripts/health-concierge-assignment-probe.mjs'
       - 'HEALTH_CONCIERGE_VALIDATION.md'
       - 'HEALTH_CONCIERGE_E2E_RUNBOOK.md'
       - '.github/workflows/health-concierge-local-validation.yml'
@@ -188,6 +189,29 @@ jobs:
           set +a
           psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_CONCIERGE_VALIDATION_SEED_V1.sql | tee /tmp/concierge-seed.log
           grep -q 'PASS' /tmp/concierge-seed.log
+
+      - name: Probe clinician assignment authorization runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+
+          ANON="${ANON_KEY:-${PUBLISHABLE_KEY:-}}"
+          SERVICE_KEY="${SERVICE_ROLE_KEY:-${SECRET_KEY:-}}"
+          : "${API_URL:?}"
+          if [ -z "$ANON" ] || [ -z "$SERVICE_KEY" ]; then
+            echo 'Supabase CLI did not expose local API keys.'
+            exit 1
+          fi
+
+          SUPABASE_URL="$API_URL" \
+          SUPABASE_ANON_KEY="$ANON" \
+          SUPABASE_SERVICE_ROLE_KEY="$SERVICE_KEY" \
+          node scripts/health-concierge-assignment-probe.mjs | tee /tmp/concierge-assignment-probe.log
+
+          grep -q '"assignment_runtime_probe": "PASS"' /tmp/concierge-assignment-probe.log
 
       - name: Run patient-nurse-doctor E2E through Auth, PostgREST and RLS
         shell: bash
