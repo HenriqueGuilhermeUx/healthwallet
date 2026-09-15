@@ -62,6 +62,7 @@ import BottomNav from '@/components/BottomNav'
 import AppHeader from '@/components/AppHeader'
 import AppErrorBoundary from '@/components/AppErrorBoundary'
 import ConciergeAccessGate from '@/components/ConciergeAccessGate'
+import ConciergeProfessionalHeader from '@/components/ConciergeProfessionalHeader'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -75,6 +76,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     async function checkConsent() {
       if (!user) {
         if (!cancelled) setCheckingConsent(false)
+        return
+      }
+
+      const professionalRoute = location.pathname.startsWith('/concierge/ops') || location.pathname === '/telemedicine-admin'
+      if (professionalRoute) {
+        if (!cancelled) {
+          setAcceptedTerms(true)
+          setCheckingConsent(false)
+        }
         return
       }
 
@@ -115,7 +125,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     }
 
     setCheckingConsent(true)
-    checkConsent()
+    void checkConsent()
 
     return () => {
       cancelled = true
@@ -137,11 +147,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
 
-  if (
-    !acceptedTerms &&
-    location.pathname !== '/consent' &&
-    location.pathname !== '/telemedicine-admin'
-  ) {
+  if (!acceptedTerms && location.pathname !== '/consent') {
     return <Navigate to="/consent" replace />
   }
 
@@ -163,10 +169,29 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   )
 }
 
+function ProfessionalLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <ConciergeProfessionalHeader />
+      <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
+        {children}
+      </main>
+    </div>
+  )
+}
+
 function ProtectedPage({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute>
       <AppLayout>{children}</AppLayout>
+    </ProtectedRoute>
+  )
+}
+
+function ProfessionalPage({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <ProfessionalLayout>{children}</ProfessionalLayout>
     </ProtectedRoute>
   )
 }
@@ -292,12 +317,12 @@ export default function App() {
             <Route path="/emergency" element={<ProtectedPage><Emergency /></ProtectedPage>} />
             <Route path="/care-links" element={<ProtectedPage><CareLinks /></ProtectedPage>} />
 
-            {/* Professional operations routes. Page-level role guard checks concierge_staff. */}
-            <Route path="/concierge/ops" element={<ProtectedPage><ConciergeOperations /></ProtectedPage>} />
-            <Route path="/concierge/ops/case/:id" element={<ProtectedPage><ConciergeCase /></ProtectedPage>} />
-            <Route path="/concierge/ops/pilot" element={<ProtectedPage><ConciergePilotDashboard /></ProtectedPage>} />
-            <Route path="/concierge/ops/roster" element={<ProtectedPage><ConciergeRoster /></ProtectedPage>} />
-            <Route path="/telemedicine-admin" element={<ProtectedPage><TelemedicineAdmin /></ProtectedPage>} />
+            {/* MyDataMed / professional operations */}
+            <Route path="/concierge/ops" element={<ProfessionalPage><ConciergeOperations /></ProfessionalPage>} />
+            <Route path="/concierge/ops/case/:id" element={<ProfessionalPage><ConciergeCase /></ProfessionalPage>} />
+            <Route path="/concierge/ops/pilot" element={<ProfessionalPage><ConciergePilotDashboard /></ProfessionalPage>} />
+            <Route path="/concierge/ops/roster" element={<ProfessionalPage><ConciergeRoster /></ProfessionalPage>} />
+            <Route path="/telemedicine-admin" element={<ProfessionalPage><TelemedicineAdmin /></ProfessionalPage>} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
