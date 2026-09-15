@@ -43,3 +43,27 @@ export async function revokeConciergeConsent() {
   if (error) throw error
   return data
 }
+
+export async function listConciergeConsentEvents(patientId: string) {
+  const { data, error } = await supabase
+    .from('concierge_consent_events')
+    .select('*')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+    .limit(30)
+
+  if (error) throw error
+  return data || []
+}
+
+export async function listConciergeContextAccessLogs(patientId: string) {
+  const { data, error } = await supabase
+    .from('concierge_context_access_logs')
+    .select('*')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+    .limit(30)
+
+  if (error) throw error
+  return data || []
+}
