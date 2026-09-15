@@ -127,6 +127,16 @@ jobs:
           test "$index" -eq 15
           echo 'PASS: all 15 canonical Concierge migrations applied in order.'
 
+      - name: Apply validation-only session diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_CONCIERGE_VALIDATION_SESSION_DIAGNOSTICS_V1.sql
+          echo 'PASS: validation-only session diagnostics installed in ephemeral database.'
+
       - name: Validation precheck
         shell: bash
         run: |
