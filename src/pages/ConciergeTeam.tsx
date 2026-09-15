@@ -70,7 +70,8 @@ export default function ConciergeTeam() {
                 {member.specialty && <p className="mt-1 text-xs text-muted-foreground">{member.specialty}</p>}
               </div>
             </div>
-            <Link to="/chat" className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700"><MessageCircle className="h-4 w-4" /> Conversar</Link>
+            <Link to="/concierge/request?category=guidance" className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700"><MessageCircle className="h-4 w-4" /> Conversar com minha equipe</Link>
+            <p className="mt-2 text-center text-[11px] text-muted-foreground">A conversa vira um caso acompanhado, com histórico e próximos passos.</p>
           </div>
         ))}
       </div>
