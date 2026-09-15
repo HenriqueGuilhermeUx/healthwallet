@@ -28,6 +28,7 @@ type PendingItem = {
   title: string
   subtitle?: string
   href: string
+  kind?: 'team' | 'action' | 'reminder' | 'appointment'
 }
 
 function formatDate(value?: string | null) {
@@ -117,19 +118,34 @@ export default function Concierge() {
   const activePrograms = programs.filter((item) => item.status === 'active')
 
   const pendingItems = useMemo<PendingItem[]>(() => {
-    const items: PendingItem[] = pendingActions.slice(0, 3).map((item: any) => ({
+    const items: PendingItem[] = []
+
+    activeRequests
+      .filter((item: any) => item.status === 'waiting_patient')
+      .slice(0, 2)
+      .forEach((item: any) => items.push({
+        id: `team-${item.id}`,
+        title: 'Sua equipe está aguardando você',
+        subtitle: item.title,
+        href: `/concierge/requests/${item.id}`,
+        kind: 'team',
+      }))
+
+    pendingActions.slice(0, Math.max(0, 3 - items.length)).forEach((item: any) => items.push({
       id: `action-${item.id}`,
       title: item.title,
       subtitle: item.due_date ? `Até ${formatDate(item.due_date)}` : 'Plano de ação',
       href: '/concierge/plan',
+      kind: 'action',
     }))
 
-    if (items.length === 0) {
-      reminders.slice(0, 2).forEach((item: any) => items.push({
+    if (items.length < 3) {
+      reminders.slice(0, 3 - items.length).forEach((item: any) => items.push({
         id: `reminder-${item.id}`,
         title: item.title || 'Ação de saúde pendente',
         subtitle: formatDate(item.reminder_date) || undefined,
         href: '/concierge/agenda',
+        kind: 'reminder',
       }))
     }
 
@@ -139,11 +155,12 @@ export default function Concierge() {
         title: 'Próxima consulta',
         subtitle: formatDate(nextAppointment.preferred_date) || undefined,
         href: '/concierge/agenda',
+        kind: 'appointment',
       })
     }
 
     return items.slice(0, 4)
-  }, [pendingActions, reminders, nextAppointment])
+  }, [activeRequests, pendingActions, reminders, nextAppointment])
 
   const firstName = user?.user_metadata?.full_name?.split(' ')[0]
     || user?.user_metadata?.name?.split(' ')[0]
@@ -192,7 +209,7 @@ export default function Concierge() {
           {pendingItems.length === 0 ? (
             <div className="rounded-2xl border bg-white p-4 flex gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0" /><div><p className="font-semibold text-sm">Nenhuma pendência importante agora</p><p className="text-xs text-muted-foreground mt-1">Sua equipe e o HealthWallet continuarão acompanhando seus próximos passos.</p></div></div>
           ) : pendingItems.map((item) => (
-            <Link key={item.id} to={item.href} className="flex items-center gap-3 rounded-2xl border bg-white p-4"><CalendarClock className="h-5 w-5 text-amber-600 flex-shrink-0" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.title}</p>{item.subtitle && <p className="text-xs text-muted-foreground mt-1">{item.subtitle}</p>}</div><ChevronRight className="h-4 w-4 text-muted-foreground" /></Link>
+            <Link key={item.id} to={item.href} className={`flex items-center gap-3 rounded-2xl border p-4 ${item.kind === 'team' ? 'border-amber-300 bg-amber-50' : 'bg-white'}`}><div className={`h-9 w-9 flex-shrink-0 rounded-xl flex items-center justify-center ${item.kind === 'team' ? 'bg-amber-100 text-amber-800' : 'bg-slate-50 text-amber-600'}`}>{item.kind === 'team' ? <MessageCircle className="h-4 w-4" /> : <CalendarClock className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.title}</p>{item.subtitle && <p className="text-xs text-muted-foreground mt-1">{item.subtitle}</p>}</div><ChevronRight className="h-4 w-4 text-muted-foreground" /></Link>
           ))}
         </div>
       </section>
