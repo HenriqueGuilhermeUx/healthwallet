@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Gauge, Loader2, Stethoscope, Users } from 'lucide-react'
+import { ArrowLeft, Gauge, Loader2, Scale, Stethoscope, Users } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { getConciergeStaffSelf } from '@/services/concierge'
 import { loadConciergePilotMetrics } from '@/services/conciergeAnalytics'
@@ -50,6 +50,11 @@ export default function ConciergePilotDashboard() {
     return <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">Ative primeiro a migration de analytics do piloto para medir unit economics.</div>
   }
 
+  const segments = metrics.planSegments || []
+  const withPlan = segments.find((item: any) => item.key === 'with_plan')
+  const withoutPlan = segments.find((item: any) => item.key === 'without_plan')
+  const unknownPlan = segments.find((item: any) => item.key === 'unknown_plan')
+
   return (
     <div className="space-y-5 pb-28">
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-emerald-950 to-teal-800 p-5 text-white">
@@ -69,13 +74,32 @@ export default function ConciergePilotDashboard() {
       </section>
 
       <section className="rounded-2xl border bg-white p-4">
-        <h2 className="font-bold">Quem está comprando?</h2>
+        <h2 className="font-bold">Composição da carteira</h2>
         <div className="mt-4 grid grid-cols-3 gap-2 text-center">
           <SmallMetric label="Com plano" value={metrics.withPlan} />
           <SmallMetric label="Sem plano" value={metrics.withoutPlan} />
           <SmallMetric label="Não informado" value={metrics.unknownPlan} />
         </div>
-        <p className="mt-4 text-xs leading-relaxed text-muted-foreground">A comparação entre com e sem plano deve ser analisada também por retenção, quantidade de casos e minutos humanos — não apenas aquisição.</p>
+      </section>
+
+      <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
+        <div className="flex items-center gap-2"><Scale className="h-5 w-5 text-indigo-700" /><h2 className="font-bold">Com plano × sem plano</h2></div>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Compare utilização e carga humana por perfil. Isso ajuda a descobrir onde existe valor e onde a operação fica mais pesada.</p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <SegmentCard segment={withPlan} />
+          <SegmentCard segment={withoutPlan} />
+        </div>
+
+        {withPlan?.patients > 0 && withoutPlan?.patients > 0 && (
+          <ComparisonHint withPlan={withPlan} withoutPlan={withoutPlan} />
+        )}
+
+        {unknownPlan?.patients > 0 && (
+          <div className="mt-3 rounded-xl border border-dashed bg-white p-3 text-xs text-slate-600">
+            <strong>{unknownPlan.patients}</strong> paciente(s) ainda sem informação de plano. Completar esse dado aumenta a qualidade da comparação.
+          </div>
+        )}
       </section>
 
       <section className="rounded-2xl border bg-white p-4">
@@ -97,7 +121,7 @@ export default function ConciergePilotDashboard() {
       </section>
 
       <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-        Durante o piloto, preço é uma hipótese. A métrica principal é custo humano real por paciente, separado por perfil com plano e sem plano. É isso que permite precificar sem virar uma clínica de consultas ilimitadas.
+        Durante o piloto, preço continua sendo hipótese. A comparação acima mede comportamento e custo operacional observado; ela não prova causalidade entre ter plano de saúde e consumir mais ou menos Concierge.
       </section>
 
       <Link to="/concierge/ops" className="block rounded-2xl bg-slate-900 p-4 text-center text-sm font-bold text-white">Voltar para a fila operacional</Link>
@@ -111,6 +135,52 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function SmallMetric({ label, value }: { label: string; value: number }) {
   return <div className="rounded-xl bg-slate-50 p-3"><p className="text-xl font-bold">{value}</p><p className="mt-1 text-[11px] text-muted-foreground">{label}</p></div>
+}
+
+function SegmentCard({ segment }: { segment: any }) {
+  if (!segment) return null
+
+  return (
+    <div className="rounded-2xl border bg-white p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-bold">{segment.label}</p>
+        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">{segment.patients} pacientes</span>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-4">
+        <SegmentMetric label="Solicitações / paciente" value={number(segment.requestsPerPatient)} />
+        <SegmentMetric label="Min humanos / paciente" value={number(segment.humanMinutesPerPatient)} />
+        <SegmentMetric label="Min médico / paciente" value={number(segment.doctorMinutesPerPatient)} />
+        <SegmentMetric label="Min enfermagem / paciente" value={number(segment.nurseMinutesPerPatient)} />
+        <SegmentMetric label="Escalamento médico" value={pct(segment.escalationRate)} />
+        <SegmentMetric label="Uso recorrente" value={pct(segment.repeatRate)} />
+        <SegmentMetric label="Pacientes com uso" value={pct(segment.engagementRate)} />
+        <SegmentMetric label="Resolução" value={pct(segment.resolutionRate)} />
+      </div>
+    </div>
+  )
+}
+
+function SegmentMetric({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-base font-bold text-slate-900">{value}</p><p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{label}</p></div>
+}
+
+function ComparisonHint({ withPlan, withoutPlan }: { withPlan: any; withoutPlan: any }) {
+  const humanDelta = withoutPlan.humanMinutesPerPatient - withPlan.humanMinutesPerPatient
+  const doctorDelta = withoutPlan.doctorMinutesPerPatient - withPlan.doctorMinutesPerPatient
+  const requestDelta = withoutPlan.requestsPerPatient - withPlan.requestsPerPatient
+
+  const direction = humanDelta > 0 ? 'sem plano' : humanDelta < 0 ? 'com plano' : 'nenhum dos grupos'
+  const humanText = Math.abs(humanDelta) < 0.1
+    ? 'A carga humana por paciente está praticamente igual entre os dois grupos.'
+    : `Neste recorte, o grupo ${direction} consome ${number(Math.abs(humanDelta))} min humanos a mais por paciente.`
+
+  return (
+    <div className="mt-3 rounded-xl bg-indigo-100/70 p-3 text-xs leading-relaxed text-indigo-950">
+      <p className="font-semibold">Leitura operacional do recorte</p>
+      <p className="mt-1">{humanText}</p>
+      <p className="mt-1 text-indigo-900/75">Diferença sem plano − com plano: {number(requestDelta)} solicitação(ões)/paciente e {number(doctorDelta)} min médicos/paciente. Use isso como sinal para investigar, não como conclusão de preço.</p>
+    </div>
+  )
 }
 
 function Bar({ label, value, total }: { label: string; value: number; total: number }) {
