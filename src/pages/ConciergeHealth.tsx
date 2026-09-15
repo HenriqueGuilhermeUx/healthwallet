@@ -60,7 +60,7 @@ export default function ConciergeHealth() {
         loadDeviceData(user.id),
         supabase.from('medical_records').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('medications').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_active', true),
-        supabase.from('medical_timeline').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('medical_events').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
       ])
 
       setScores(scoreRes.data || [])
