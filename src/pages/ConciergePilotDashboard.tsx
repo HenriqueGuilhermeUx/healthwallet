@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Gauge, Loader2, Scale, Stethoscope, Users } from 'lucide-react'
+import { ArrowLeft, DatabaseZap, Gauge, Loader2, Scale, Stethoscope, Users } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { getConciergeStaffSelf } from '@/services/concierge'
 import { loadConciergePilotMetrics } from '@/services/conciergeAnalytics'
@@ -54,6 +54,7 @@ export default function ConciergePilotDashboard() {
   const withPlan = segments.find((item: any) => item.key === 'with_plan')
   const withoutPlan = segments.find((item: any) => item.key === 'without_plan')
   const unknownPlan = segments.find((item: any) => item.key === 'unknown_plan')
+  const quality = metrics.dataQuality || {}
 
   return (
     <div className="space-y-5 pb-28">
@@ -100,6 +101,18 @@ export default function ConciergePilotDashboard() {
             <strong>{unknownPlan.patients}</strong> paciente(s) ainda sem informação de plano. Completar esse dado aumenta a qualidade da comparação.
           </div>
         )}
+      </section>
+
+      <section className="rounded-2xl border bg-white p-4">
+        <div className="flex items-center gap-2"><DatabaseZap className="h-5 w-5 text-cyan-700" /><h2 className="font-bold">Qualidade dos dados do piloto</h2></div>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Antes de usar unit economics para decidir preço ou equipe, confirme se a operação está registrando os dados de forma consistente.</p>
+        <div className="mt-4 space-y-3">
+          <QualityBar label="Perfil com/sem plano preenchido" value={quality.healthPlanCoverage || 0} />
+          <QualityBar label="Casos com 1ª resposta mensurada" value={quality.firstResponseCoverage || 0} />
+          <QualityBar label="Casos com tempo humano registrado" value={quality.workLogCoverage || 0} />
+          <QualityBar label="Casos resolvidos com timestamp" value={quality.resolutionTimestampCoverage || 0} />
+        </div>
+        <p className="mt-4 text-xs leading-relaxed text-slate-600">Quanto mais perto de 100%, mais confiável fica a leitura operacional. Cobertura baixa não é resultado ruim do Concierge; é sinal de instrumentação incompleta.</p>
       </section>
 
       <section className="rounded-2xl border bg-white p-4">
@@ -181,6 +194,11 @@ function ComparisonHint({ withPlan, withoutPlan }: { withPlan: any; withoutPlan:
       <p className="mt-1 text-indigo-900/75">Diferença sem plano − com plano: {number(requestDelta)} solicitação(ões)/paciente e {number(doctorDelta)} min médicos/paciente. Use isso como sinal para investigar, não como conclusão de preço.</p>
     </div>
   )
+}
+
+function QualityBar({ label, value }: { label: string; value: number }) {
+  const width = Math.max(0, Math.min(100, value))
+  return <div><div className="mb-1 flex items-center justify-between gap-3 text-xs"><span>{label}</span><span className="font-bold">{pct(width)}</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-cyan-600" style={{ width: `${width}%` }} /></div></div>
 }
 
 function Bar({ label, value, total }: { label: string; value: number; total: number }) {
