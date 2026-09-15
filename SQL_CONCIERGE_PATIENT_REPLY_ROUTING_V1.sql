@@ -8,6 +8,8 @@
 -- The regular request-integrity guard rejects all patient-authored UPDATEs.
 -- Keep that invariant, but allow the single system-mediated transition performed
 -- by concierge_patient_reply(): waiting_patient -> waiting_nurse/medical_review.
+-- IMPORTANT: this migration runs after SQL_CONCIERGE_REQUEST_INTEGRITY_V1.sql,
+-- so this final function definition must preserve all clinician assignment guards.
 CREATE OR REPLACE FUNCTION public.concierge_guard_request_update()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -16,6 +18,7 @@ SET search_path = public
 AS $$
 DECLARE
   current_role TEXT;
+  expected_reference_doctor UUID;
   patient_reply_transition BOOLEAN := false;
 BEGIN
   SELECT s.role INTO current_role
@@ -58,16 +61,55 @@ BEGIN
     RAISE EXCEPTION 'Patient-authored request content is immutable';
   END IF;
 
+  -- Nurses can take an unassigned case themselves, but cannot assign other nurses.
   IF current_role = 'nurse'
      AND NEW.assigned_nurse_id IS DISTINCT FROM OLD.assigned_nurse_id
      AND NEW.assigned_nurse_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'Nurse cannot assign request to another nurse';
   END IF;
 
+  -- A nurse never chooses an arbitrary physician. The reference-team router runs
+  -- before this guard and may populate only the active primary reference physician
+  -- on a real escalation. If there is no reference physician, the medical queue
+  -- remains deliberately unassigned.
+  IF current_role = 'nurse'
+     AND NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id THEN
+
+    SELECT a.professional_id
+      INTO expected_reference_doctor
+    FROM public.concierge_assignments a
+    JOIN public.concierge_staff s ON s.user_id = a.professional_id
+    WHERE a.patient_id = NEW.patient_id
+      AND a.status = 'active'
+      AND a.is_primary = true
+      AND a.role = 'doctor'
+      AND s.active = true
+    ORDER BY a.started_at ASC
+    LIMIT 1;
+
+    IF NOT (
+      NEW.status = 'escalated_medical'
+      AND NEW.status IS DISTINCT FROM OLD.status
+      AND expected_reference_doctor IS NOT NULL
+      AND NEW.assigned_doctor_id = expected_reference_doctor
+    ) THEN
+      RAISE EXCEPTION 'Nurse cannot assign an arbitrary physician';
+    END IF;
+  END IF;
+
+  -- Doctors may take an eligible medical case themselves, but never assign a
+  -- different physician directly.
   IF current_role = 'doctor'
      AND NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id
      AND NEW.assigned_doctor_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'Doctor cannot assign request to another doctor';
+  END IF;
+
+  -- Medical reviewers cannot rewrite the nursing continuity owner. Reassignment
+  -- belongs to the coordinator/admin roster layer.
+  IF current_role = 'doctor'
+     AND NEW.assigned_nurse_id IS DISTINCT FROM OLD.assigned_nurse_id THEN
+    RAISE EXCEPTION 'Doctor cannot change nursing assignment';
   END IF;
 
   IF current_role = 'nurse'
