@@ -221,7 +221,7 @@ export default function Concierge() {
           <ActionCard icon={Target} title="Plano de ação" subtitle="Pendências e próximos passos" href="/concierge/plan" />
           <ActionCard icon={Activity} title="Programas" subtitle="Jornadas de acompanhamento" href="/concierge/programs" />
           <ActionCard icon={FileUp} title="Enviar exame" subtitle="Organize e compartilhe" href="/upload" />
-          <ActionCard icon={HeartPulse} title="Minha saúde" subtitle="Score, histórico e evolução" href="/medscore" />
+          <ActionCard icon={HeartPulse} title="Minha saúde" subtitle="Score, histórico e evolução" href="/concierge/health" />
           <ActionCard icon={Users} title="Minha família" subtitle="Cuide de quem importa" href="/family" />
           <ActionCard icon={Stethoscope} title="Consulta" subtitle="Quando a equipe indicar ou você precisar" href="/telemedicine" />
         </div>
