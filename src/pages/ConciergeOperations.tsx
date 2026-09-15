@@ -230,6 +230,7 @@ export default function ConciergeOperations() {
                 ? !item.assigned_doctor_id
                 : !item.assigned_nurse_id && !item.assigned_doctor_id
               const canTake = ['nurse', 'doctor'].includes(staff.role) && unassignedForRole
+              const canOpenPatientWorkspace = assignedToMe || canCoordinate
               return (
                 <div key={item.id} className="rounded-2xl border bg-white p-4">
                   <div className="flex items-start gap-3">
@@ -241,10 +242,11 @@ export default function ConciergeOperations() {
                     </div>
                     <Link to={`/concierge/ops/case/${item.id}`} className="mt-1"><ChevronRight className="h-5 w-5 text-muted-foreground" /></Link>
                   </div>
-                  <div className="mt-4 flex gap-2">
-                    {canTake && <button type="button" disabled={busyId === item.id} onClick={() => takeCase(item)} className="flex-1 rounded-xl bg-slate-900 px-3 py-2.5 text-xs font-bold text-white flex items-center justify-center gap-1"><UserCheck className="h-4 w-4" /> Assumir</button>}
-                    {(assignedToMe || canCoordinate) && staff.role !== 'doctor' && !['escalated_medical', 'medical_review'].includes(item.status) && <button type="button" disabled={busyId === item.id} onClick={() => escalate(item)} className="flex-1 rounded-xl bg-emerald-700 px-3 py-2.5 text-xs font-bold text-white">Encaminhar médico</button>}
-                    <Link to={`/concierge/ops/case/${item.id}`} className="flex-1 rounded-xl border px-3 py-2.5 text-center text-xs font-bold">Abrir caso</Link>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    {canTake && <button type="button" disabled={busyId === item.id} onClick={() => takeCase(item)} className="rounded-xl bg-slate-900 px-3 py-2.5 text-xs font-bold text-white flex items-center justify-center gap-1"><UserCheck className="h-4 w-4" /> Assumir</button>}
+                    {(assignedToMe || canCoordinate) && staff.role !== 'doctor' && !['escalated_medical', 'medical_review'].includes(item.status) && <button type="button" disabled={busyId === item.id} onClick={() => escalate(item)} className="rounded-xl bg-emerald-700 px-3 py-2.5 text-xs font-bold text-white">Encaminhar médico</button>}
+                    <Link to={`/concierge/ops/case/${item.id}`} className="rounded-xl border px-3 py-2.5 text-center text-xs font-bold">Abrir caso</Link>
+                    {canOpenPatientWorkspace && <Link to={`/concierge/ops/patient/${item.patient_id}`} className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-xs font-bold">Ver carteira</Link>}
                   </div>
                 </div>
               )
