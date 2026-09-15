@@ -56,14 +56,8 @@ export async function listConciergeConsentEvents(patientId: string) {
   return data || []
 }
 
-export async function listConciergeContextAccessLogs(patientId: string) {
-  const { data, error } = await supabase
-    .from('concierge_context_access_logs')
-    .select('*')
-    .eq('patient_id', patientId)
-    .order('created_at', { ascending: false })
-    .limit(30)
-
+export async function listConciergeContextAccessLogs() {
+  const { data, error } = await supabase.rpc('concierge_list_my_context_accesses')
   if (error) throw error
   return data || []
 }
