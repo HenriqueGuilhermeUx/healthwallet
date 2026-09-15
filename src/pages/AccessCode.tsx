@@ -1,41 +1,33 @@
-import { useEffect, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import {
-  Shield,
-  Clock,
-  AlertCircle,
-  CheckCircle,
-  FileText,
-  Pill,
-  User,
-  Brain,
-  Activity,
-  HeartPulse,
-  CreditCard,
-  Phone,
-  Users,
-  Stethoscope,
-} from 'lucide-react'
+import { Activity, AlertCircle, Brain, CheckCircle, CreditCard, FileText, Loader2, LockKeyhole, Pill, Shield, Stethoscope, User, Users } from 'lucide-react'
+import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 
-interface AccessCode {
-  id: string
-  code: string
+interface RedeemedGrant {
+  access_code_id: string
   patient_id: string
-  permissions?: Record<string, boolean>
-  share_categories?: Record<string, boolean>
+  permissions: Record<string, boolean>
   expires_at: string
-  created_at: string
-  revoked?: boolean
+  professional_id: string
+}
+
+function isSecureToken(value?: string | null) {
+  return Boolean(value && /^HW-[0-9A-F]{36}$/i.test(value))
 }
 
 export default function AccessCode() {
   const { code } = useParams()
+  const { user, loading: authLoading, signInWithEmail } = useAuth()
+  const legacyOrInvalidToken = Boolean(code && !isSecureToken(code))
+
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [signingIn, setSigningIn] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [accessCode, setAccessCode] = useState<AccessCode | null>(null)
-  const [permissions, setPermissions] = useState<Record<string, boolean>>({})
   const [error, setError] = useState('')
-  const [patientProfile, setPatientProfile] = useState<any>(null)
+  const [grant, setGrant] = useState<RedeemedGrant | null>(null)
+  const [profile, setProfile] = useState<any>(null)
   const [summary, setSummary] = useState<any>(null)
   const [score, setScore] = useState<any>(null)
   const [exams, setExams] = useState<any[]>([])
@@ -44,477 +36,213 @@ export default function AccessCode() {
   const [records, setRecords] = useState<any[]>([])
 
   useEffect(() => {
-    loadAccess()
-  }, [code])
-
-  async function loadAccess() {
     if (!code) {
-      setError('Código não informado')
+      setError('Código não informado.')
       setLoading(false)
       return
     }
 
+    // Legacy six-digit bearer links are intentionally refused by the secure
+    // frontend even before V2 reaches the database. This lets the UI ship first
+    // without keeping anonymous clinical sharing alive during the transition.
+    if (!isSecureToken(code)) {
+      setError('Este link pertence ao modelo antigo de compartilhamento. Peça ao paciente para gerar um novo token seguro após a atualização.')
+      setLoading(false)
+      setGrant(null)
+      return
+    }
+
+    if (authLoading) return
+    if (!user) {
+      setLoading(false)
+      setGrant(null)
+      return
+    }
+    void redeemAndLoad()
+  }, [code, user?.id, authLoading])
+
+  async function handleProfessionalLogin(event: FormEvent) {
+    event.preventDefault()
+    setSigningIn(true)
+    setError('')
+    try {
+      const { error } = await signInWithEmail(email.trim(), password)
+      if (error) setError(error.message || 'Não foi possível entrar.')
+    } catch (loginError) {
+      console.error(loginError)
+      setError('Não foi possível entrar com a conta profissional.')
+    } finally {
+      setSigningIn(false)
+    }
+  }
+
+  async function redeemAndLoad() {
+    if (!code || !user || !isSecureToken(code)) return
     setLoading(true)
+    setError('')
+    clearClinicalState()
 
     try {
-      const { data, error } = await supabase
-        .from('access_codes')
-        .select('*')
-        .eq('code', code)
-        .single()
+      const { data, error: redeemError } = await supabase.rpc('redeem_health_access_code', { p_code: code })
+      if (redeemError) throw redeemError
 
-      if (error || !data) {
-        setError('Código não encontrado')
-        setLoading(false)
-        return
-      }
+      const row = (Array.isArray(data) ? data[0] : data) as RedeemedGrant | null
+      if (!row?.patient_id || !row?.access_code_id) throw new Error('invalid_secure_share_response')
 
-      const access = data as AccessCode
-
-      if (access.revoked) {
-        setError('Este acesso foi revogado pelo paciente')
-        setLoading(false)
-        return
-      }
-
-      if (access.expires_at && new Date(access.expires_at) < new Date()) {
-        setError('Este código expirou')
-        setLoading(false)
-        return
-      }
-
-      const allowed = {
-        ...(access.permissions || {}),
-        ...(access.share_categories || {}),
-      }
-
-      setAccessCode(access)
-      setPermissions(allowed)
-
-      const shouldLoadProfile =
-        allowed.profile ||
-        allowed.passport ||
-        allowed.allergies ||
-        allowed.emergency_contact ||
-        allowed.family_history
-
-      if (shouldLoadProfile) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', access.patient_id)
-          .maybeSingle()
-
-        setPatientProfile(profileData || null)
-      }
-
-      if (allowed.summary) {
-        const { data: summaryData } = await supabase
-          .from('health_summaries')
-          .select('*')
-          .eq('user_id', access.patient_id)
-          .maybeSingle()
-
-        setSummary(summaryData || null)
-      }
-
-      if (allowed.medscore) {
-        const { data: scoreData } = await supabase
-          .from('health_scores')
-          .select('*')
-          .eq('user_id', access.patient_id)
-          .order('calculated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-
-        setScore(scoreData || null)
-      }
-
-      if (allowed.exams || allowed.ai_analysis) {
-        const { data: examData } = await supabase
-          .from('medical_records')
-          .select('*')
-          .eq('user_id', access.patient_id)
-          .order('created_at', { ascending: false })
-          .limit(20)
-
-        setExams(examData || [])
-      }
-
-      if (allowed.medications) {
-        const { data: medData } = await supabase
-          .from('medications')
-          .select('*')
-          .eq('user_id', access.patient_id)
-          .order('created_at', { ascending: false })
-          .limit(20)
-
-        setMedications(medData || [])
-      }
-
-      if (allowed.health_plan) {
-        const { data: planData } = await supabase
-          .from('health_plans')
-          .select('*')
-          .eq('user_id', access.patient_id)
-          .order('created_at', { ascending: false })
-          .limit(20)
-
-        setHealthPlans(planData || [])
-      }
-
-      if (allowed.passport) {
-        const { data: recordData } = await supabase
-          .from('medical_events')
-          .select('*')
-          .eq('user_id', access.patient_id)
-          .order('event_date', { ascending: false })
-          .limit(10)
-
-        setRecords(recordData || [])
-      }
-    } catch (err) {
-      console.error(err)
-      setError('Erro ao validar código')
+      setGrant(row)
+      await loadAuthorizedContext(row)
+    } catch (redeemError: any) {
+      console.error(redeemError)
+      setGrant(null)
+      setError(mapRedeemError(redeemError?.message || ''))
     } finally {
       setLoading(false)
     }
   }
 
-  function formatDate(date?: string) {
-    if (!date) return '-'
-    return new Date(date).toLocaleString('pt-BR')
+  function clearClinicalState() {
+    setProfile(null)
+    setSummary(null)
+    setScore(null)
+    setExams([])
+    setMedications([])
+    setHealthPlans([])
+    setRecords([])
   }
 
-  if (loading) {
+  async function loadAuthorizedContext(current: RedeemedGrant) {
+    const allowed = current.permissions || {}
+    const patientId = current.patient_id
+    const profileAllowed = allowed.profile || allowed.passport || allowed.allergies || allowed.emergency_contact || allowed.family_history
+
+    if (profileAllowed) {
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', patientId).maybeSingle()
+      if (error) console.warn('Shared profile unavailable', error)
+      else setProfile(data || null)
+    }
+
+    if (allowed.summary) {
+      const { data, error } = await supabase.from('health_summaries').select('*').eq('user_id', patientId).maybeSingle()
+      if (error) console.warn('Shared summary unavailable', error)
+      else setSummary(data || null)
+    }
+
+    if (allowed.medscore) {
+      const { data, error } = await supabase.from('health_scores').select('*').eq('user_id', patientId).order('calculated_at', { ascending: false }).limit(1).maybeSingle()
+      if (error) console.warn('Shared MedScore unavailable', error)
+      else setScore(data || null)
+    }
+
+    if (allowed.exams || allowed.ai_analysis) {
+      const { data, error } = await supabase.from('medical_records').select('*').eq('user_id', patientId).order('created_at', { ascending: false }).limit(20)
+      if (error) console.warn('Shared exams unavailable', error)
+      else setExams(data || [])
+    }
+
+    if (allowed.medications) {
+      const { data, error } = await supabase.from('medications').select('*').eq('user_id', patientId).order('created_at', { ascending: false }).limit(20)
+      if (error) console.warn('Shared medications unavailable', error)
+      else setMedications(data || [])
+    }
+
+    if (allowed.health_plan) {
+      const { data, error } = await supabase.from('health_plans').select('*').eq('user_id', patientId).order('created_at', { ascending: false }).limit(20)
+      if (error) console.warn('Shared health plan unavailable', error)
+      else setHealthPlans(data || [])
+    }
+
+    if (allowed.passport) {
+      const { data, error } = await supabase.from('medical_events').select('*').eq('user_id', patientId).order('event_date', { ascending: false }).limit(10)
+      if (error) console.warn('Shared passport unavailable', error)
+      else setRecords(data || [])
+    }
+  }
+
+  if (authLoading || loading) {
+    return <CenteredCard><Loader2 className="mx-auto mb-4 h-10 w-10 animate-spin text-emerald-600" /><p className="font-semibold">Validando acesso seguro...</p></CenteredCard>
+  }
+
+  if (legacyOrInvalidToken) {
     return (
-      <div className="min-h-screen bg-emerald-50 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl p-6 shadow-sm text-center max-w-md w-full">
-          <div className="w-12 h-12 rounded-full border-4 border-emerald-600 border-t-transparent animate-spin mx-auto mb-4" />
-          <p className="font-semibold">Validando acesso...</p>
-          <p className="text-sm text-gray-500 mt-1">
-            Aguarde enquanto verificamos o código.
-          </p>
+      <CenteredCard>
+        <Shield className="mx-auto mb-4 h-12 w-12 text-amber-600" />
+        <h1 className="text-xl font-bold">Compartilhamento antigo desativado</h1>
+        <p className="mt-2 text-sm text-gray-600">{error || 'Este link não usa o novo token profissional vinculado.'}</p>
+        <p className="mt-4 text-xs text-gray-500">Peça ao paciente para abrir “Compartilhar Dados” no HealthWallet e gerar uma nova autorização segura.</p>
+      </CenteredCard>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50 px-4 py-10">
+        <div className="mx-auto max-w-md rounded-3xl border bg-white p-6 shadow-sm">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100"><LockKeyhole className="h-7 w-7 text-emerald-700" /></div>
+          <h1 className="text-center text-xl font-bold">Acesso profissional protegido</h1>
+          <p className="mt-2 text-center text-sm text-gray-600">O link não abre dados de saúde anonimamente. Entre com sua conta profissional para resgatar a autorização do paciente.</p>
+          {error && <ErrorBox text={error} />}
+          <form onSubmit={handleProfessionalLogin} className="mt-6 space-y-3">
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="E-mail profissional" className="w-full rounded-xl border px-4 py-3 outline-none focus:border-emerald-500" required />
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Senha" className="w-full rounded-xl border px-4 py-3 outline-none focus:border-emerald-500" required />
+            <button type="submit" disabled={signingIn} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 font-semibold text-white disabled:opacity-50">
+              {signingIn && <Loader2 className="h-4 w-4 animate-spin" />}{signingIn ? 'Entrando...' : 'Entrar e validar autorização'}
+            </button>
+          </form>
+          <p className="mt-4 text-xs text-gray-500">Apenas profissionais com perfil profissional cadastrado podem resgatar o token. O primeiro resgate o vincula àquela conta até expiração ou revogação.</p>
         </div>
       </div>
     )
   }
 
-  if (error || !accessCode) {
-    return (
-      <div className="min-h-screen bg-red-50 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl p-6 shadow-sm text-center max-w-md w-full">
-          <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
-            <AlertCircle className="w-7 h-7 text-red-600" />
-          </div>
-
-          <h1 className="text-xl font-bold mb-2">Acesso indisponível</h1>
-          <p className="text-sm text-gray-600">{error}</p>
-
-          <p className="text-xs text-gray-400 mt-5">
-            Peça ao paciente para gerar um novo código no HealthWallet.
-          </p>
-        </div>
-      </div>
-    )
+  if (error || !grant) {
+    return <CenteredCard><AlertCircle className="mx-auto mb-4 h-12 w-12 text-red-600" /><h1 className="text-xl font-bold">Acesso indisponível</h1><p className="mt-2 text-sm text-gray-600">{error || 'A autorização não pôde ser validada.'}</p></CenteredCard>
   }
 
-  const patientName =
-    patientProfile?.full_name ||
-    patientProfile?.name ||
-    patientProfile?.nome ||
-    'Paciente HealthWallet'
+  const allowed = grant.permissions || {}
+  const patientName = profile?.full_name || profile?.name || profile?.nome || 'Paciente HealthWallet'
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b sticky top-0 z-30">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-white" />
-          </div>
+    <div className="min-h-screen bg-slate-50">
+      <header className="border-b bg-white px-4 py-4"><div className="mx-auto flex max-w-3xl items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600"><Shield className="h-5 w-5 text-white" /></div><div><h1 className="font-bold">HealthWallet</h1><p className="text-xs text-gray-500">Acesso profissional autorizado e vinculado</p></div></div></header>
+      <main className="mx-auto max-w-3xl space-y-5 px-4 py-6">
+        <div className="flex gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" /><div><p className="font-semibold text-emerald-900">Autorização validada</p><p className="text-sm text-emerald-800">Somente as categorias escolhidas pelo paciente ficam disponíveis até {formatDate(grant.expires_at)}.</p></div></div>
 
-          <div>
-            <h1 className="font-bold leading-tight">HealthWallet</h1>
-            <p className="text-xs text-gray-500">
-              Acesso profissional autorizado pelo paciente
-            </p>
-          </div>
-        </div>
-      </header>
+        {allowed.profile && <Section icon={User} title="Perfil do paciente"><InfoGrid values={[["Nome", patientName],["Nascimento", profile?.birth_date],["Sexo", profile?.gender],["Tipo sanguíneo", profile?.blood_type]]} /></Section>}
+        {allowed.summary && <Section icon={FileText} title="Resumo profissional">{summary ? <p className="whitespace-pre-wrap text-sm text-gray-700">{summary.professional_summary || summary.summary || 'Resumo cadastrado sem texto estruturado.'}</p> : <Empty />}</Section>}
+        {allowed.medscore && <Section icon={Activity} title="MedScore">{score ? <div className="rounded-xl bg-emerald-50 p-4"><p className="text-sm text-emerald-700">Score atual</p><p className="text-4xl font-bold text-emerald-900">{score.score ?? '-'}<span className="text-lg">/100</span></p><p className="text-sm text-emerald-700">{score.status || ''}</p></div> : <Empty />}</Section>}
+        {allowed.exams && <Section icon={FileText} title="Exames"><ListCards items={exams} title={(item) => item.file_name || item.title || item.exam_type || 'Exame'} detail={(item) => formatDate(item.created_at || item.exam_date || item.date)} /></Section>}
+        {allowed.ai_analysis && <Section icon={Brain} title="Análises por IA"><ListCards items={exams.filter((item) => item.ai_result)} title={(item) => item.file_name || item.exam_type || 'Exame analisado'} detail={(item) => item.ai_result?.summary || item.ai_result?.clinicalSummary || 'Análise disponível'} /></Section>}
+        {allowed.medications && <Section icon={Pill} title="Medicamentos"><ListCards items={medications} title={(item) => item.name || item.medication_name || 'Medicamento'} detail={(item) => [item.dosage, item.frequency].filter(Boolean).join(' · ')} /></Section>}
+        {allowed.passport && <Section icon={Stethoscope} title="Passport / eventos clínicos"><ListCards items={records} title={(item) => item.title || 'Evento clínico'} detail={(item) => formatDate(item.event_date)} /></Section>}
+        {allowed.health_plan && <Section icon={CreditCard} title="Plano / SUS"><ListCards items={healthPlans} title={(item) => item.plan_name || item.name || item.provider || 'Carteira'} detail={(item) => item.card_number || item.sus_number || item.number || 'Número não informado'} /></Section>}
+        {allowed.allergies && <Section icon={AlertCircle} title="Alergias"><p className="text-sm text-gray-700">{formatArrayOrText(profile?.allergies) || 'Nenhuma alergia informada.'}</p></Section>}
+        {allowed.emergency_contact && <Section icon={Shield} title="Contato de emergência"><InfoGrid values={[["Nome", profile?.emergency_contact_name],["Telefone", profile?.emergency_contact_phone],["Parentesco", profile?.emergency_contact_relationship]]} /></Section>}
+        {allowed.family_history && <Section icon={Users} title="Histórico familiar"><p className="text-sm text-gray-700">{profile?.family_history || 'Histórico familiar não informado.'}</p></Section>}
 
-      <main className="max-w-3xl mx-auto px-4 py-6 space-y-5">
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex gap-3">
-          <CheckCircle className="w-5 h-5 text-emerald-700 mt-0.5" />
-          <div>
-            <p className="font-semibold text-emerald-900">
-              Código válido e autorizado
-            </p>
-            <p className="text-sm text-emerald-700">
-              Este acesso foi liberado pelo paciente e respeita as categorias autorizadas.
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Clock className="w-5 h-5 text-gray-500" />
-            <p className="font-semibold">Informações do acesso</p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <Info label="Código" value={accessCode.code} mono />
-            <Info label="Expira em" value={formatDate(accessCode.expires_at)} />
-            <Info label="Paciente" value={patientName} />
-            <Info
-              label="Categorias autorizadas"
-              value={Object.keys(permissions).filter((key) => permissions[key]).length.toString()}
-            />
-          </div>
-        </div>
-
-        {permissions.profile && (
-          <Section icon={User} title="Perfil do paciente">
-            {patientProfile ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                <Info label="Nome" value={patientName} />
-                <Info label="Sexo" value={translateGender(patientProfile.gender)} />
-                <Info label="Nascimento" value={patientProfile.birth_date || 'Não informado'} />
-                <Info label="Tipo sanguíneo" value={patientProfile.blood_type || 'Não informado'} />
-                <Info label="Peso" value={patientProfile.weight ? `${patientProfile.weight} kg` : 'Não informado'} />
-                <Info label="Altura" value={patientProfile.height ? `${patientProfile.height} cm` : 'Não informado'} />
-              </div>
-            ) : (
-              <Empty text="Perfil autorizado, mas nenhum dado foi encontrado." />
-            )}
-          </Section>
-        )}
-
-        {permissions.passport && (
-          <Section icon={Shield} title="Passport / Prontuário resumido">
-            <div className="space-y-3 text-sm">
-              <Info label="Paciente" value={patientName} />
-              <Info label="Tipo sanguíneo" value={patientProfile?.blood_type || 'Não informado'} />
-              <Info label="Condições" value={patientProfile?.chronic_conditions || 'Não informado'} />
-              <Info label="Medicamentos atuais" value={patientProfile?.current_medications || 'Não informado'} />
-
-              {records.length > 0 ? (
-                <div>
-                  <p className="text-gray-500 text-xs mb-2">Últimos eventos clínicos</p>
-                  <div className="space-y-2">
-                    {records.slice(0, 5).map((item, index) => (
-                      <div key={item.id || index} className="bg-gray-50 rounded-xl p-3">
-                        <p className="font-semibold">{item.title || 'Evento clínico'}</p>
-                        <p className="text-xs text-gray-500">{formatDate(item.event_date)}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </Section>
-        )}
-
-        {permissions.summary && (
-          <Section icon={FileText} title="Resumo profissional">
-            {summary?.professional_summary || summary?.summary ? (
-              <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans">
-                {summary.professional_summary || summary.summary}
-              </pre>
-            ) : (
-              <Empty text="Resumo autorizado, mas nenhum resumo foi encontrado." />
-            )}
-          </Section>
-        )}
-
-        {permissions.medscore && (
-          <Section icon={Activity} title="MedScore">
-            {score ? (
-              <div className="space-y-3">
-                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-                  <p className="text-sm text-emerald-700">Score atual</p>
-                  <p className="text-4xl font-bold text-emerald-900">{score.score}/100</p>
-                  <p className="text-sm text-emerald-700">{score.status || 'Sem status'}</p>
-                </div>
-                {score.factors?.alerts?.length > 0 && (
-                  <div>
-                    <p className="font-semibold text-sm mb-2">Pontos de atenção</p>
-                    <ul className="list-disc pl-5 text-sm text-gray-700">
-                      {score.factors.alerts.map((item: string, idx: number) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <Empty text="MedScore autorizado, mas nenhum score foi encontrado." />
-            )}
-          </Section>
-        )}
-
-        {permissions.exams && (
-          <Section icon={FileText} title="Exames">
-            {exams.length > 0 ? (
-              <div className="space-y-3">
-                {exams.map((exam, index) => (
-                  <div key={exam.id || index} className="bg-gray-50 rounded-xl p-3">
-                    <p className="font-semibold">
-                      {exam.file_name || exam.title || exam.exam_type || 'Exame'}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {formatDate(exam.created_at || exam.exam_date || exam.date)}
-                    </p>
-                    {exam.ai_result?.summary ? (
-                      <p className="text-sm mt-2">{exam.ai_result.summary}</p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Empty text="Exames autorizados, mas nenhum exame foi encontrado." />
-            )}
-          </Section>
-        )}
-
-        {permissions.ai_analysis && (
-          <Section icon={Brain} title="Análises por IA">
-            {exams.some((exam) => exam.ai_result) ? (
-              <div className="space-y-3">
-                {exams
-                  .filter((exam) => exam.ai_result)
-                  .map((exam, index) => (
-                    <div key={exam.id || index} className="bg-gray-50 rounded-xl p-3">
-                      <p className="font-semibold">
-                        {exam.file_name || exam.exam_type || 'Exame analisado'}
-                      </p>
-                      <p className="text-sm mt-2">
-                        {exam.ai_result?.summary || exam.ai_result?.clinicalSummary || 'Análise disponível.'}
-                      </p>
-                    </div>
-                  ))}
-              </div>
-            ) : (
-              <Empty text="Análise IA autorizada, mas nenhuma análise foi encontrada." />
-            )}
-          </Section>
-        )}
-
-        {permissions.medications && (
-          <Section icon={Pill} title="Medicamentos">
-            {medications.length > 0 ? (
-              <div className="space-y-3">
-                {medications.map((med, index) => (
-                  <div key={med.id || index} className="bg-gray-50 rounded-xl p-3">
-                    <p className="font-semibold">
-                      {med.name || med.medication_name || 'Medicamento'}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      {[med.dosage, med.frequency].filter(Boolean).join(' · ') || 'Sem detalhes'}
-                    </p>
-                    {med.reminder_time && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        Horário: {String(med.reminder_time).slice(0, 5)}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Empty text="Medicamentos autorizados, mas nenhum registro foi encontrado." />
-            )}
-          </Section>
-        )}
-
-        {permissions.allergies && (
-          <Section icon={AlertCircle} title="Alergias">
-            <p className="text-sm text-gray-700">
-              {formatArrayOrText(patientProfile?.allergies) || 'Nenhuma alergia informada.'}
-            </p>
-          </Section>
-        )}
-
-        {permissions.emergency_contact && (
-          <Section icon={Phone} title="Contato de emergência">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-              <Info label="Nome" value={patientProfile?.emergency_contact_name || 'Não informado'} />
-              <Info label="Telefone" value={patientProfile?.emergency_contact_phone || 'Não informado'} />
-              <Info label="Parentesco" value={patientProfile?.emergency_contact_relationship || 'Não informado'} />
-            </div>
-          </Section>
-        )}
-
-        {permissions.health_plan && (
-          <Section icon={CreditCard} title="Plano/SUS">
-            {healthPlans.length > 0 ? (
-              <div className="space-y-3">
-                {healthPlans.map((plan, index) => (
-                  <div key={plan.id || index} className="bg-gray-50 rounded-xl p-3">
-                    <p className="font-semibold">
-                      {plan.plan_name || plan.name || plan.provider || 'Carteira'}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      {plan.card_number || plan.sus_number || plan.number || 'Número não informado'}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Empty text="Plano/SUS autorizado, mas nenhuma carteira foi encontrada." />
-            )}
-          </Section>
-        )}
-
-        {permissions.family_history && (
-          <Section icon={Users} title="Histórico familiar">
-            <p className="text-sm text-gray-700">
-              {patientProfile?.family_history || 'Histórico familiar não informado.'}
-            </p>
-          </Section>
-        )}
-
-        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-700">
-          Este acesso é temporário e limitado às permissões escolhidas pelo paciente no HealthWallet.
-        </div>
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-800">Este acesso é temporário, auditável, vinculado à sua conta profissional e pode ser revogado pelo paciente a qualquer momento.</div>
       </main>
     </div>
   )
 }
 
-function Section({ icon: Icon, title, children }: any) {
-  return (
-    <section className="bg-white rounded-2xl border p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className="w-5 h-5 text-emerald-600" />
-        <h2 className="font-bold">{title}</h2>
-      </div>
-      {children}
-    </section>
-  )
+function mapRedeemError(message: string) {
+  if (message.includes('professional_profile_required')) return 'Sua conta está autenticada, mas não possui um perfil profissional habilitado no MyDataMed.'
+  if (message.includes('legacy_access_code_not_supported')) return 'Este é um código legado. Peça ao paciente para gerar um novo compartilhamento seguro.'
+  if (message.includes('access_code_already_redeemed')) return 'Este token já foi vinculado a outro profissional.'
+  if (message.includes('access_code_expired')) return 'Este acesso expirou. Peça ao paciente para gerar um novo token.'
+  if (message.includes('access_code_revoked')) return 'O paciente revogou este acesso.'
+  if (message.includes('invalid_access_code')) return 'Token inválido ou inexistente.'
+  if (message.includes('redeem_health_access_code') || message.toLowerCase().includes('schema cache')) return 'O compartilhamento seguro está sendo ativado. Nenhum dado clínico foi liberado.'
+  return 'Não foi possível validar o acesso profissional.'
 }
 
-function Info({ label, value, mono }: any) {
-  return (
-    <div className="bg-gray-50 rounded-xl p-3">
-      <p className="text-gray-500 text-xs">{label}</p>
-      <p className={`${mono ? 'font-mono' : 'font-semibold'} break-words`}>
-        {value || 'Não informado'}
-      </p>
-    </div>
-  )
+function CenteredCard({ children }: { children: React.ReactNode }) {
+  return <div className="min-h-screen bg-slate-50 px-4 py-12"><div className="mx-auto max-w-md rounded-3xl border bg-white p-6 text-center shadow-sm">{children}</div></div>
 }
-
-function Empty({ text }: { text: string }) {
-  return <p className="text-sm text-gray-500">{text}</p>
-}
-
-function formatArrayOrText(value: any) {
-  if (Array.isArray(value)) return value.join(', ')
-  return value || ''
-}
-
-function translateGender(value?: string) {
-  if (value === 'male') return 'Masculino'
-  if (value === 'female') return 'Feminino'
-  if (value === 'other') return 'Outro'
-  return value || 'Não informado'
-}
+function ErrorBox({ text }: { text: string }) { return <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{text}</div> }
+function Section({ icon: Icon, title, children }: any) { return <section className="rounded-2xl border bg-white p-4"><div className="mb-3 flex items-center gap-2"><Icon className="h-5 w-5 text-emerald-600" /><h2 className="font-bold">{title}</h2></div>{children}</section> }
+function InfoGrid({ values }: { values: Array<[string, any]> }) { return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{values.map(([label, value]) => <div key={label} className="rounded-xl bg-gray-50 p-3"><p className="text-xs text-gray-500">{label}</p><p className="break-words text-sm font-semibold">{value || 'Não informado'}</p></div>)}</div> }
+function ListCards({ items, title, detail }: { items: any[]; title: (item: any) => string; detail: (item: any) => string }) { if (!items.length) return <Empty />; return <div className="space-y-2">{items.map((item, index) => <div key={item.id || index} className="rounded-xl bg-gray-50 p-3"><p className="font-semibold">{title(item)}</p><p className="mt-1 text-xs text-gray-500">{detail(item) || 'Sem detalhes adicionais'}</p></div>)}</div> }
+function Empty() { return <p className="text-sm text-gray-500">Nenhum dado autorizado foi encontrado nesta categoria.</p> }
+function formatDate(value?: string) { return value ? new Date(value).toLocaleString('pt-BR') : 'Não informado' }
+function formatArrayOrText(value: any) { return Array.isArray(value) ? value.join(', ') : value || '' }
