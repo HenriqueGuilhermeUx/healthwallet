@@ -213,7 +213,8 @@ export default function Concierge() {
       <section>
         <h2 className="mb-3 font-bold text-gray-900">Como podemos ajudar?</h2>
         <div className="grid grid-cols-2 gap-3">
-          <ActionCard icon={MessageCircle} title="Solicitar ajuda" subtitle="Sintoma, dúvida ou orientação" href="/concierge/request" />
+          <ActionCard icon={MessageCircle} title="Solicitar ajuda" subtitle="Dúvida, exame, medicamento ou orientação" href="/concierge/request" />
+          <ActionCard icon={HeartPulse} title="Orientação rápida" subtitle="Sintoma recente e próximo passo" href="/concierge/request?category=symptom" />
           <ActionCard icon={FileSearch} title="Segunda análise" subtitle="Revisar exames, laudos e contexto" href="/concierge/request?category=second_analysis" />
           <ActionCard icon={Navigation} title="Navegação em saúde" subtitle="Saiba qual é o próximo passo" href="/concierge/request?category=navigation" />
           <ActionCard icon={ClipboardList} title="Mensagens e casos" subtitle="Acompanhe cada solicitação com sua equipe" href="/concierge/requests" />
@@ -222,7 +223,7 @@ export default function Concierge() {
           <ActionCard icon={Activity} title="Programas" subtitle="Jornadas de acompanhamento" href="/concierge/programs" />
           <ActionCard icon={FileUp} title="Enviar exame" subtitle="Organize e compartilhe" href="/upload" />
           <ActionCard icon={HeartPulse} title="Minha saúde" subtitle="Score, histórico e evolução" href="/concierge/health" />
-          <ActionCard icon={Users} title="Minha família" subtitle="Cuide de quem importa" href="/family" />
+          <ActionCard icon={Users} title="Minha família" subtitle="Pendências e coordenação familiar" href="/concierge/family" />
           <ActionCard icon={Stethoscope} title="Consulta" subtitle="Quando a equipe indicar ou você precisar" href="/telemedicine" />
         </div>
       </section>
