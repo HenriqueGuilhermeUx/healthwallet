@@ -17,15 +17,15 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  current_role TEXT;
+  staff_role TEXT;
   expected_reference_doctor UUID;
   patient_reply_transition BOOLEAN := false;
 BEGIN
-  SELECT s.role INTO current_role
+  SELECT s.role INTO staff_role
   FROM public.concierge_staff s
   WHERE s.user_id = auth.uid() AND s.active = true;
 
-  IF current_role IS NULL THEN
+  IF staff_role IS NULL THEN
     patient_reply_transition :=
       auth.uid() = OLD.patient_id
       AND OLD.status = 'waiting_patient'
@@ -62,7 +62,7 @@ BEGIN
   END IF;
 
   -- Nurses can take an unassigned case themselves, but cannot assign other nurses.
-  IF current_role = 'nurse'
+  IF staff_role = 'nurse'
      AND NEW.assigned_nurse_id IS DISTINCT FROM OLD.assigned_nurse_id
      AND NEW.assigned_nurse_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'Nurse cannot assign request to another nurse';
@@ -72,7 +72,7 @@ BEGIN
   -- before this guard and may populate only the active primary reference physician
   -- on a real escalation. If there is no reference physician, the medical queue
   -- remains deliberately unassigned.
-  IF current_role = 'nurse'
+  IF staff_role = 'nurse'
      AND NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id THEN
 
     SELECT a.professional_id
@@ -99,7 +99,7 @@ BEGIN
 
   -- Doctors may take an eligible medical case themselves, but never assign a
   -- different physician directly.
-  IF current_role = 'doctor'
+  IF staff_role = 'doctor'
      AND NEW.assigned_doctor_id IS DISTINCT FROM OLD.assigned_doctor_id
      AND NEW.assigned_doctor_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'Doctor cannot assign request to another doctor';
@@ -107,18 +107,18 @@ BEGIN
 
   -- Medical reviewers cannot rewrite the nursing continuity owner. Reassignment
   -- belongs to the coordinator/admin roster layer.
-  IF current_role = 'doctor'
+  IF staff_role = 'doctor'
      AND NEW.assigned_nurse_id IS DISTINCT FROM OLD.assigned_nurse_id THEN
     RAISE EXCEPTION 'Doctor cannot change nursing assignment';
   END IF;
 
-  IF current_role = 'nurse'
+  IF staff_role = 'nurse'
      AND NEW.status IS DISTINCT FROM OLD.status
      AND NEW.status NOT IN ('in_triage','waiting_patient','waiting_nurse','escalated_medical','action_plan','resolved') THEN
     RAISE EXCEPTION 'Status transition not allowed for nurse';
   END IF;
 
-  IF current_role = 'doctor'
+  IF staff_role = 'doctor'
      AND NEW.status IS DISTINCT FROM OLD.status
      AND NEW.status NOT IN ('medical_review','waiting_patient','action_plan','resolved') THEN
     RAISE EXCEPTION 'Status transition not allowed for doctor';
