@@ -6,11 +6,17 @@ on:
       - feature/health-concierge-mvp
     paths:
       - 'SQL_CONCIERGE_*.sql'
+      - 'SQL_PRE_CONCIERGE_*.sql'
+      - 'SQL_SECURE_HEALTH_SHARING_VALIDATION_BASE_V2.sql'
+      - 'scripts/secure-health-sharing-local-e2e.mjs'
       - 'HEALTH_CONCIERGE_VALIDATION.md'
       - 'HEALTH_CONCIERGE_E2E_RUNBOOK.md'
       - 'HEALTH_CONCIERGE_PILOT_ROLLOUT.md'
       - '.github/workflows/health-concierge-validation-contract.yml'
       - '.github/workflows/health-concierge-pilot-bootstrap.yml'
+      - '.github/workflows/pre-concierge-security-contract.yml'
+      - '.github/workflows/secure-health-sharing-contract.yml'
+      - '.github/workflows/secure-health-sharing-local-e2e.yml'
   workflow_dispatch:
 
 jobs:
@@ -45,10 +51,21 @@ jobs:
             SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql \
             SQL_CONCIERGE_VALIDATION_SEED_V1.sql \
             SQL_CONCIERGE_VALIDATION_POSTCHECK_V1.sql \
+            SQL_PRE_CONCIERGE_SECURITY_PREFLIGHT_V1.sql \
+            SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql \
+            SQL_PRE_CONCIERGE_SECURE_SHARING_PREFLIGHT_V2.sql \
+            SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql \
+            SQL_PRE_CONCIERGE_VIEW_HARDENING_PREFLIGHT_V3.sql \
+            SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql \
+            SQL_SECURE_HEALTH_SHARING_VALIDATION_BASE_V2.sql \
+            scripts/secure-health-sharing-local-e2e.mjs \
             HEALTH_CONCIERGE_VALIDATION.md \
             HEALTH_CONCIERGE_E2E_RUNBOOK.md \
             HEALTH_CONCIERGE_PILOT_ROLLOUT.md \
-            .github/workflows/health-concierge-pilot-bootstrap.yml
+            .github/workflows/health-concierge-pilot-bootstrap.yml \
+            .github/workflows/pre-concierge-security-contract.yml \
+            .github/workflows/secure-health-sharing-contract.yml \
+            .github/workflows/secure-health-sharing-local-e2e.yml
           do
             test -f "$file" || { echo "Missing required validation artifact: $file"; exit 1; }
           done
@@ -187,6 +204,53 @@ jobs:
             exit 1
           fi
 
+      - name: Pre-production security stack audit
+        run: |
+          set -euo pipefail
+          doc='HEALTH_CONCIERGE_PILOT_ROLLOUT.md'
+
+          # Exact Gate C order must be documented and immutable without CI review.
+          node <<'NODE'
+          const fs = require('fs')
+          const text = fs.readFileSync('HEALTH_CONCIERGE_PILOT_ROLLOUT.md', 'utf8')
+          const order = [
+            'SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql',
+            'SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql',
+            'SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql',
+          ]
+          let previous = -1
+          for (const file of order) {
+            const current = text.indexOf(file)
+            if (current < 0) throw new Error(`Rollout doc missing security migration ${file}`)
+            if (current <= previous) throw new Error(`Gate C security migration order broken at ${file}`)
+            previous = current
+          }
+          console.log('Gate C security migration order is V1 -> V2 -> V3.')
+          NODE
+
+          grep -q 'SQL_PRE_CONCIERGE_SECURITY_PREFLIGHT_V1.sql' "$doc"
+          grep -q 'SQL_PRE_CONCIERGE_SECURE_SHARING_PREFLIGHT_V2.sql' "$doc"
+          grep -q 'SQL_PRE_CONCIERGE_VIEW_HARDENING_PREFLIGHT_V3.sql' "$doc"
+          grep -q 'security_invoker' SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql
+          grep -q 'extensions.gen_random_bytes(18)' SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql
+          grep -q 'access_code_already_redeemed' SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql
+          grep -q 'private.has_health_share_access' SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql
+          grep -q 'DROP POLICY IF EXISTS mu_professional_select' SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql
+          grep -q 'DROP POLICY IF EXISTS pc_professional_select' SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql
+          grep -q 'secure_health_sharing_e2e.*PASS' scripts/secure-health-sharing-local-e2e.mjs
+
+          # Production hardening may not be automated from the normal validation contract.
+          for workflow in \
+            .github/workflows/pre-concierge-security-contract.yml \
+            .github/workflows/secure-health-sharing-contract.yml \
+            .github/workflows/secure-health-sharing-local-e2e.yml
+          do
+            if grep -Eq 'supabase[[:space:]]+link|supabase[[:space:]]+db[[:space:]]+push|--linked' "$workflow"; then
+              echo "Remote Supabase mutation path found in security validation workflow: $workflow"
+              exit 1
+            fi
+          done
+
       - name: Pilot rollout documentation audit
         run: |
           set -euo pipefail
@@ -197,7 +261,8 @@ jobs:
           grep -q 'Explicit production pilot approval' "$doc"
           grep -q 'Do not put real patient data' "$doc"
           grep -q 'automation_events.*not required' "$doc"
-          grep -q 'NO-GO for production migration or real-patient rollout yet' "$doc"
+          grep -q 'NO-GO for production migration' "$doc"
+          grep -q 'Production security migrations V1/V2/V3: \*\*not applied\*\*' "$doc"
 
       - name: E2E release gate audit
         run: |
