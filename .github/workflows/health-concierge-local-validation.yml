@@ -92,6 +92,17 @@ jobs:
           set +a
           psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_CONCIERGE_VALIDATION_BASE_V1.sql
 
+      - name: Apply production-drift pilot compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source /tmp/healthwallet-supabase.env
+          set +a
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f SQL_CONCIERGE_PILOT_COMPAT_V1.sql | tee /tmp/concierge-pilot-compat.log
+          grep -q 'PASS' /tmp/concierge-pilot-compat.log
+          echo 'PASS: staging compatibility prerequisite executes cleanly before Concierge migrations.'
+
       - name: Apply canonical 15 Concierge migrations
         shell: bash
         run: |
@@ -301,6 +312,7 @@ jobs:
       - name: Validation result
         run: |
           echo 'GO FOR CONTROLLED VALIDATION ENVIRONMENT ONLY'
+          echo 'Pilot compatibility + canonical Concierge schema + full Auth/PostgREST/RLS E2E passed in an ephemeral stack.'
           echo 'No production migration, deploy or branch merge occurred.'
 
       - name: Stop ephemeral Supabase
