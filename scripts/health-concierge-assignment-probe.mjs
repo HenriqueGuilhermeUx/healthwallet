@@ -37,6 +37,22 @@ const nurseA = await signIn(emails.nurseA)
 const doctorA = await signIn(emails.doctorA)
 const doctorB = await signIn(emails.doctorB)
 
+const diagnostics = await nurseA.client.rpc('concierge_validation_session_diagnostics')
+if (diagnostics.error) throw new Error(`Session diagnostics RPC: ${diagnostics.error.message}`)
+if (diagnostics.data?.auth_uid !== nurseA.id) {
+  throw new Error(`Runtime auth.uid mismatch: expected ${nurseA.id}, got ${diagnostics.data?.auth_uid}`)
+}
+
+console.log('DIAGNOSTIC: authenticated PostgREST session')
+console.log(JSON.stringify(diagnostics.data, null, 2))
+
+if (diagnostics.data?.session_replication_role === 'replica') {
+  throw new Error('SESSION_REPLICATION_ROLE_REPLICA: authenticated PostgREST requests are suppressing ordinary triggers')
+}
+if (!['origin', 'local'].includes(diagnostics.data?.session_replication_role)) {
+  throw new Error(`Unexpected session_replication_role: ${diagnostics.data?.session_replication_role}`)
+}
+
 const nurseRole = await nurseA.client.rpc('concierge_has_staff_role', { required_roles: ['nurse'] })
 if (nurseRole.error) throw new Error(`Nurse role RPC: ${nurseRole.error.message}`)
 if (nurseRole.data !== true) throw new Error('Runtime identity mismatch: Nurse A is not seen as nurse')
@@ -113,6 +129,7 @@ try {
 
     console.error('DIAGNOSTIC: PostgREST returned success for forbidden assignment')
     console.error(JSON.stringify({
+      session: diagnostics.data,
       attempted_return: attempted.data,
       persisted_state: persisted.data,
       expected_nurse: nurseA.id,
