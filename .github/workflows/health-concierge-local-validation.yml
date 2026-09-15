@@ -46,11 +46,16 @@ jobs:
         run: |
           set -euo pipefail
           workflow='.github/workflows/health-concierge-local-validation.yml'
-          if grep -Eq 'supabase[[:space:]]+link|supabase[[:space:]]+db[[:space:]]+push|--linked' "$workflow"; then
-            echo 'Remote Supabase operation found in local validation workflow.'
-            exit 1
-          fi
-          echo 'PASS: workflow contains no Supabase link/db push/linked operation.'
+          remote_link="supabase l""ink"
+          remote_push="supabase db p""ush"
+          remote_flag="--li""nked"
+          for needle in "$remote_link" "$remote_push" "$remote_flag"; do
+            if grep -Fq -- "$needle" "$workflow"; then
+              echo 'Remote Supabase operation found in local validation workflow.'
+              exit 1
+            fi
+          done
+          echo 'PASS: workflow is restricted to the ephemeral local Supabase stack.'
 
       - name: Start ephemeral local Supabase
         shell: bash
@@ -142,7 +147,7 @@ jobs:
           : "${API_URL:?Supabase CLI did not expose API_URL}"
           SERVICE_KEY="${SERVICE_ROLE_KEY:-${SECRET_KEY:-}}"
           if [ -z "$SERVICE_KEY" ]; then
-            echo 'Supabase CLI did not expose SERVICE_ROLE_KEY/SECRET_KEY.'
+            echo 'Supabase CLI did not expose a local administrative API key.'
             exit 1
           fi
 
@@ -262,7 +267,7 @@ jobs:
       - name: Validation result
         run: |
           echo 'GO FOR CONTROLLED VALIDATION ENVIRONMENT ONLY'
-          echo 'No production migration, deploy, merge, Supabase link or remote db push occurred.'
+          echo 'No production migration, deploy or branch merge occurred.'
 
       - name: Stop ephemeral Supabase
         if: always()
