@@ -1,0 +1,106 @@
+name: Secure Health Sharing Contract
+
+on:
+  push:
+    branches:
+      - feature/health-concierge-mvp
+    paths:
+      - 'src/pages/ShareQRCode.tsx'
+      - 'src/pages/AccessCode.tsx'
+      - 'SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql'
+      - 'SQL_PRE_CONCIERGE_SECURE_SHARING_PREFLIGHT_V2.sql'
+      - '.github/workflows/secure-health-sharing-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secure-sharing-contract:
+    name: Validate professional-bound health sharing
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: TypeScript and Vite build
+        run: pnpm build
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key-for-static-build-only
+
+      - name: Patient generation must be server-side and strong
+        run: |
+          set -euo pipefail
+          file='src/pages/ShareQRCode.tsx'
+          grep -Fq "supabase.rpc('create_health_access_code'" "$file"
+          grep -Fq 'p_permissions: shareData' "$file"
+          grep -Fq 'p_duration_hours: duration' "$file"
+          grep -Fq 'Login profissional obrigatório' "$file"
+
+          if grep -Fq 'Math.random' "$file"; then
+            echo 'Patient sharing must not generate access tokens in the browser.'
+            exit 1
+          fi
+          if grep -Eq "from\(['\"]access_codes['\"]\)[[:space:][:print:]]*\.insert" "$file"; then
+            echo 'Patient sharing must not insert bearer codes directly from the browser.'
+            exit 1
+          fi
+
+      - name: Professional redemption must precede clinical reads
+        run: |
+          set -euo pipefail
+          file='src/pages/AccessCode.tsx'
+          grep -Fq "supabase.rpc('redeem_health_access_code'" "$file"
+          grep -Fq 'professional_profile_required' "$file"
+          grep -Fq 'access_code_already_redeemed' "$file"
+          grep -Fq 'Acesso profissional protegido' "$file"
+          grep -Fq 'signInWithEmail' "$file"
+
+          if grep -Eq "from\(['\"]access_codes['\"]\)" "$file"; then
+            echo 'Professional page must not read access_codes directly before redemption.'
+            exit 1
+          fi
+
+      - name: Database authorization contract
+        run: |
+          set -euo pipefail
+          file='SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql'
+          test -f "$file"
+          grep -Fq 'extensions.gen_random_bytes(18)' "$file"
+          grep -Fq 'code_version = 2' "$file"
+          grep -Fq 'private.current_health_professional_id()' "$file"
+          grep -Fq 'private.has_health_share_access' "$file"
+          grep -Fq 'professional_id IS NOT NULL' "$file"
+          grep -Fq 'redeemed_at IS NOT NULL' "$file"
+          grep -Fq 'access_code_already_redeemed' "$file"
+          grep -Fq 'REVOKE ALL ON TABLE public.access_codes FROM anon, authenticated' "$file"
+          grep -Fq 'REVOKE SELECT ON TABLE public.shared_access FROM anon' "$file"
+          grep -Fq 'DROP POLICY IF EXISTS "Allow shared health_summaries"' "$file"
+          grep -Fq 'DROP POLICY IF EXISTS "Allow shared health_scores"' "$file"
+          grep -Fq 'DROP POLICY IF EXISTS "Allow shared medical_records"' "$file"
+          grep -Fq 'DROP POLICY IF EXISTS "Allow shared medications"' "$file"
+          grep -Fq 'DROP POLICY IF EXISTS "Allow shared medical_events"' "$file"
+          grep -Fq 'professional_shared_health_plan_select' "$file"
+
+          if grep -Ei 'GRANT[[:space:]]+EXECUTE.*TO[[:space:]]+anon' "$file"; then
+            echo 'Secure sharing RPCs must never be executable by anon.'
+            exit 1
+          fi
+
+      - name: No production automation
+        run: |
+          echo 'Secure sharing contract passed static/build validation.'
+          echo 'No Supabase migration, deployment, branch merge or production write is performed by this workflow.'
