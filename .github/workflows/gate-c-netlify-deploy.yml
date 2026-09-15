@@ -1,0 +1,56 @@
+name: Gate C Netlify Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/gate-c-netlify-deploy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy transition-safe sharing UI
+    runs-on: ubuntu-latest
+    env:
+      NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_TOKEN }}
+    steps:
+      - name: Checkout exact production commit
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify transition-safe source
+        run: |
+          set -euo pipefail
+          grep -q "create_health_access_code" src/pages/ShareQRCode.tsx
+          ! grep -q "Math.random" src/pages/ShareQRCode.tsx
+          ! grep -Eq "from\('access_codes'\).*insert|\.from\('access_codes'\)[[:space:]]*\.insert" src/pages/ShareQRCode.tsx
+          grep -q "HW-\[0-9A-F\]" src/pages/AccessCode.tsx
+          grep -q "Compartilhamento antigo desativado" src/pages/AccessCode.tsx
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Require Netlify credential
+        run: |
+          if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
+            echo "NETLIFY_AUTH_TOKEN/NETLIFY_TOKEN GitHub secret is not configured."
+            exit 2
+          fi
+
+      - name: Deploy production to Netlify
+        run: npx -y netlify-cli@latest deploy --build --prod --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --message "Gate C transition-safe secure sharing frontend"
