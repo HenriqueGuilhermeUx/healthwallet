@@ -7,9 +7,13 @@ on:
     paths:
       - 'src/pages/Concierge*.tsx'
       - 'src/services/concierge.ts'
+      - 'src/services/conciergeAnalytics.ts'
       - 'src/App.tsx'
       - 'src/components/BottomNav.tsx'
       - 'SQL_CONCIERGE_MVP_V1.sql'
+      - 'SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql'
+      - 'HEALTH_CONCIERGE_MVP.md'
+      - 'HEALTH_CONCIERGE_VALIDATION.md'
       - '.github/workflows/health-concierge-ci.yml'
   workflow_dispatch:
 
@@ -49,17 +53,28 @@ jobs:
           grep -q 'path="/concierge/team"' src/App.tsx
           grep -q 'path="/concierge/ops"' src/App.tsx
           grep -q 'path="/concierge/ops/case/:id"' src/App.tsx
+          grep -q 'path="/concierge/ops/pilot"' src/App.tsx
+          grep -q 'path="/concierge/ops/roster"' src/App.tsx
 
       - name: SQL safety audit
         run: |
           test -f SQL_CONCIERGE_MVP_V1.sql
+          test -f SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql
           grep -q 'ALTER TABLE public.concierge_requests ENABLE ROW LEVEL SECURITY' SQL_CONCIERGE_MVP_V1.sql
           grep -q 'patient_id = auth.uid()' SQL_CONCIERGE_MVP_V1.sql
           grep -q 'public.concierge_is_staff()' SQL_CONCIERGE_MVP_V1.sql
-          if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_MVP_V1.sql; then
-            echo 'Unsafe unrestricted RLS policy found in Concierge migration'
+          grep -q 'ALTER TABLE public.concierge_work_logs ENABLE ROW LEVEL SECURITY' SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql
+          grep -q 'staff_user_id = auth.uid()' SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql
+          if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_MVP_V1.sql SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql; then
+            echo 'Unsafe unrestricted RLS policy found in Concierge migrations'
             exit 1
           fi
+
+      - name: Patient safety audit
+        run: |
+          grep -q 'Concierge não é serviço de emergência' src/pages/ConciergeRequest.tsx
+          grep -q 'Procure atendimento de urgência imediatamente' src/pages/ConciergeRequest.tsx
+          grep -q 'não substitui revisão clínica' src/pages/ConciergeCase.tsx
 
       - name: Validation-only guard
         run: |
