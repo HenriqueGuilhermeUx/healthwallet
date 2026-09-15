@@ -1,0 +1,238 @@
+name: Health Concierge Pilot Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_project_ref:
+        description: 'Supabase project ref for the disposable staging/pilot branch. Never production.'
+        required: true
+        type: string
+      confirmation:
+        description: 'Type exactly: BOOTSTRAP PILOT ONLY'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap-pilot-schema:
+    name: Bootstrap data-free Concierge pilot schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fail-closed target guard
+        shell: bash
+        env:
+          TARGET_REF: ${{ inputs.target_project_ref }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          PRODUCTION_REF: ${{ secrets.HEALTHWALLET_PRODUCTION_PROJECT_REF }}
+          PILOT_DB_URL: ${{ secrets.CONCIERGE_PILOT_DB_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_REF_NAME" != 'feature/health-concierge-mvp' ]; then
+            echo 'Pilot bootstrap may only run from feature/health-concierge-mvp until release approval changes this gate.'
+            exit 1
+          fi
+
+          if [ "$CONFIRMATION" != 'BOOTSTRAP PILOT ONLY' ]; then
+            echo 'Explicit pilot-only confirmation was not provided.'
+            exit 1
+          fi
+
+          : "${PRODUCTION_REF:?Missing HEALTHWALLET_PRODUCTION_PROJECT_REF repository secret}"
+          : "${PILOT_DB_URL:?Missing CONCIERGE_PILOT_DB_URL repository secret}"
+
+          if ! [[ "$TARGET_REF" =~ ^[a-z0-9]{20}$ ]]; then
+            echo 'Target project ref does not look like a Supabase project ref.'
+            exit 1
+          fi
+
+          if [ "$TARGET_REF" = "$PRODUCTION_REF" ]; then
+            echo 'REFUSED: target project ref is the HealthWallet production project.'
+            exit 1
+          fi
+
+          if [[ "$PILOT_DB_URL" == *"$PRODUCTION_REF"* ]]; then
+            echo 'REFUSED: pilot database URL contains the production project ref.'
+            exit 1
+          fi
+
+          if [[ "$PILOT_DB_URL" != *"$TARGET_REF"* ]]; then
+            echo 'REFUSED: pilot database URL does not correspond to the requested target project ref.'
+            exit 1
+          fi
+
+          echo 'PASS: target is explicitly non-production and URL/ref binding is consistent.'
+
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Require clean data-free HealthWallet staging database
+        shell: bash
+        env:
+          PILOT_DB_URL: ${{ secrets.CONCIERGE_PILOT_DB_URL }}
+        run: |
+          set -euo pipefail
+          psql "$PILOT_DB_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            missing_tables TEXT;
+            existing_concierge INTEGER;
+            copied_health_rows BIGINT;
+          BEGIN
+            WITH required(table_name) AS (
+              VALUES
+                ('profiles'),
+                ('health_plans'),
+                ('family_members'),
+                ('medications'),
+                ('health_reminders'),
+                ('medical_records'),
+                ('medical_events'),
+                ('health_scores'),
+                ('health_device_connections'),
+                ('health_daily_summaries'),
+                ('telemedicine_appointments')
+            )
+            SELECT string_agg(r.table_name, ', ' ORDER BY r.table_name)
+              INTO missing_tables
+            FROM required r
+            WHERE to_regclass('public.' || r.table_name) IS NULL;
+
+            IF missing_tables IS NOT NULL THEN
+              RAISE EXCEPTION 'Pilot bootstrap refused. Missing canonical HealthWallet tables: %', missing_tables;
+            END IF;
+
+            SELECT count(*) INTO existing_concierge
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind IN ('r','p')
+              AND c.relname LIKE 'concierge_%';
+
+            IF existing_concierge > 0 THEN
+              RAISE EXCEPTION 'Pilot bootstrap refused. Existing Concierge tables found: %', existing_concierge;
+            END IF;
+
+            SELECT
+              (SELECT count(*) FROM auth.users)
+              + (SELECT count(*) FROM public.profiles)
+              + (SELECT count(*) FROM public.family_members)
+              + (SELECT count(*) FROM public.medications)
+              + (SELECT count(*) FROM public.health_reminders)
+              + (SELECT count(*) FROM public.medical_records)
+              + (SELECT count(*) FROM public.medical_events)
+              + (SELECT count(*) FROM public.health_scores)
+              + (SELECT count(*) FROM public.health_device_connections)
+              + (SELECT count(*) FROM public.health_daily_summaries)
+              + (SELECT count(*) FROM public.telemedicine_appointments)
+              INTO copied_health_rows;
+
+            IF copied_health_rows > 0 THEN
+              RAISE EXCEPTION 'Pilot bootstrap refused. Target contains auth/patient/health rows: %', copied_health_rows;
+            END IF;
+          END $$;
+
+          SELECT
+            'PASS' AS pilot_clean_room_preflight,
+            current_database() AS database_name,
+            current_setting('server_version') AS postgres_version;
+          SQL
+
+      - name: Apply pilot compatibility and canonical Concierge schema atomically
+        shell: bash
+        env:
+          PILOT_DB_URL: ${{ secrets.CONCIERGE_PILOT_DB_URL }}
+        run: |
+          set -euo pipefail
+
+          psql "$PILOT_DB_URL" -X -v ON_ERROR_STOP=1 -1 \
+            -f SQL_CONCIERGE_PILOT_COMPAT_V1.sql \
+            -f SQL_CONCIERGE_MVP_V1.sql \
+            -f SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql \
+            -f SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql \
+            -f SQL_CONCIERGE_CONSENT_V1.sql \
+            -f SQL_CONCIERGE_ROSTER_GUARDS_V1.sql \
+            -f SQL_CONCIERGE_REQUEST_INTEGRITY_V1.sql \
+            -f SQL_CONCIERGE_PROGRAM_GUARDS_V1.sql \
+            -f SQL_CONCIERGE_ALERT_ENGINE_V1.sql \
+            -f SQL_CONCIERGE_ALERT_CONSENT_GUARD_V1.sql \
+            -f SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql \
+            -f SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql \
+            -f SQL_CONCIERGE_PATIENT_AUDIT_V1.sql \
+            -f SQL_CONCIERGE_SLA_METRICS_V1.sql \
+            -f SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql \
+            -f SQL_CONCIERGE_REFERENCE_TEAM_ROUTING_V1.sql \
+            -f SQL_CONCIERGE_VALIDATION_PRECHECK_V1.sql
+
+          echo 'PASS: compatibility + 15 Concierge migrations + precheck committed atomically.'
+
+      - name: Post-bootstrap clean-room contract
+        shell: bash
+        env:
+          PILOT_DB_URL: ${{ secrets.CONCIERGE_PILOT_DB_URL }}
+        run: |
+          set -euo pipefail
+          psql "$PILOT_DB_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            operational_rows BIGINT;
+            program_count BIGINT;
+            rule_count BIGINT;
+          BEGIN
+            SELECT
+              (SELECT count(*) FROM public.concierge_staff)
+              + (SELECT count(*) FROM public.concierge_memberships)
+              + (SELECT count(*) FROM public.concierge_assignments)
+              + (SELECT count(*) FROM public.concierge_requests)
+              + (SELECT count(*) FROM public.concierge_request_events)
+              + (SELECT count(*) FROM public.concierge_actions)
+              + (SELECT count(*) FROM public.concierge_program_enrollments)
+              + (SELECT count(*) FROM public.concierge_alerts)
+              + (SELECT count(*) FROM public.concierge_work_logs)
+              + (SELECT count(*) FROM public.concierge_consent_events)
+              + (SELECT count(*) FROM public.concierge_clinical_reviews)
+              + (SELECT count(*) FROM public.concierge_context_access_logs)
+              INTO operational_rows;
+
+            IF operational_rows <> 0 THEN
+              RAISE EXCEPTION 'Pilot bootstrap created unexpected operational/person rows: %', operational_rows;
+            END IF;
+
+            SELECT count(*) INTO program_count FROM public.concierge_programs;
+            SELECT count(*) INTO rule_count FROM public.concierge_rules;
+
+            IF program_count < 8 THEN
+              RAISE EXCEPTION 'Expected Concierge catalog programs were not seeded: %', program_count;
+            END IF;
+
+            IF rule_count < 4 THEN
+              RAISE EXCEPTION 'Expected operational alert rules were not seeded: %', rule_count;
+            END IF;
+          END $$;
+
+          SELECT
+            'PASS' AS pilot_schema_ready,
+            'No patient/staff/operational Concierge records were seeded.' AS message;
+          SQL
+
+      - name: Result
+        run: |
+          echo 'PILOT STAGING SCHEMA READY'
+          echo 'No production project was targeted.'
+          echo 'No validation personas were created.'
+          echo 'No application/site deployment was performed.'
+          echo 'Next gate: controlled human pilot setup only after explicit release approval.'
