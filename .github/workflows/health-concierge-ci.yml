@@ -6,12 +6,11 @@ on:
       - feature/health-concierge-mvp
     paths:
       - 'src/pages/Concierge*.tsx'
-      - 'src/services/concierge.ts'
-      - 'src/services/conciergeAnalytics.ts'
+      - 'src/components/Concierge*.tsx'
+      - 'src/services/concierge*.ts'
       - 'src/App.tsx'
       - 'src/components/BottomNav.tsx'
-      - 'SQL_CONCIERGE_MVP_V1.sql'
-      - 'SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql'
+      - 'SQL_CONCIERGE_*.sql'
       - 'HEALTH_CONCIERGE_MVP.md'
       - 'HEALTH_CONCIERGE_VALIDATION.md'
       - '.github/workflows/health-concierge-ci.yml'
@@ -45,6 +44,7 @@ jobs:
 
       - name: Concierge route audit
         run: |
+          grep -q 'path="/concierge/consent"' src/App.tsx
           grep -q 'path="/concierge"' src/App.tsx
           grep -q 'path="/concierge/request"' src/App.tsx
           grep -q 'path="/concierge/requests/:id"' src/App.tsx
@@ -55,18 +55,48 @@ jobs:
           grep -q 'path="/concierge/ops/case/:id"' src/App.tsx
           grep -q 'path="/concierge/ops/pilot"' src/App.tsx
           grep -q 'path="/concierge/ops/roster"' src/App.tsx
+          grep -q 'ConciergeAccessGate' src/App.tsx
 
-      - name: SQL safety audit
+      - name: Concierge migration inventory
         run: |
           test -f SQL_CONCIERGE_MVP_V1.sql
           test -f SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql
+          test -f SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql
+          test -f SQL_CONCIERGE_CONSENT_V1.sql
+          test -f SQL_CONCIERGE_ROSTER_GUARDS_V1.sql
+          test -f SQL_CONCIERGE_ALERT_ENGINE_V1.sql
+          test -f SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql
+          test -f SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
+          test -f HEALTH_CONCIERGE_VALIDATION.md
+
+      - name: SQL safety audit
+        run: |
           grep -q 'ALTER TABLE public.concierge_requests ENABLE ROW LEVEL SECURITY' SQL_CONCIERGE_MVP_V1.sql
           grep -q 'patient_id = auth.uid()' SQL_CONCIERGE_MVP_V1.sql
-          grep -q 'public.concierge_is_staff()' SQL_CONCIERGE_MVP_V1.sql
           grep -q 'ALTER TABLE public.concierge_work_logs ENABLE ROW LEVEL SECURITY' SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql
-          grep -q 'staff_user_id = auth.uid()' SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql
-          if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_MVP_V1.sql SQL_CONCIERGE_PILOT_ANALYTICS_V1.sql; then
+          grep -q 'public.concierge_can_access_request' SQL_CONCIERGE_AUTOMATION_GUARDS_V1.sql
+          grep -q 'public.concierge_has_active_consent' SQL_CONCIERGE_CONSENT_V1.sql
+          grep -q 'concierge_accept_consent' SQL_CONCIERGE_CONSENT_V1.sql
+          grep -q 'concierge_revoke_consent' SQL_CONCIERGE_CONSENT_V1.sql
+          grep -q 'concierge_set_primary_assignment' SQL_CONCIERGE_ROSTER_GUARDS_V1.sql
+          grep -q 'concierge_guard_clinical_review' SQL_CONCIERGE_CLINICAL_REVIEW_V1.sql
+          grep -q 'concierge_get_request_context' SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
+          grep -q 'concierge_context_access_logs' SQL_CONCIERGE_REQUEST_CONTEXT_V1.sql
+          if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_*.sql; then
             echo 'Unsafe unrestricted RLS policy found in Concierge migrations'
+            exit 1
+          fi
+
+      - name: Consent and context audit
+        run: |
+          grep -q 'consent_status' src/pages/ConciergeConsent.tsx
+          grep -q 'Revogar acesso' src/pages/ConciergeConsent.tsx
+          grep -q 'membership.consent_status' src/components/ConciergeAccessGate.tsx
+          grep -q 'Carregar contexto autorizado' src/components/ConciergeAuthorizedContextPanel.tsx
+          grep -q 'subjectFamilyMemberId' src/pages/ConciergeRequest.tsx
+          grep -q 'linked_exams' src/pages/ConciergeRequest.tsx
+          if grep -Eq "file_url.*ConciergeAuthorizedContextPanel|file_url.*conciergeContext" src/components/ConciergeAuthorizedContextPanel.tsx src/services/conciergeContext.ts; then
+            echo 'Raw file URL leaked into Concierge context UI/service'
             exit 1
           fi
 
@@ -75,6 +105,16 @@ jobs:
           grep -q 'Concierge não é serviço de emergência' src/pages/ConciergeRequest.tsx
           grep -q 'Procure atendimento de urgência imediatamente' src/pages/ConciergeRequest.tsx
           grep -q 'não substitui revisão clínica' src/pages/ConciergeCase.tsx
+          grep -q 'A publicação da revisão requer médico responsável' src/components/ConciergeClinicalReviewPanel.tsx
+
+      - name: Health Connect regression guard
+        run: |
+          echo 'Concierge CI must not alter HealthWallet Connect permission architecture.'
+          git diff HEAD^ -- . ':!src/pages/Concierge*' ':!src/components/Concierge*' ':!src/services/concierge*' ':!src/App.tsx' ':!src/components/BottomNav.tsx' ':!SQL_CONCIERGE_*.sql' ':!HEALTH_CONCIERGE_*.md' > /tmp/non_concierge.diff || true
+          if grep -E 'READ_(SLEEP|HEART_RATE|RESTING_HEART_RATE|OXYGEN_SATURATION|HEART_RATE_VARIABILITY|BLOOD_PRESSURE|WEIGHT|ACTIVE_CALORIES_BURNED|EXERCISE)' /tmp/non_concierge.diff; then
+            echo 'Unexpected Health Connect permission change outside Concierge scope'
+            exit 1
+          fi
 
       - name: Validation-only guard
         run: |
