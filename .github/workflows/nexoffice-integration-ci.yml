@@ -1,0 +1,97 @@
+name: MyDataMed NexOffice Integration CI
+
+on:
+  push:
+    branches:
+      - 'feature/mydatamed-nexoffice-integration'
+    paths:
+      - 'netlify/functions/nexoffice-bridge.js'
+      - 'netlify/functions/_shared/nexoffice.js'
+      - 'src/services/nexoffice.ts'
+      - 'scripts/nexoffice-*.mjs'
+      - 'netlify.toml'
+      - '.env.example'
+      - 'package.json'
+      - '.github/workflows/nexoffice-integration-ci.yml'
+  pull_request:
+    paths:
+      - 'netlify/functions/nexoffice-bridge.js'
+      - 'netlify/functions/_shared/nexoffice.js'
+      - 'src/services/nexoffice.ts'
+      - 'scripts/nexoffice-*.mjs'
+      - 'netlify.toml'
+      - '.env.example'
+      - 'package.json'
+      - '.github/workflows/nexoffice-integration-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Privacy boundary, contract and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run NexOffice privacy boundary tests
+        run: pnpm test:nexoffice
+
+      - name: Assert no hardcoded NexOffice absolute URL in adapter logic
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -En 'https?://' netlify/functions/_shared/nexoffice.js netlify/functions/nexoffice-bridge.js src/services/nexoffice.ts; then
+            echo 'Absolute URL found in NexOffice adapter logic. Use NEXOFFICE_API_BASE_URL.'
+            exit 1
+          fi
+          echo 'PASS: NexOffice adapter logic is URL-agnostic.'
+
+      - name: Assert Health Connect and Google Play strategy untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          git diff --name-only origin/main...HEAD > /tmp/changed.txt || true
+          cat /tmp/changed.txt
+          if grep -E '^(android/|healthwallet-connect/|GOOGLE_PLAY_HEALTHWALLET\.md$|GOOGLE_PLAY_ASSETS\.md$)' /tmp/changed.txt; then
+            echo 'Health Connect / Android / Google Play files changed in NexOffice integration branch.'
+            exit 1
+          fi
+          echo 'PASS: Health Connect / Google Play surface unchanged.'
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Optional controlled staging health probe
+        shell: bash
+        env:
+          NEXOFFICE_API_BASE_URL: ${{ vars.NEXOFFICE_STAGING_API_BASE_URL }}
+          NEXOFFICE_INTERNAL_KEY: ${{ secrets.NEXOFFICE_STAGING_INTERNAL_KEY }}
+          NEXOFFICE_ENFORCE_EXTERNAL_EFFECTS_OFF: 'true'
+        run: |
+          set -euo pipefail
+          if [ -n "${NEXOFFICE_API_BASE_URL:-}" ] && [ -n "${NEXOFFICE_INTERNAL_KEY:-}" ]; then
+            pnpm test:nexoffice:live
+          else
+            echo 'Controlled live probe skipped: staging URL/key not configured in GitHub Actions.'
+          fi
+
+      - name: Result
+        run: echo 'MYDATAMED -> NEXOFFICE INTEGRATION VALIDATION PASS'
