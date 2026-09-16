@@ -1,0 +1,6 @@
+DISARMED
+
+This file is the only push-based trigger allowed for the Gate D Concierge production frontend deployment.
+To deploy, the first line must be exactly:
+DEPLOY GATE D CONCIERGE
+and the file must include a non-empty request_id line.
