@@ -39,11 +39,29 @@ import Emergency from '@/pages/Emergency'
 import CareLinks from '@/pages/CareLinks'
 import ClinicCheckin from '@/pages/ClinicCheckin'
 import DeviceData from '@/pages/DeviceData'
+import Concierge from '@/pages/Concierge'
+import ConciergeRequest from '@/pages/ConciergeRequest'
+import ConciergeRequests from '@/pages/ConciergeRequests'
+import ConciergeRequestDetail from '@/pages/ConciergeRequestDetail'
+import ConciergePlan from '@/pages/ConciergePlan'
+import ConciergePrograms from '@/pages/ConciergePrograms'
+import ConciergeTeam from '@/pages/ConciergeTeam'
+import ConciergeAgenda from '@/pages/ConciergeAgenda'
+import ConciergeHealth from '@/pages/ConciergeHealth'
+import ConciergeFamily from '@/pages/ConciergeFamily'
+import ConciergeOperations from '@/pages/ConciergeOperations'
+import ConciergeCase from '@/pages/ConciergeCase'
+import ConciergePilotDashboard from '@/pages/ConciergePilotDashboard'
+import ConciergeRoster from '@/pages/ConciergeRoster'
+import ConciergeConsent from '@/pages/ConciergeConsent'
+import ConciergePatientOps from '@/pages/ConciergePatientOps'
 
 // Components
 import BottomNav from '@/components/BottomNav'
 import AppHeader from '@/components/AppHeader'
 import AppErrorBoundary from '@/components/AppErrorBoundary'
+import ConciergeAccessGate from '@/components/ConciergeAccessGate'
+import ConciergeProfessionalHeader from '@/components/ConciergeProfessionalHeader'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -57,6 +75,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     async function checkConsent() {
       if (!user) {
         if (!cancelled) setCheckingConsent(false)
+        return
+      }
+
+      const conciergeProfessionalRoute = location.pathname.startsWith('/concierge/ops')
+      if (conciergeProfessionalRoute) {
+        if (!cancelled) {
+          setAcceptedTerms(true)
+          setCheckingConsent(false)
+        }
         return
       }
 
@@ -97,7 +124,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     }
 
     setCheckingConsent(true)
-    checkConsent()
+    void checkConsent()
 
     return () => {
       cancelled = true
@@ -145,11 +172,38 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   )
 }
 
+function ProfessionalLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <ConciergeProfessionalHeader />
+      <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
+        {children}
+      </main>
+    </div>
+  )
+}
+
 function ProtectedPage({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute>
       <AppLayout>{children}</AppLayout>
     </ProtectedRoute>
+  )
+}
+
+function ProfessionalPage({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <ProfessionalLayout>{children}</ProfessionalLayout>
+    </ProtectedRoute>
+  )
+}
+
+function ConciergePatientPage({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedPage>
+      <ConciergeAccessGate>{children}</ConciergeAccessGate>
+    </ProtectedPage>
   )
 }
 
@@ -169,9 +223,20 @@ export default function App() {
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/delete-account" element={<DeleteAccount />} />
 
-            {/* Protected routes */}
+            {/* Protected patient routes */}
             <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
             <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
+            <Route path="/concierge/consent" element={<ProtectedPage><ConciergeConsent /></ProtectedPage>} />
+            <Route path="/concierge" element={<ConciergePatientPage><Concierge /></ConciergePatientPage>} />
+            <Route path="/concierge/health" element={<ConciergePatientPage><ConciergeHealth /></ConciergePatientPage>} />
+            <Route path="/concierge/family" element={<ConciergePatientPage><ConciergeFamily /></ConciergePatientPage>} />
+            <Route path="/concierge/request" element={<ConciergePatientPage><ConciergeRequest /></ConciergePatientPage>} />
+            <Route path="/concierge/requests" element={<ConciergePatientPage><ConciergeRequests /></ConciergePatientPage>} />
+            <Route path="/concierge/requests/:id" element={<ConciergePatientPage><ConciergeRequestDetail /></ConciergePatientPage>} />
+            <Route path="/concierge/plan" element={<ConciergePatientPage><ConciergePlan /></ConciergePatientPage>} />
+            <Route path="/concierge/programs" element={<ConciergePatientPage><ConciergePrograms /></ConciergePatientPage>} />
+            <Route path="/concierge/team" element={<ConciergePatientPage><ConciergeTeam /></ConciergePatientPage>} />
+            <Route path="/concierge/agenda" element={<ConciergePatientPage><ConciergeAgenda /></ConciergePatientPage>} />
             <Route path="/wallet" element={<ProtectedPage><HealthWallet /></ProtectedPage>} />
             <Route path="/devices" element={<ProtectedPage><DeviceData /></ProtectedPage>} />
             <Route path="/clinic-checkin" element={<ProtectedPage><ClinicCheckin /></ProtectedPage>} />
@@ -196,6 +261,13 @@ export default function App() {
             <Route path="/telemedicine-admin" element={<ProtectedPage><TelemedicineAdmin /></ProtectedPage>} />
             <Route path="/emergency" element={<ProtectedPage><Emergency /></ProtectedPage>} />
             <Route path="/care-links" element={<ProtectedPage><CareLinks /></ProtectedPage>} />
+
+            {/* MyDataMed / Concierge professional operations */}
+            <Route path="/concierge/ops" element={<ProfessionalPage><ConciergeOperations /></ProfessionalPage>} />
+            <Route path="/concierge/ops/case/:id" element={<ProfessionalPage><ConciergeCase /></ProfessionalPage>} />
+            <Route path="/concierge/ops/patient/:patientId" element={<ProfessionalPage><ConciergePatientOps /></ProfessionalPage>} />
+            <Route path="/concierge/ops/pilot" element={<ProfessionalPage><ConciergePilotDashboard /></ProfessionalPage>} />
+            <Route path="/concierge/ops/roster" element={<ProfessionalPage><ConciergeRoster /></ProfessionalPage>} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,0 +1,58 @@
+name: Gate D Concierge Release Contract
+
+on:
+  push:
+    branches:
+      - 'release/health-concierge-gate-d'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-release:
+    name: Validate selective Concierge release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Verify selective release boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "path=\"/concierge\"" src/App.tsx
+          grep -q "path=\"/concierge/ops\"" src/App.tsx
+          grep -q "ConciergeAccessGate" src/App.tsx
+          grep -q "ConciergeProfessionalHeader" src/App.tsx
+          grep -q "Concierge" src/components/BottomNav.tsx
+          test -f src/services/concierge.ts
+          test -f src/services/conciergeConsent.ts
+          test -f src/services/conciergeContext.ts
+          test -f src/services/conciergePrograms.ts
+          test -f src/services/conciergeAnalytics.ts
+          test -f src/services/conciergeMessaging.ts
+          test ! -e src/services/conciergeAI.ts
+          test ! -e netlify/functions/concierge-ai-assist.js
+          ! grep -q "@capacitor/app" src/App.tsx
+          ! grep -q "ConnectReturnBridge" src/App.tsx
+          test ! -d healthwallet-connect
+          echo 'PASS: Concierge release is selective; Connect and AI assist remain excluded.'
+
+      - name: Build production bundle
+        run: pnpm build
+
+      - name: Result
+        run: echo 'GATE D CONCIERGE RELEASE CANDIDATE BUILD PASS'

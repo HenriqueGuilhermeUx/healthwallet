@@ -8,6 +8,15 @@
 [functions]
   directory = "netlify/functions"
 
+# Concierge uses the same HealthWallet SPA. Once this alias is attached to the
+# Netlify site, opening the subdomain root lands on the patient Concierge home.
+# Keep this temporary (302) during the pilot; it can become 301 after rollout.
+[[redirects]]
+  from = "https://concierge.mydatamed.com/"
+  to = "https://concierge.mydatamed.com/concierge"
+  status = 302
+  force = true
+
 [[redirects]]
   from = "/api/analyze-exam"
   to = "/.netlify/functions/analyze-exam"
