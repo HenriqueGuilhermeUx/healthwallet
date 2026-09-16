@@ -25,24 +25,32 @@ The production deploy currently remains on the older Netlify build:
 - current deploy state: `ready`
 - current deployed title: `feat: show and persist clinician wearable summary`
 
-The repository `main` contains the transition-safe sharing frontend and the production deploy workflow. The deploy workflow was hardened at commit:
+The repository `main` contains the transition-safe sharing frontend and the hardened production deploy workflow. The deploy workflow with the dedicated trigger path was finalized at commit:
 
-- `7cc8fdbf9091145a655cda57829e3baffb3f31cd`
+- `06c918ba3e6247db2bb7e8851c2d96d16e23756f`
 
-The workflow is manual-only and requires the exact confirmation string:
+The workflow has two deliberate invocation paths:
+
+1. manual `workflow_dispatch` with exact confirmation `DEPLOY GATE C FRONTEND`; or
+2. a push that changes only the dedicated file `.github/gate-c-netlify-deploy-trigger.txt`.
+
+The dedicated trigger file is currently **DISARMED**. For a push-triggered production deploy, its first line must be exactly:
 
 `DEPLOY GATE C FRONTEND`
 
-It performs:
+and it must contain a non-empty `request_id=...` line. Normal application-code pushes do not match the deploy workflow path filter and therefore cannot publish this Gate C release.
+
+The workflow performs:
 
 1. checkout of the exact `main` commit;
-2. Node 22 + Corepack setup;
-3. `pnpm install --no-frozen-lockfile`;
-4. source assertions proving the fail-closed secure-sharing frontend is present;
-5. TypeScript/Vite production build;
-6. Netlify credential guard;
-7. production deploy to the existing HealthWallet Netlify site;
-8. HTTP reachability check against the resulting deploy URL.
+2. dedicated-trigger authorization when invoked by push;
+3. Node 22 + Corepack setup;
+4. `pnpm install --no-frozen-lockfile`;
+5. source assertions proving the fail-closed secure-sharing frontend is present;
+6. TypeScript/Vite production build;
+7. Netlify credential guard;
+8. production deploy to the existing HealthWallet Netlify site;
+9. HTTP reachability check against the resulting deploy URL.
 
 No Netlify access token is stored in source control. The workflow expects a GitHub Actions secret named `NETLIFY_AUTH_TOKEN` (legacy supported secret aliases are accepted, but `NETLIFY_AUTH_TOKEN` is canonical).
 
@@ -97,7 +105,13 @@ Do not reorder these steps.
 
 ### 1. Publish transition-safe frontend
 
-Run `.github/workflows/gate-c-netlify-deploy.yml` from `main` with:
+Preferred automated handoff after `NETLIFY_AUTH_TOKEN` exists:
+
+- update `.github/gate-c-netlify-deploy-trigger.txt` on `main` so line 1 is `DEPLOY GATE C FRONTEND`;
+- set a unique non-empty `request_id=...` line;
+- push only that dedicated trigger-file change.
+
+The same deployment may alternatively be started manually from `.github/workflows/gate-c-netlify-deploy.yml` with:
 
 `confirmation = DEPLOY GATE C FRONTEND`
 
@@ -191,6 +205,7 @@ As of this packet:
 
 - transition-safe frontend code: READY in repository `main`;
 - transition-safe frontend build: PASS;
+- dedicated production deploy trigger: READY and DISARMED;
 - transition-safe frontend production publication: BLOCKED only by missing Netlify GitHub secret;
 - production V1/V2/V3 preflights: PASS read-only;
 - production V1/V2/V3 DDL: NOT APPLIED;
