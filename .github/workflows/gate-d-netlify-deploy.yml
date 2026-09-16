@@ -1,0 +1,140 @@
+name: Gate D Health Concierge Netlify Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DEPLOY GATE D CONCIERGE to publish the validated selective Concierge frontend'
+        required: true
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/gate-d-netlify-deploy-trigger.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-d-concierge-netlify-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy Gate D Concierge
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_TOKEN || secrets.NETLIFY_ACCESS_TOKEN || secrets.NETLIFY_API_TOKEN }}
+    steps:
+      - name: Checkout exact main commit
+        uses: actions/checkout@v4
+
+      - name: Detect deployment authorization
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.confirmation }}" = 'DEPLOY GATE D CONCIERGE' ]; then
+              echo 'armed=true' >> "$GITHUB_OUTPUT"
+              echo 'Manual Gate D production deployment authorized.'
+            else
+              echo 'armed=false' >> "$GITHUB_OUTPUT"
+              echo 'Manual confirmation did not match; deployment is disarmed.'
+            fi
+            exit 0
+          fi
+
+          trigger='.github/gate-d-netlify-deploy-trigger.txt'
+          if [ "$(head -n 1 "$trigger")" = 'DEPLOY GATE D CONCIERGE' ] && grep -Eq '^request_id=.+$' "$trigger"; then
+            echo 'armed=true' >> "$GITHUB_OUTPUT"
+            echo 'Dedicated Gate D production deploy trigger accepted.'
+          else
+            echo 'armed=false' >> "$GITHUB_OUTPUT"
+            echo 'Gate D production deploy trigger is disarmed; no deployment will run.'
+          fi
+
+      - name: Setup Node
+        if: ${{ steps.gate.outputs.armed == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        if: ${{ steps.gate.outputs.armed == 'true' }}
+        run: corepack enable
+
+      - name: Install dependencies
+        if: ${{ steps.gate.outputs.armed == 'true' }}
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Verify selective Gate D boundary
+        if: ${{ steps.gate.outputs.armed == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'path="/concierge"' src/App.tsx
+          grep -q 'path="/concierge/ops"' src/App.tsx
+          grep -q 'ConciergeAccessGate' src/App.tsx
+          grep -q 'ConciergeProfessionalHeader' src/App.tsx
+          test -f src/services/concierge.ts
+          test -f src/services/conciergeConsent.ts
+          test -f src/services/conciergeContext.ts
+          test -f src/services/conciergeMessaging.ts
+          test ! -e src/services/conciergeAI.ts
+          test ! -e netlify/functions/concierge-ai-assist.js
+          ! grep -q '@capacitor/app' src/App.tsx
+          ! grep -q 'ConnectReturnBridge' src/App.tsx
+          test ! -d healthwallet-connect
+          echo 'PASS: selective Concierge release boundary intact.'
+
+      - name: Build application
+        if: ${{ steps.gate.outputs.armed == 'true' }}
+        run: pnpm build
+
+      - name: Require Netlify credential
+        if: ${{ steps.gate.outputs.armed == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'Netlify token is missing.'; exit 2; }
+
+      - name: Deploy production to Netlify
+        if: ${{ steps.gate.outputs.armed == 'true' }}
+        id: netlify
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx -y netlify-cli@latest deploy \
+            --build \
+            --prod \
+            --site "$NETLIFY_SITE_ID" \
+            --auth "$NETLIFY_AUTH_TOKEN" \
+            --message "Gate D Health Concierge ${GITHUB_SHA}" \
+            --json > netlify-deploy.json
+          cat netlify-deploy.json
+          DEPLOY_URL="$(jq -r '.deploy_url // .deploy_ssl_url // empty' netlify-deploy.json)"
+          PROD_URL="$(jq -r '.url // empty' netlify-deploy.json)"
+          test -n "$DEPLOY_URL"
+          echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+          echo "prod_url=$PROD_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify production routes
+        if: ${{ steps.gate.outputs.armed == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='${{ steps.netlify.outputs.deploy_url }}'
+          for route in '/' '/concierge' '/concierge/ops' '/login'; do
+            curl --fail --silent --show-error --location --retry 5 --retry-delay 3 "${BASE}${route}" > /tmp/page.html
+            grep -qi '<div id="root"' /tmp/page.html
+            echo "PASS ${route}"
+          done
+          echo "Gate D Concierge frontend reachable at $BASE"
+
+      - name: Confirm disarmed no-op
+        if: ${{ steps.gate.outputs.armed != 'true' }}
+        run: echo 'Gate D deployment safely disarmed; no build or production deployment executed.'
