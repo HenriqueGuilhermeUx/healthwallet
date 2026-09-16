@@ -22,6 +22,13 @@
   to = "/.netlify/functions/analyze-exam"
   status = 200
 
+# Server-side MyDataMed -> NexOffice bridge. The shared NexOffice credential never
+# enters the browser bundle; the frontend calls only this same-origin route.
+[[redirects]]
+  from = "/api/nexoffice"
+  to = "/.netlify/functions/nexoffice-bridge"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
