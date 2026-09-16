@@ -89,15 +89,32 @@ jobs:
           set -euo pipefail
           git fetch --depth=1 origin main
           git show origin/main:.github/workflows/gate-c-netlify-deploy.yml > /tmp/gate-c-deploy.yml
+          git show origin/main:.github/gate-c-netlify-deploy-trigger.txt > /tmp/gate-c-trigger.txt
+
           grep -q 'workflow_dispatch' /tmp/gate-c-deploy.yml
+          grep -q '^  push:' /tmp/gate-c-deploy.yml
+          grep -q "\.github/gate-c-netlify-deploy-trigger\.txt" /tmp/gate-c-deploy.yml
+          grep -q 'Authorize dedicated push trigger' /tmp/gate-c-deploy.yml
           grep -q 'DEPLOY GATE C FRONTEND' /tmp/gate-c-deploy.yml
+          grep -q 'request_id=' /tmp/gate-c-deploy.yml
           grep -q 'NETLIFY_AUTH_TOKEN' /tmp/gate-c-deploy.yml
           grep -q 'pnpm install --no-frozen-lockfile' /tmp/gate-c-deploy.yml
           grep -q 'create_health_access_code' /tmp/gate-c-deploy.yml
           grep -q 'Compartilhamento antigo desativado' /tmp/gate-c-deploy.yml
           grep -q 'Verify deployed site is reachable' /tmp/gate-c-deploy.yml
-          if grep -Eq '^  push:|^  schedule:' /tmp/gate-c-deploy.yml; then
-            echo 'Gate C production deploy must remain manual-only.'
+
+          push_block="$(awk '/^  push:/{capture=1} /^permissions:/{capture=0} capture{print}' /tmp/gate-c-deploy.yml)"
+          printf '%s\n' "$push_block" | grep -q 'branches:'
+          printf '%s\n' "$push_block" | grep -q -- '- main'
+          printf '%s\n' "$push_block" | grep -q 'paths:'
+          printf '%s\n' "$push_block" | grep -q -- "- '.github/gate-c-netlify-deploy-trigger.txt'"
+          if printf '%s\n' "$push_block" | grep -Eq "src/|\*\*|package\.json|pnpm-lock\.yaml"; then
+            echo 'Gate C production deploy push trigger is broader than the dedicated trigger file.'
+            exit 1
+          fi
+
+          if grep -q '^  schedule:' /tmp/gate-c-deploy.yml; then
+            echo 'Gate C production deploy must never be scheduled.'
             exit 1
           fi
 
