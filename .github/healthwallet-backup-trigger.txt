@@ -1,4 +1,6 @@
-BACKUP HEALTHWALLET
-request_id=2026-09-16-gate-d-backup-1
+DISARMED
 
-Authorized one-time production logical backup before Health Concierge Gate D.
+This file is the only push-based trigger allowed for the HealthWallet production backup workflow.
+To run a backup, the first line must be exactly:
+BACKUP HEALTHWALLET
+and the file must include a non-empty request_id line.
