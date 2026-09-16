@@ -1,4 +1,6 @@
-DEPLOY GATE D CONCIERGE
-request_id=2026-09-16-health-concierge-gate-d-1
+DISARMED
 
-Authorized production deployment after backup, schema migration, security hardening, validation precheck and production postcheck passed.
+This file is the only push-based trigger allowed for the Gate D Concierge production frontend deployment.
+To deploy, the first line must be exactly:
+DEPLOY GATE D CONCIERGE
+and the file must include a non-empty request_id line.
