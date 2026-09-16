@@ -7,6 +7,11 @@ on:
         description: 'Type BACKUP HEALTHWALLET to generate an encrypted production backup'
         required: true
         type: string
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/healthwallet-backup-trigger.txt'
 
 permissions:
   contents: read
@@ -18,19 +23,48 @@ concurrency:
 jobs:
   backup:
     name: Create encrypted Supabase backup
-    if: ${{ github.event.inputs.confirmation == 'BACKUP HEALTHWALLET' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       HEALTHWALLET_DB_URL: ${{ secrets.HEALTHWALLET_DB_URL }}
       BACKUP_PASSPHRASE: ${{ secrets.HEALTHWALLET_BACKUP_PASSPHRASE }}
     steps:
+      - name: Checkout trigger state
+        uses: actions/checkout@v4
+
+      - name: Detect backup authorization
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = 'workflow_dispatch' ]; then
+            if [ '${{ github.event.inputs.confirmation }}' != 'BACKUP HEALTHWALLET' ]; then
+              echo 'armed=false' >> "$GITHUB_OUTPUT"
+              echo 'Manual confirmation does not match; backup remains disarmed.'
+              exit 0
+            fi
+            echo 'armed=true' >> "$GITHUB_OUTPUT"
+            echo 'Manual backup authorization accepted.'
+            exit 0
+          fi
+
+          trigger='.github/healthwallet-backup-trigger.txt'
+          if [ "$(head -n 1 "$trigger")" = 'BACKUP HEALTHWALLET' ] && grep -Eq '^request_id=.+$' "$trigger"; then
+            echo 'armed=true' >> "$GITHUB_OUTPUT"
+            echo 'Dedicated backup trigger accepted.'
+          else
+            echo 'armed=false' >> "$GITHUB_OUTPUT"
+            echo 'Backup trigger is DISARMED; no database connection will be attempted.'
+          fi
+
       - name: Setup Node
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Require backup secrets
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -49,6 +83,7 @@ jobs:
           echo 'Required secrets are configured.'
 
       - name: Verify Docker and Supabase CLI
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -56,6 +91,7 @@ jobs:
           npx --yes supabase@latest --version
 
       - name: Create logical dumps
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -80,6 +116,7 @@ jobs:
             -x 'storage.vector_indexes'
 
       - name: Validate dump files
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -98,6 +135,7 @@ jobs:
           echo 'All three logical dump files are present and non-empty.'
 
       - name: Encrypt backup before upload
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         id: encrypt
         shell: bash
         run: |
@@ -115,10 +153,10 @@ jobs:
           sha256sum "$archive" > "${archive}.sha256"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
           echo "checksum=${archive}.sha256" >> "$GITHUB_OUTPUT"
-          echo "Encrypted archive created successfully."
+          echo 'Encrypted archive created successfully.'
 
       - name: Remove plaintext dump files
-        if: ${{ always() }}
+        if: ${{ always() && steps.gate.outputs.armed == 'true' }}
         shell: bash
         run: |
           if [ -d backup ]; then
@@ -127,7 +165,7 @@ jobs:
           fi
 
       - name: Upload encrypted backup only
-        if: ${{ success() }}
+        if: ${{ success() && steps.gate.outputs.armed == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: healthwallet-encrypted-supabase-backup-${{ github.run_id }}
@@ -139,7 +177,11 @@ jobs:
           compression-level: 0
 
       - name: Backup result
-        if: ${{ success() }}
+        if: ${{ success() && steps.gate.outputs.armed == 'true' }}
         run: |
           echo 'BACKUP PASS: roles.sql, schema.sql and data.sql were generated, validated, encrypted, and uploaded as a 1-day artifact.'
           echo 'Only the encrypted archive and checksum were uploaded; plaintext SQL files were removed from the runner.'
+
+      - name: Confirm disarmed no-op
+        if: ${{ steps.gate.outputs.armed != 'true' }}
+        run: echo 'HealthWallet production backup is safely DISARMED; no database access occurred.'
