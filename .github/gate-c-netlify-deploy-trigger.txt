@@ -1,4 +1,6 @@
-DEPLOY GATE C FRONTEND
-request_id=2026-09-16T12:46-03:00
+DISARMED
 
-Authorized production frontend deployment for Gate C secure-sharing transition.
+This file is the only push-based trigger allowed for the Gate C production frontend deployment.
+It must be deliberately changed so the first line is exactly:
+DEPLOY GATE C FRONTEND
+and include a non-empty request_id line.
