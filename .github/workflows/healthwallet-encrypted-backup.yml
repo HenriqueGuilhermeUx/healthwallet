@@ -1,0 +1,145 @@
+name: HealthWallet Encrypted Supabase Backup
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type BACKUP HEALTHWALLET to generate an encrypted production backup'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: healthwallet-production-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Create encrypted Supabase backup
+    if: ${{ github.event.inputs.confirmation == 'BACKUP HEALTHWALLET' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      HEALTHWALLET_DB_URL: ${{ secrets.HEALTHWALLET_DB_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.HEALTHWALLET_BACKUP_PASSPHRASE }}
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Require backup secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${HEALTHWALLET_DB_URL:-}" ]; then
+            echo 'Missing GitHub Actions secret: HEALTHWALLET_DB_URL'
+            exit 2
+          fi
+          if [ -z "${BACKUP_PASSPHRASE:-}" ]; then
+            echo 'Missing GitHub Actions secret: HEALTHWALLET_BACKUP_PASSPHRASE'
+            exit 2
+          fi
+          if [ "${#BACKUP_PASSPHRASE}" -lt 20 ]; then
+            echo 'HEALTHWALLET_BACKUP_PASSPHRASE must be at least 20 characters.'
+            exit 2
+          fi
+          echo 'Required secrets are configured.'
+
+      - name: Verify Docker and Supabase CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version >/dev/null
+          npx --yes supabase@latest --version
+
+      - name: Create logical dumps
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p backup
+
+          npx --yes supabase@latest db dump \
+            --db-url "$HEALTHWALLET_DB_URL" \
+            -f backup/roles.sql \
+            --role-only
+
+          npx --yes supabase@latest db dump \
+            --db-url "$HEALTHWALLET_DB_URL" \
+            -f backup/schema.sql
+
+          npx --yes supabase@latest db dump \
+            --db-url "$HEALTHWALLET_DB_URL" \
+            -f backup/data.sql \
+            --use-copy \
+            --data-only \
+            -x 'storage.buckets_vectors' \
+            -x 'storage.vector_indexes'
+
+      - name: Validate dump files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in backup/roles.sql backup/schema.sql backup/data.sql; do
+            test -s "$file"
+          done
+          {
+            echo "created_at_utc=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "roles_bytes=$(wc -c < backup/roles.sql)"
+            echo "schema_bytes=$(wc -c < backup/schema.sql)"
+            echo "data_bytes=$(wc -c < backup/data.sql)"
+            sha256sum backup/roles.sql backup/schema.sql backup/data.sql
+          } > backup/manifest.txt
+          echo 'All three logical dump files are present and non-empty.'
+
+      - name: Encrypt backup before upload
+        id: encrypt
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          stamp="$(date -u +'%Y%m%dT%H%M%SZ')"
+          archive="healthwallet-supabase-backup-${stamp}.tar.gz.enc"
+
+          tar -C backup -czf - roles.sql schema.sql data.sql manifest.txt \
+            | openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+                -pass env:BACKUP_PASSPHRASE \
+                -out "$archive"
+
+          test -s "$archive"
+          sha256sum "$archive" > "${archive}.sha256"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "checksum=${archive}.sha256" >> "$GITHUB_OUTPUT"
+          echo "Encrypted archive created successfully."
+
+      - name: Remove plaintext dump files
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -d backup ]; then
+            find backup -type f -exec shred -u {} \; 2>/dev/null || true
+            rm -rf backup
+          fi
+
+      - name: Upload encrypted backup only
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthwallet-encrypted-supabase-backup-${{ github.run_id }}
+          path: |
+            ${{ steps.encrypt.outputs.archive }}
+            ${{ steps.encrypt.outputs.checksum }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Backup result
+        if: ${{ success() }}
+        run: |
+          echo 'BACKUP PASS: roles.sql, schema.sql and data.sql were generated, validated, encrypted, and uploaded as a 1-day artifact.'
+          echo 'Only the encrypted archive and checksum were uploaded; plaintext SQL files were removed from the runner.'
