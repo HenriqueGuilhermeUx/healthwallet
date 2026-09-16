@@ -1,0 +1,6 @@
+DISARMED
+
+This file is the only push-based trigger allowed for the HealthWallet production backup workflow.
+To run a backup, the first line must be exactly:
+BACKUP HEALTHWALLET
+and the file must include a non-empty request_id line.
