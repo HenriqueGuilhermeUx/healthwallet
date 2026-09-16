@@ -104,8 +104,13 @@ jobs:
       - name: Refuse production mutation automation
         run: |
           set -euo pipefail
-          if grep -Eq 'supabase[[:space:]]+db[[:space:]]+push|supabase[[:space:]]+link|--linked' .github/workflows/gate-c-release-packet-contract.yml; then
-            echo 'Gate C packet contract must remain validation-only.'
+          workflow='.github/workflows/gate-c-release-packet-contract.yml'
+          if grep -Eq '^[[:space:]]*[^#].*psql[[:space:]]' "$workflow"; then
+            echo 'Gate C packet contract must not execute psql.'
+            exit 1
+          fi
+          if grep -q 'secrets\.' "$workflow"; then
+            echo 'Gate C packet contract must not consume production secrets.'
             exit 1
           fi
           echo 'Gate C release packet contract PASS.'
