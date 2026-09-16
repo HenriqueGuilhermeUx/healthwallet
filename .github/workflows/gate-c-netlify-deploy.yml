@@ -7,6 +7,11 @@ on:
         description: 'Type DEPLOY GATE C FRONTEND to publish the transition-safe sharing UI'
         required: true
         type: string
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/gate-c-netlify-deploy-trigger.txt'
 
 permissions:
   contents: read
@@ -18,7 +23,7 @@ concurrency:
 jobs:
   deploy:
     name: Build and deploy transition-safe sharing UI
-    if: ${{ github.event.inputs.confirmation == 'DEPLOY GATE C FRONTEND' }}
+    if: ${{ github.event_name == 'push' || github.event.inputs.confirmation == 'DEPLOY GATE C FRONTEND' }}
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -27,6 +32,15 @@ jobs:
     steps:
       - name: Checkout exact production commit
         uses: actions/checkout@v4
+
+      - name: Authorize dedicated push trigger
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          trigger='.github/gate-c-netlify-deploy-trigger.txt'
+          test "$(head -n 1 "$trigger")" = 'DEPLOY GATE C FRONTEND'
+          grep -Eq '^request_id=.+$' "$trigger"
+          echo 'Dedicated Gate C production deploy trigger accepted.'
 
       - name: Setup Node
         uses: actions/setup-node@v4
