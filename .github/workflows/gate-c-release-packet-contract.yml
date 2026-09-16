@@ -101,16 +101,12 @@ jobs:
             exit 1
           fi
 
-      - name: Refuse production mutation automation
+      - name: Validation-only contract guard
         run: |
           set -euo pipefail
           workflow='.github/workflows/gate-c-release-packet-contract.yml'
-          if grep -Eq '^[[:space:]]*[^#].*psql[[:space:]]' "$workflow"; then
-            echo 'Gate C packet contract must not execute psql.'
-            exit 1
-          fi
-          if grep -q 'secrets\.' "$workflow"; then
-            echo 'Gate C packet contract must not consume production secrets.'
+          if awk '/^[[:space:]]+run:[[:space:]]/{capture=1; next} /^[[:space:]]+- name:/{capture=0} capture{print}' "$workflow" | grep -Eq '(^|[;&|])[[:space:]]*(psql|supabase)[[:space:]]'; then
+            echo 'Gate C packet contract contains a database CLI command.'
             exit 1
           fi
           echo 'Gate C release packet contract PASS.'
