@@ -33,27 +33,42 @@ jobs:
       - name: Checkout exact production commit
         uses: actions/checkout@v4
 
-      - name: Authorize dedicated push trigger
-        if: ${{ github.event_name == 'push' }}
+      - name: Detect deployment authorization
+        id: gate
+        shell: bash
         run: |
           set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo 'armed=true' >> "$GITHUB_OUTPUT"
+            echo 'Manual Gate C production deploy authorization accepted.'
+            exit 0
+          fi
+
           trigger='.github/gate-c-netlify-deploy-trigger.txt'
-          test "$(head -n 1 "$trigger")" = 'DEPLOY GATE C FRONTEND'
-          grep -Eq '^request_id=.+$' "$trigger"
-          echo 'Dedicated Gate C production deploy trigger accepted.'
+          if [ "$(head -n 1 "$trigger")" = 'DEPLOY GATE C FRONTEND' ] && grep -Eq '^request_id=.+$' "$trigger"; then
+            echo 'armed=true' >> "$GITHUB_OUTPUT"
+            echo 'Dedicated Gate C production deploy trigger accepted.'
+          else
+            echo 'armed=false' >> "$GITHUB_OUTPUT"
+            echo 'Gate C production deploy trigger is disarmed; no deployment will run.'
+          fi
 
       - name: Setup Node
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Enable Corepack
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         run: corepack enable
 
       - name: Install dependencies
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         run: pnpm install --no-frozen-lockfile
 
       - name: Verify transition-safe source
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         run: |
           set -euo pipefail
           grep -q "create_health_access_code" src/pages/ShareQRCode.tsx
@@ -63,9 +78,11 @@ jobs:
           grep -q "Compartilhamento antigo desativado" src/pages/AccessCode.tsx
 
       - name: Build application
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         run: pnpm build
 
       - name: Require Netlify credential
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         run: |
           set -euo pipefail
           if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
@@ -74,6 +91,7 @@ jobs:
           fi
 
       - name: Deploy production to Netlify
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         id: netlify
         run: |
           set -euo pipefail
@@ -92,9 +110,14 @@ jobs:
           echo "prod_url=$PROD_URL" >> "$GITHUB_OUTPUT"
 
       - name: Verify deployed site is reachable
+        if: ${{ steps.gate.outputs.armed == 'true' }}
         run: |
           set -euo pipefail
           URL='${{ steps.netlify.outputs.deploy_url }}'
           curl --fail --silent --show-error --location --retry 5 --retry-delay 3 "$URL" >/tmp/healthwallet-index.html
           grep -qi '<div id="root"' /tmp/healthwallet-index.html
           echo "Gate C transition-safe frontend is reachable at $URL"
+
+      - name: Confirm disarmed no-op
+        if: ${{ steps.gate.outputs.armed != 'true' }}
+        run: echo 'Gate C deployment is safely disarmed; no build or production deploy was executed.'
