@@ -82,7 +82,7 @@ jobs:
       - name: Optional controlled staging health probe
         shell: bash
         env:
-          NEXOFFICE_API_BASE_URL: ${{ vars.NEXOFFICE_STAGING_API_BASE_URL }}
+          NEXOFFICE_API_BASE_URL: ${{ vars.NEXOFFICE_STAGING_API_BASE_URL || secrets.NEXOFFICE_STAGING_API_BASE_URL }}
           NEXOFFICE_INTERNAL_KEY: ${{ secrets.NEXOFFICE_STAGING_INTERNAL_KEY }}
           NEXOFFICE_ENFORCE_EXTERNAL_EFFECTS_OFF: 'true'
         run: |
