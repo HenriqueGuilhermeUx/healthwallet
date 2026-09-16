@@ -1,0 +1,111 @@
+name: Gate C Release Packet Contract
+
+on:
+  push:
+    branches:
+      - feature/health-concierge-mvp
+    paths:
+      - 'GATE_C_PRODUCTION_RELEASE_PACKET.md'
+      - 'SQL_PRE_CONCIERGE_SECURITY_PREFLIGHT_V1.sql'
+      - 'SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql'
+      - 'SQL_PRE_CONCIERGE_SECURE_SHARING_PREFLIGHT_V2.sql'
+      - 'SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql'
+      - 'SQL_PRE_CONCIERGE_VIEW_HARDENING_PREFLIGHT_V3.sql'
+      - 'SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql'
+      - 'SQL_PRE_CONCIERGE_SECURITY_POSTCHECK_V3.sql'
+      - '.github/workflows/gate-c-release-packet-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Validate production Gate C packet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Required Gate C artifacts
+        run: |
+          set -euo pipefail
+          for file in \
+            GATE_C_PRODUCTION_RELEASE_PACKET.md \
+            SQL_PRE_CONCIERGE_SECURITY_PREFLIGHT_V1.sql \
+            SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql \
+            SQL_PRE_CONCIERGE_SECURE_SHARING_PREFLIGHT_V2.sql \
+            SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql \
+            SQL_PRE_CONCIERGE_VIEW_HARDENING_PREFLIGHT_V3.sql \
+            SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql \
+            SQL_PRE_CONCIERGE_SECURITY_POSTCHECK_V3.sql
+          do
+            test -f "$file" || { echo "Missing Gate C artifact: $file"; exit 1; }
+          done
+
+      - name: Validate release packet invariants
+        run: |
+          set -euo pipefail
+          packet='GATE_C_PRODUCTION_RELEASE_PACKET.md'
+          grep -q 'qcxdvygbinqkxuahlrrn' "$packet"
+          grep -q '6385fa98-ad7a-4fd2-8cfa-5d903f437502' "$packet"
+          grep -q 'NETLIFY_AUTH_TOKEN' "$packet"
+          grep -q 'DEPLOY GATE C FRONTEND' "$packet"
+          grep -q 'production V1/V2/V3 DDL: NOT APPLIED' "$packet"
+          grep -q 'production Concierge schema: NOT INSTALLED' "$packet"
+          grep -q 'HealthWallet Connect strategy: UNCHANGED' "$packet"
+
+          node <<'NODE'
+          const fs = require('fs')
+          const text = fs.readFileSync('GATE_C_PRODUCTION_RELEASE_PACKET.md', 'utf8')
+          const ordered = [
+            'SQL_PRE_CONCIERGE_SECURITY_HARDENING_V1.sql',
+            'SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql',
+            'SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql',
+            'SQL_PRE_CONCIERGE_SECURITY_POSTCHECK_V3.sql',
+          ]
+          let previous = -1
+          for (const file of ordered) {
+            const index = text.indexOf(file)
+            if (index < 0) throw new Error(`Release packet missing ${file}`)
+            if (index <= previous) throw new Error(`Release packet order broken at ${file}`)
+            previous = index
+          }
+          console.log('Release packet preserves V1 -> V2 -> V3 -> postcheck order.')
+          NODE
+
+      - name: Validate migration safety markers
+        run: |
+          set -euo pipefail
+          grep -q 'extensions.gen_random_bytes(18)' SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql
+          grep -q 'access_code_already_redeemed' SQL_PRE_CONCIERGE_SECURE_SHARING_V2.sql
+          grep -q 'security_invoker' SQL_PRE_CONCIERGE_VIEW_HARDENING_V3.sql
+          grep -q "'PASS'" SQL_PRE_CONCIERGE_SECURITY_POSTCHECK_V3.sql
+
+      - name: Validate production deploy workflow on main
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin main
+          git show origin/main:.github/workflows/gate-c-netlify-deploy.yml > /tmp/gate-c-deploy.yml
+          grep -q 'workflow_dispatch' /tmp/gate-c-deploy.yml
+          grep -q 'DEPLOY GATE C FRONTEND' /tmp/gate-c-deploy.yml
+          grep -q 'NETLIFY_AUTH_TOKEN' /tmp/gate-c-deploy.yml
+          grep -q 'pnpm install --no-frozen-lockfile' /tmp/gate-c-deploy.yml
+          grep -q 'create_health_access_code' /tmp/gate-c-deploy.yml
+          grep -q 'Compartilhamento antigo desativado' /tmp/gate-c-deploy.yml
+          grep -q 'Verify deployed site is reachable' /tmp/gate-c-deploy.yml
+          if grep -Eq '^  push:|^  schedule:' /tmp/gate-c-deploy.yml; then
+            echo 'Gate C production deploy must remain manual-only.'
+            exit 1
+          fi
+
+      - name: Refuse production mutation automation
+        run: |
+          set -euo pipefail
+          if grep -Eq 'supabase[[:space:]]+db[[:space:]]+push|supabase[[:space:]]+link|--linked' .github/workflows/gate-c-release-packet-contract.yml; then
+            echo 'Gate C packet contract must remain validation-only.'
+            exit 1
+          fi
+          echo 'Gate C release packet contract PASS.'
