@@ -1,19 +1,26 @@
 name: Gate C Netlify Deploy
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/gate-c-netlify-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DEPLOY GATE C FRONTEND to publish the transition-safe sharing UI'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: gate-c-netlify-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Build and deploy transition-safe sharing UI
+    if: ${{ github.event.inputs.confirmation == 'DEPLOY GATE C FRONTEND' }}
     runs-on: ubuntu-latest
+    environment: production
     env:
       NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_TOKEN || secrets.NETLIFY_ACCESS_TOKEN || secrets.NETLIFY_API_TOKEN }}
@@ -46,10 +53,34 @@ jobs:
 
       - name: Require Netlify credential
         run: |
+          set -euo pipefail
           if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
-            echo "No supported Netlify GitHub secret is configured."
+            echo "NETLIFY_AUTH_TOKEN is not configured in GitHub Actions secrets."
             exit 2
           fi
 
       - name: Deploy production to Netlify
-        run: npx -y netlify-cli@latest deploy --build --prod --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --message "Gate C transition-safe secure sharing frontend"
+        id: netlify
+        run: |
+          set -euo pipefail
+          npx -y netlify-cli@latest deploy \
+            --build \
+            --prod \
+            --site "$NETLIFY_SITE_ID" \
+            --auth "$NETLIFY_AUTH_TOKEN" \
+            --message "Gate C transition-safe secure sharing frontend ${GITHUB_SHA}" \
+            --json > netlify-deploy.json
+          cat netlify-deploy.json
+          DEPLOY_URL="$(jq -r '.deploy_url // .deploy_ssl_url // empty' netlify-deploy.json)"
+          PROD_URL="$(jq -r '.url // empty' netlify-deploy.json)"
+          test -n "$DEPLOY_URL"
+          echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+          echo "prod_url=$PROD_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify deployed site is reachable
+        run: |
+          set -euo pipefail
+          URL='${{ steps.netlify.outputs.deploy_url }}'
+          curl --fail --silent --show-error --location --retry 5 --retry-delay 3 "$URL" >/tmp/healthwallet-index.html
+          grep -qi '<div id="root"' /tmp/healthwallet-index.html
+          echo "Gate C transition-safe frontend is reachable at $URL"
