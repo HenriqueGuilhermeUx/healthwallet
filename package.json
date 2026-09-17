@@ -12,6 +12,7 @@
     "preview": "pnpm install --prefer-offline && vite preview",
     "test:nexoffice": "node --test scripts/nexoffice-boundary.test.mjs",
     "test:nexoffice:live": "node scripts/nexoffice-live-health-smoke.mjs",
+    "test:nexoffice:e2e": "node scripts/nexoffice-staging-e2e.mjs",
     "install-deps": "pnpm install --prefer-offline",
     "clean": "rm -rf node_modules .pnpm-store pnpm-lock.yaml android && pnpm store prune",
     "android:init": "pnpm build && npx cap add android",
