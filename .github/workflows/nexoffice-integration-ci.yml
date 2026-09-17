@@ -9,6 +9,7 @@ on:
       - 'netlify/functions/_shared/nexoffice.js'
       - 'src/services/nexoffice.ts'
       - 'scripts/nexoffice-*.mjs'
+      - 'scripts/nexoffice-staging-e2e.trigger'
       - 'netlify.toml'
       - '.env.example'
       - 'package.json'
@@ -19,6 +20,7 @@ on:
       - 'netlify/functions/_shared/nexoffice.js'
       - 'src/services/nexoffice.ts'
       - 'scripts/nexoffice-*.mjs'
+      - 'scripts/nexoffice-staging-e2e.trigger'
       - 'netlify.toml'
       - '.env.example'
       - 'package.json'
@@ -32,7 +34,7 @@ jobs:
   validate:
     name: Privacy boundary, contract and build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -79,7 +81,7 @@ jobs:
       - name: Build application
         run: pnpm build
 
-      - name: Optional controlled staging health probe
+      - name: Controlled staging health probe
         shell: bash
         env:
           NEXOFFICE_API_BASE_URL: ${{ vars.NEXOFFICE_STAGING_API_BASE_URL || secrets.NEXOFFICE_STAGING_API_BASE_URL }}
@@ -91,6 +93,24 @@ jobs:
             pnpm test:nexoffice:live
           else
             echo 'Controlled live probe skipped: staging URL/key not configured in GitHub Actions.'
+          fi
+
+      - name: Controlled staging end-to-end validation
+        shell: bash
+        env:
+          NEXOFFICE_API_BASE_URL: ${{ vars.NEXOFFICE_STAGING_API_BASE_URL || secrets.NEXOFFICE_STAGING_API_BASE_URL }}
+          NEXOFFICE_INTERNAL_KEY: ${{ secrets.NEXOFFICE_STAGING_INTERNAL_KEY }}
+          NEXOFFICE_ENFORCE_EXTERNAL_EFFECTS_OFF: 'true'
+        run: |
+          set -euo pipefail
+          if [ "$(tr -d '\r\n ' < scripts/nexoffice-staging-e2e.trigger)" = "ARMED" ]; then
+            if [ -z "${NEXOFFICE_API_BASE_URL:-}" ] || [ -z "${NEXOFFICE_INTERNAL_KEY:-}" ]; then
+              echo 'E2E is armed but staging URL/key are missing.'
+              exit 1
+            fi
+            pnpm test:nexoffice:e2e
+          else
+            echo 'Controlled staging E2E is DISARMED.'
           fi
 
       - name: Result
