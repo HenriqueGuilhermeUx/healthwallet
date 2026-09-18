@@ -74,6 +74,10 @@ NEXOFFICE_TIMEOUT_MS=12000
 
 `NEXOFFICE_INTERNAL_KEY` nunca pode usar prefixo `VITE_` nem chegar ao browser.
 
+## Validação de preview
+
+O Deploy Preview é validado separadamente da produção. Durante a investigação de paridade, o contexto `deploy-preview` da Netlify usa Node 22.23.2; isso não altera o runtime/configuração de produção.
+
 ## Regra de release
 
 Não publicar antes de um E2E controlado com um assinante de teste:
