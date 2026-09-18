@@ -1,0 +1,101 @@
+name: MyDataMed NexOffice Add-on Minimal CI
+
+on:
+  push:
+    branches:
+      - 'feature/mydatamed-nexoffice-addon-minimal'
+  pull_request:
+    paths:
+      - '.env.example'
+      - '.github/workflows/nexoffice-addon-minimal-ci.yml'
+      - 'NEXOFFICE_ADDON_MINIMAL.md'
+      - 'netlify.toml'
+      - 'netlify/functions/_shared/nexoffice-addon.mjs'
+      - 'netlify/functions/nexoffice-addon.mjs'
+      - 'scripts/nexoffice-addon-minimal.test.mjs'
+      - 'src/components/NexOfficeLauncher.tsx'
+      - 'src/components/ConciergeProfessionalHeader.tsx'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Minimal boundary and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run minimal add-on contract tests
+        run: node --test scripts/nexoffice-addon-minimal.test.mjs
+
+      - name: Assert feature is disabled by default
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -qx 'VITE_NEXOFFICE_ENABLED=false' .env.example
+          grep -qx 'NEXOFFICE_MYDATAMED_ENABLED=false' .env.example
+          echo 'PASS: NexOffice add-on is disabled by default.'
+
+      - name: Assert strict changed-file allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          git diff --name-only origin/main...HEAD > /tmp/changed.txt || true
+          cat /tmp/changed.txt
+          while IFS= read -r path; do
+            case "$path" in
+              .env.example|.github/workflows/nexoffice-addon-minimal-ci.yml|NEXOFFICE_ADDON_MINIMAL.md|netlify.toml|netlify/functions/_shared/nexoffice-addon.mjs|netlify/functions/nexoffice-addon.mjs|scripts/nexoffice-addon-minimal.test.mjs|src/components/NexOfficeLauncher.tsx|src/components/ConciergeProfessionalHeader.tsx)
+                ;;
+              *)
+                echo "Unexpected file changed: $path"
+                exit 1
+                ;;
+            esac
+          done < /tmp/changed.txt
+          echo 'PASS: no HealthWallet core/Android/Health Connect files changed.'
+
+      - name: Assert no clinical sync or billing integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          files='netlify/functions/_shared/nexoffice-addon.mjs netlify/functions/nexoffice-addon.mjs src/components/NexOfficeLauncher.tsx'
+          if grep -Ein 'health-signals|medical_records|medications|health_daily_summaries|medscore|patient_id|patientId|billing/|checkout|charge' $files; then
+            echo 'Forbidden clinical sync or billing integration found.'
+            exit 1
+          fi
+          echo 'PASS: add-on contains no clinical sync or NexOffice billing path.'
+
+      - name: Assert NexOffice base URL is environment-driven
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -En 'https?://(api\.)?nexoffices\.com\.br|https?://nexoffice-staging' netlify/functions/_shared/nexoffice-addon.mjs netlify/functions/nexoffice-addon.mjs src/components/NexOfficeLauncher.tsx; then
+            echo 'Hardcoded NexOffice URL found in runtime logic.'
+            exit 1
+          fi
+          echo 'PASS: NexOffice runtime URL is environment-driven.'
+
+      - name: Build HealthWallet/MyDataMed
+        run: pnpm build
+
+      - name: Result
+        run: echo 'MYDATAMED NEXOFFICE MINIMAL ADD-ON VALIDATION PASS'
