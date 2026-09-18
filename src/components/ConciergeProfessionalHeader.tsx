@@ -1,5 +1,6 @@
 import { BarChart3, HeartPulse, Stethoscope, Users } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
+import NexOfficeLauncher from '@/components/NexOfficeLauncher'
 
 const links = [
   { href: '/concierge/ops', label: 'Fila', icon: Stethoscope },
@@ -25,6 +26,7 @@ export default function ConciergeProfessionalHeader() {
               : location.pathname.startsWith(href)
             return <Link key={href} to={href} className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition ${active ? 'bg-white text-slate-950' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}><Icon className="h-3.5 w-3.5" /> {label}</Link>
           })}
+          <NexOfficeLauncher />
           <Link to="/dashboard" title="Ir para HealthWallet" className="ml-1 flex h-9 w-9 items-center justify-center rounded-xl border border-white/15 text-white/70 hover:bg-white/10 hover:text-white"><HeartPulse className="h-4 w-4" /></Link>
         </nav>
       </div>
