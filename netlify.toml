@@ -18,11 +18,6 @@
   force = true
 
 [[redirects]]
-  from = "/api/nexoffice/handoff"
-  to = "/.netlify/functions/nexoffice-addon"
-  status = 200
-
-[[redirects]]
   from = "/api/analyze-exam"
   to = "/.netlify/functions/analyze-exam"
   status = 200
