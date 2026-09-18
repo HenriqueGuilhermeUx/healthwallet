@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js'
 import {
   createNexOfficeAddonClient,
   isActiveMyDataMedSubscription,
@@ -50,49 +49,84 @@ async function authenticate(request) {
     })
   }
 
-  const supabaseUrl = requiredEnv('VITE_SUPABASE_URL', 'SUPABASE_URL')
-  const supabaseAnonKey = requiredEnv('VITE_SUPABASE_ANON_KEY', 'SUPABASE_ANON_KEY')
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  })
+  const supabaseUrl = requiredEnv('VITE_SUPABASE_URL', 'SUPABASE_URL').replace(/\/$/, '')
+  const anonKey = requiredEnv('VITE_SUPABASE_ANON_KEY', 'SUPABASE_ANON_KEY')
 
-  const { data, error } = await supabase.auth.getUser(token)
-  const user = data?.user
-  if (error || !user?.id || !user?.email) {
+  let response
+  try {
+    response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        apikey: anonKey,
+        authorization: `Bearer ${token}`,
+      },
+      signal: AbortSignal.timeout(8_000),
+    })
+  } catch {
+    throw Object.assign(new Error('Authentication service unavailable'), {
+      status: 503,
+      code: 'auth_unavailable',
+    })
+  }
+
+  if (!response.ok) {
     throw Object.assign(new Error('Invalid or expired session'), {
       status: 401,
       code: 'unauthorized',
     })
   }
 
-  return { supabase, user }
+  const user = await response.json().catch(() => null)
+  if (!user?.id || !user?.email) {
+    throw Object.assign(new Error('Invalid or expired session'), {
+      status: 401,
+      code: 'unauthorized',
+    })
+  }
+
+  return { token, supabaseUrl, anonKey, user }
 }
 
-async function activeSubscription(supabase, userId) {
-  const commercial = await supabase
-    .from('professional_commercial_subscriptions')
-    .select('status,plan_code')
-    .eq('professional_user_id', userId)
-    .maybeSingle()
+async function selectOwnSubscription({ supabaseUrl, anonKey, token, userId, table, columns }) {
+  const url = new URL(`${supabaseUrl}/rest/v1/${table}`)
+  url.searchParams.set('select', columns)
+  url.searchParams.set('professional_user_id', `eq.${userId}`)
+  url.searchParams.set('limit', '1')
 
-  if (!commercial.error && isActiveMyDataMedSubscription(commercial.data)) {
-    return commercial.data
+  try {
+    const response = await fetch(url, {
+      headers: {
+        apikey: anonKey,
+        authorization: `Bearer ${token}`,
+        accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(8_000),
+    })
+    if (!response.ok) return null
+    const rows = await response.json().catch(() => [])
+    return Array.isArray(rows) ? rows[0] || null : null
+  } catch {
+    return null
   }
+}
 
-  const legacy = await supabase
-    .from('professional_subscriptions')
-    .select('status,plan_name,clinic_name')
-    .eq('professional_user_id', userId)
-    .eq('status', 'active')
-    .limit(1)
-    .maybeSingle()
+async function activeSubscription(auth) {
+  const commercial = await selectOwnSubscription({
+    ...auth,
+    userId: auth.user.id,
+    table: 'professional_commercial_subscriptions',
+    columns: 'status,plan_code',
+  })
 
-  if (!legacy.error && isActiveMyDataMedSubscription(legacy.data)) {
-    return legacy.data
-  }
+  if (isActiveMyDataMedSubscription(commercial)) return commercial
 
-  return null
+  const legacy = await selectOwnSubscription({
+    ...auth,
+    userId: auth.user.id,
+    table: 'professional_subscriptions',
+    columns: 'status,plan_name,clinic_name',
+  })
+
+  return isActiveMyDataMedSubscription(legacy) ? legacy : null
 }
 
 export default async request => {
@@ -104,14 +138,14 @@ export default async request => {
       return json({ ok: false, error: 'nexoffice_disabled' }, 503)
     }
 
-    const { supabase, user } = await authenticate(request)
-    const subscription = await activeSubscription(supabase, user.id)
+    const auth = await authenticate(request)
+    const subscription = await activeSubscription(auth)
 
     if (!subscription) {
       return json({ ok: false, error: 'mydatamed_subscription_required' }, 403)
     }
 
-    const identity = resolveMyDataMedAddonIdentity(user, subscription)
+    const identity = resolveMyDataMedAddonIdentity(auth.user, subscription)
     const client = createNexOfficeAddonClient({
       baseUrl: requiredEnv('NEXOFFICE_API_BASE_URL'),
       internalKey: requiredEnv('NEXOFFICE_INTERNAL_KEY'),
