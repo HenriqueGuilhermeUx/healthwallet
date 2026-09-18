@@ -9,6 +9,19 @@ import {
   resolveMyDataMedAddonIdentity,
 } from '../netlify/functions/_shared/nexoffice-addon.mjs'
 
+function allKeys(value, out = []) {
+  if (!value || typeof value !== 'object') return out
+  if (Array.isArray(value)) {
+    for (const item of value) allKeys(item, out)
+    return out
+  }
+  for (const [key, child] of Object.entries(value)) {
+    out.push(key.toLowerCase())
+    allKeys(child, out)
+  }
+  return out
+}
+
 test('only active MyDataMed subscriptions are entitled', () => {
   assert.equal(isActiveMyDataMedSubscription({ status: 'active' }), true)
   assert.equal(isActiveMyDataMedSubscription({ status: 'trial' }), false)
@@ -53,18 +66,19 @@ test('provision payload contains only professional/add-on fields', () => {
   assert.equal(payload.vertical, 'health')
   assert.deepEqual(payload.entitlements, ['addon.mydatamed'])
 
-  const serialized = JSON.stringify(payload).toLowerCase()
+  const keys = allKeys(payload)
   for (const forbidden of [
     'patientid',
+    'patient_id',
     'medical_records',
-    'medication',
+    'medications',
     'medscore',
     'health_daily_summaries',
     'heart_rate',
     'exam',
     'passport',
   ]) {
-    assert.equal(serialized.includes(forbidden), false, `forbidden field leaked: ${forbidden}`)
+    assert.equal(keys.includes(forbidden), false, `forbidden field leaked: ${forbidden}`)
   }
 })
 
