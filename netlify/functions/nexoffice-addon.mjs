@@ -12,8 +12,16 @@ function json(body, status = 200) {
   })
 }
 
+function env(name) {
+  try {
+    return String(globalThis.Netlify?.env?.get(name) || process.env[name] || '').trim()
+  } catch {
+    return String(process.env[name] || '').trim()
+  }
+}
+
 function requiredEnv(name, fallbackName = '') {
-  const value = String(Netlify.env.get(name) || (fallbackName ? Netlify.env.get(fallbackName) : '') || '').trim()
+  const value = env(name) || (fallbackName ? env(fallbackName) : '')
   if (!value) {
     throw Object.assign(new Error(`${name} is required`), {
       status: 503,
@@ -24,7 +32,7 @@ function requiredEnv(name, fallbackName = '') {
 }
 
 function bridgeEnabled() {
-  return String(Netlify.env.get('NEXOFFICE_MYDATAMED_ENABLED') || '').toLowerCase() === 'true'
+  return env('NEXOFFICE_MYDATAMED_ENABLED').toLowerCase() === 'true'
 }
 
 function bearerToken(request) {
@@ -91,11 +99,11 @@ export default async request => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204 })
   if (request.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405)
 
-  if (!bridgeEnabled()) {
-    return json({ ok: false, error: 'nexoffice_disabled' }, 503)
-  }
-
   try {
+    if (!bridgeEnabled()) {
+      return json({ ok: false, error: 'nexoffice_disabled' }, 503)
+    }
+
     const { supabase, user } = await authenticate(request)
     const subscription = await activeSubscription(supabase, user.id)
 
@@ -107,7 +115,7 @@ export default async request => {
     const client = createNexOfficeAddonClient({
       baseUrl: requiredEnv('NEXOFFICE_API_BASE_URL'),
       internalKey: requiredEnv('NEXOFFICE_INTERNAL_KEY'),
-      timeoutMs: Number(Netlify.env.get('NEXOFFICE_TIMEOUT_MS') || 12000),
+      timeoutMs: Number(env('NEXOFFICE_TIMEOUT_MS') || 12000),
     })
 
     await client.provision(identity)
