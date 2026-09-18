@@ -24,7 +24,7 @@ jobs:
   validate:
     name: Minimal boundary and build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -96,6 +96,19 @@ jobs:
 
       - name: Build HealthWallet/MyDataMed
         run: pnpm build
+
+      - name: Reproduce Netlify deploy-preview build
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: |
+          set -euo pipefail
+          if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
+            echo 'NETLIFY_AUTH_TOKEN unavailable; cannot reproduce Netlify parity build.'
+            exit 1
+          fi
+          npx --yes netlify-cli@27.8.0 build --context deploy-preview
 
       - name: Result
         run: echo 'MYDATAMED NEXOFFICE MINIMAL ADD-ON VALIDATION PASS'
