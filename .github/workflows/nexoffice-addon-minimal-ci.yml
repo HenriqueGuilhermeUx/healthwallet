@@ -9,7 +9,6 @@ on:
       - '.env.example'
       - '.github/workflows/nexoffice-addon-minimal-ci.yml'
       - 'NEXOFFICE_ADDON_MINIMAL.md'
-      - 'netlify.toml'
       - 'netlify/functions/_shared/nexoffice-addon.mjs'
       - 'netlify/functions/nexoffice-addon.mjs'
       - 'scripts/nexoffice-addon-minimal.test.mjs'
@@ -24,7 +23,7 @@ jobs:
   validate:
     name: Minimal boundary and build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -63,7 +62,7 @@ jobs:
           cat /tmp/changed.txt
           while IFS= read -r path; do
             case "$path" in
-              .env.example|.github/workflows/nexoffice-addon-minimal-ci.yml|NEXOFFICE_ADDON_MINIMAL.md|netlify.toml|netlify/functions/_shared/nexoffice-addon.mjs|netlify/functions/nexoffice-addon.mjs|scripts/nexoffice-addon-minimal.test.mjs|src/components/NexOfficeLauncher.tsx|src/components/ConciergeProfessionalHeader.tsx)
+              .env.example|.github/workflows/nexoffice-addon-minimal-ci.yml|NEXOFFICE_ADDON_MINIMAL.md|netlify/functions/_shared/nexoffice-addon.mjs|netlify/functions/nexoffice-addon.mjs|scripts/nexoffice-addon-minimal.test.mjs|src/components/NexOfficeLauncher.tsx|src/components/ConciergeProfessionalHeader.tsx)
                 ;;
               *)
                 echo "Unexpected file changed: $path"
@@ -71,7 +70,7 @@ jobs:
                 ;;
             esac
           done < /tmp/changed.txt
-          echo 'PASS: no HealthWallet core/Android/Health Connect files changed.'
+          echo 'PASS: no HealthWallet core/Android/Health Connect/Netlify config files changed.'
 
       - name: Assert no clinical sync or billing integration
         shell: bash
@@ -109,6 +108,30 @@ jobs:
             exit 1
           fi
           npx --yes netlify-cli@27.8.0 build --context deploy-preview
+
+      - name: Draft deploy isolated preview
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: |
+          set -euo pipefail
+          npx --yes netlify-cli@27.8.0 deploy \
+            --build \
+            --context deploy-preview \
+            --alias hw-nexoffice-minimal \
+            --message "MyDataMed NexOffice minimal add-on validation"
+
+      - name: Smoke isolated failure boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://hw-nexoffice-minimal--healthwallet1.netlify.app'
+          curl --fail --silent --show-error "$base/" >/dev/null
+          code="$(curl --silent --show-error --output /tmp/nexoffice-disabled.json --write-out '%{http_code}' --request POST "$base/api/nexoffice/handoff")"
+          test "$code" = '503'
+          grep -q 'nexoffice_disabled' /tmp/nexoffice-disabled.json
+          echo 'PASS: draft loads and disabled NexOffice route fails closed without affecting HealthWallet.'
 
       - name: Result
         run: echo 'MYDATAMED NEXOFFICE MINIMAL ADD-ON VALIDATION PASS'
