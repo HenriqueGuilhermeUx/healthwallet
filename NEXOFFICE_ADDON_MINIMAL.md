@@ -95,6 +95,14 @@ A Function do add-on não depende do SDK Supabase no runtime. A autenticação e
 
 O Deploy Preview automático do PR apresentou uma falha específica do pipeline Git da Netlify, enquanto o build oficial reproduzido e o draft deploy pela Netlify CLI passaram completos. Isso não afetou produção.
 
+## Estado final seguro
+
+- PR #3 da integração ampla foi encerrado sem merge.
+- PR #4 permanece draft.
+- Produção não recebeu código NexOffice.
+- O add-on permanece desligado por padrão.
+- Variáveis temporárias usadas durante o diagnóstico do Deploy Preview foram removidas.
+
 ## Regra de release
 
 Não publicar antes de um E2E controlado com um assinante de teste:
