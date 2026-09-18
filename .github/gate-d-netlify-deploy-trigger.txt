@@ -1,5 +1,6 @@
-DEPLOY GATE D CONCIERGE
-request_id=nexoffice-dormant-release-20260918
+DISARMED
 
-Controlled production deploy after merge of the validated dormant MyDataMed NexOffice add-on.
-NexOffice feature flags remain disabled/unconfigured in production.
+This file is the only push-based trigger allowed for the Gate D Concierge production frontend deployment.
+To deploy, the first line must be exactly:
+DEPLOY GATE D CONCIERGE
+and the file must include a non-empty request_id line.
