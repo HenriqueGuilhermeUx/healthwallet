@@ -5,34 +5,42 @@ import {
   resolveMyDataMedAddonIdentity,
 } from './_shared/nexoffice-addon.mjs'
 
-const JSON_HEADERS = {
-  'content-type': 'application/json; charset=utf-8',
-  'cache-control': 'no-store',
-}
-
-function reply(statusCode, body) {
-  return { statusCode, headers: JSON_HEADERS, body: JSON.stringify(body) }
-}
-
-function bearerToken(event) {
-  const raw = String(event.headers?.authorization || event.headers?.Authorization || '')
-  const match = raw.match(/^Bearer\s+(.+)$/i)
-  return match?.[1]?.trim() || ''
+function json(body, status = 200) {
+  return Response.json(body, {
+    status,
+    headers: { 'cache-control': 'no-store' },
+  })
 }
 
 function requiredEnv(name, fallbackName = '') {
-  const value = String(process.env[name] || (fallbackName ? process.env[fallbackName] : '') || '').trim()
-  if (!value) throw Object.assign(new Error(`${name} is required`), { status: 503, code: 'nexoffice_not_configured' })
+  const value = String(Netlify.env.get(name) || (fallbackName ? Netlify.env.get(fallbackName) : '') || '').trim()
+  if (!value) {
+    throw Object.assign(new Error(`${name} is required`), {
+      status: 503,
+      code: 'nexoffice_not_configured',
+    })
+  }
   return value
 }
 
 function bridgeEnabled() {
-  return String(process.env.NEXOFFICE_MYDATAMED_ENABLED || '').toLowerCase() === 'true'
+  return String(Netlify.env.get('NEXOFFICE_MYDATAMED_ENABLED') || '').toLowerCase() === 'true'
 }
 
-async function authenticate(event) {
-  const token = bearerToken(event)
-  if (!token) throw Object.assign(new Error('Authentication required'), { status: 401, code: 'unauthorized' })
+function bearerToken(request) {
+  const raw = String(request.headers.get('authorization') || '')
+  const match = raw.match(/^Bearer\s+(.+)$/i)
+  return match?.[1]?.trim() || ''
+}
+
+async function authenticate(request) {
+  const token = bearerToken(request)
+  if (!token) {
+    throw Object.assign(new Error('Authentication required'), {
+      status: 401,
+      code: 'unauthorized',
+    })
+  }
 
   const supabaseUrl = requiredEnv('VITE_SUPABASE_URL', 'SUPABASE_URL')
   const supabaseAnonKey = requiredEnv('VITE_SUPABASE_ANON_KEY', 'SUPABASE_ANON_KEY')
@@ -44,7 +52,10 @@ async function authenticate(event) {
   const { data, error } = await supabase.auth.getUser(token)
   const user = data?.user
   if (error || !user?.id || !user?.email) {
-    throw Object.assign(new Error('Invalid or expired session'), { status: 401, code: 'unauthorized' })
+    throw Object.assign(new Error('Invalid or expired session'), {
+      status: 401,
+      code: 'unauthorized',
+    })
   }
 
   return { supabase, user }
@@ -76,37 +87,37 @@ async function activeSubscription(supabase, userId) {
   return null
 }
 
-export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return reply(204, {})
-  if (event.httpMethod !== 'POST') return reply(405, { ok: false, error: 'method_not_allowed' })
+export default async request => {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204 })
+  if (request.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405)
 
   if (!bridgeEnabled()) {
-    return reply(503, { ok: false, error: 'nexoffice_disabled' })
+    return json({ ok: false, error: 'nexoffice_disabled' }, 503)
   }
 
   try {
-    const { supabase, user } = await authenticate(event)
+    const { supabase, user } = await authenticate(request)
     const subscription = await activeSubscription(supabase, user.id)
 
     if (!subscription) {
-      return reply(403, { ok: false, error: 'mydatamed_subscription_required' })
+      return json({ ok: false, error: 'mydatamed_subscription_required' }, 403)
     }
 
     const identity = resolveMyDataMedAddonIdentity(user, subscription)
     const client = createNexOfficeAddonClient({
       baseUrl: requiredEnv('NEXOFFICE_API_BASE_URL'),
       internalKey: requiredEnv('NEXOFFICE_INTERNAL_KEY'),
-      timeoutMs: Number(process.env.NEXOFFICE_TIMEOUT_MS || 12000),
+      timeoutMs: Number(Netlify.env.get('NEXOFFICE_TIMEOUT_MS') || 12000),
     })
 
     await client.provision(identity)
     const handoff = await client.handoff(identity)
 
     if (!handoff?.url || !handoff?.expiresAt) {
-      return reply(502, { ok: false, error: 'invalid_nexoffice_handoff' })
+      return json({ ok: false, error: 'invalid_nexoffice_handoff' }, 502)
     }
 
-    return reply(200, {
+    return json({
       ok: true,
       url: handoff.url,
       expiresAt: handoff.expiresAt,
@@ -117,6 +128,10 @@ export async function handler(event) {
     const safeStatus = status >= 400 && status < 600 ? status : 502
     const code = String(error?.code || error?.message || 'nexoffice_unavailable')
     console.error('[MyDataMed NexOffice Add-on]', code)
-    return reply(safeStatus, { ok: false, error: code })
+    return json({ ok: false, error: code }, safeStatus)
   }
+}
+
+export const config = {
+  path: '/api/nexoffice/handoff',
 }
