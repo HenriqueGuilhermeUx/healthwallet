@@ -74,9 +74,26 @@ NEXOFFICE_TIMEOUT_MS=12000
 
 `NEXOFFICE_INTERNAL_KEY` nunca pode usar prefixo `VITE_` nem chegar ao browser.
 
-## Validação de preview
+## Validação concluída em branch isolada
 
-O Deploy Preview é validado separadamente da produção. Durante a investigação de paridade, o contexto `deploy-preview` da Netlify usa Node 22.23.2; isso não altera o runtime/configuração de produção. O Smart Secret Detection pode ser desligado temporariamente apenas no preview para diagnosticar falso positivo e deve ser restaurado antes do release.
+Validado sem publicação em produção:
+
+- 6/6 testes do contrato mínimo;
+- feature flags desligadas por padrão;
+- allowlist rígida de arquivos alterados;
+- nenhuma alteração em Android, Health Connect, HealthWallet Connect, Google Play ou `netlify.toml`;
+- nenhuma rota de sync clínico ou billing NexOffice;
+- URL do NexOffice somente por variável de ambiente;
+- build completo HealthWallet/MyDataMed;
+- build Netlify no contexto de deploy preview;
+- empacotamento das Functions;
+- draft deploy isolado;
+- rota canônica `/api/nexoffice/handoff` publicada no draft;
+- com NexOffice desabilitado, a rota retorna `503 / nexoffice_disabled` enquanto o HealthWallet continua carregando normalmente.
+
+A Function do add-on não depende do SDK Supabase no runtime. A autenticação e a consulta da assinatura usam HTTPS server-side com o token do próprio profissional e respeitam as políticas RLS existentes.
+
+O Deploy Preview automático do PR apresentou uma falha específica do pipeline Git da Netlify, enquanto o build oficial reproduzido e o draft deploy pela Netlify CLI passaram completos. Isso não afetou produção.
 
 ## Regra de release
 
@@ -93,7 +110,7 @@ assinante MyDataMed
 → nenhuma cobrança NexOffice
 ```
 
-Também validar falha isolada:
+Também manter sempre a propriedade:
 
 ```text
 NexOffice indisponível
