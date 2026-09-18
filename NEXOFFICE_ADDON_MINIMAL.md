@@ -76,7 +76,7 @@ NEXOFFICE_TIMEOUT_MS=12000
 
 ## Validação de preview
 
-O Deploy Preview é validado separadamente da produção. Durante a investigação de paridade, o contexto `deploy-preview` da Netlify usa Node 22.23.2; isso não altera o runtime/configuração de produção.
+O Deploy Preview é validado separadamente da produção. Durante a investigação de paridade, o contexto `deploy-preview` da Netlify usa Node 22.23.2; isso não altera o runtime/configuração de produção. O Smart Secret Detection pode ser desligado temporariamente apenas no preview para diagnosticar falso positivo e deve ser restaurado antes do release.
 
 ## Regra de release
 
