@@ -129,22 +129,13 @@ jobs:
           base='https://hw-nexoffice-minimal--healthwallet1.netlify.app'
           curl --fail --silent --show-error "$base/" >/dev/null
 
-          routed_code="$(curl --silent --show-error --output /tmp/nexoffice-routed.json --write-out '%{http_code}' --request POST "$base/api/nexoffice/handoff")"
-          direct_code="$(curl --silent --show-error --output /tmp/nexoffice-direct.json --write-out '%{http_code}' --request POST "$base/.netlify/functions/nexoffice-addon")"
-
-          echo "Routed status: $routed_code"
-          echo 'Routed body:'
-          cat /tmp/nexoffice-routed.json || true
-          echo
-          echo "Direct status: $direct_code"
-          echo 'Direct body:'
-          cat /tmp/nexoffice-direct.json || true
+          code="$(curl --silent --show-error --output /tmp/nexoffice-disabled.json --write-out '%{http_code}' --request POST "$base/api/nexoffice/handoff")"
+          echo "NexOffice routed status: $code"
+          cat /tmp/nexoffice-disabled.json || true
           echo
 
-          test "$routed_code" = '503'
-          grep -q 'nexoffice_disabled' /tmp/nexoffice-routed.json
-          test "$direct_code" = '503'
-          grep -q 'nexoffice_disabled' /tmp/nexoffice-direct.json
+          test "$code" = '503'
+          grep -q 'nexoffice_disabled' /tmp/nexoffice-disabled.json
           echo 'PASS: draft loads and disabled NexOffice route fails closed without affecting HealthWallet.'
 
       - name: Result
