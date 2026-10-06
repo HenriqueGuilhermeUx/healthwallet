@@ -20,6 +20,7 @@ import {
   getConciergeStaffSelf,
   listOperationsAlerts,
   listOperationsRequests,
+  refreshConciergeTimeAlerts,
   updateConciergeAlert,
   updateConciergeRequestStatus,
 } from '@/services/concierge'
@@ -70,6 +71,29 @@ function visibleForRole(item: any, role: string, userId?: string) {
   return false
 }
 
+function operationalPriority(item: any) {
+  const urgencyWeight = item.urgency === 'urgent_redirect'
+    ? 300
+    : item.urgency === 'priority'
+      ? 200
+      : 100
+  const statusWeight = ['escalated_medical', 'medical_review'].includes(item.status)
+    ? 30
+    : ['new', 'waiting_nurse'].includes(item.status)
+      ? 20
+      : item.status === 'in_triage'
+        ? 10
+        : 0
+
+  return urgencyWeight + statusWeight + Math.min(ageInHours(item.created_at), 72)
+}
+
+function operationalPriorityLabel(item: any) {
+  if (item.urgency === 'urgent_redirect') return 'Redirecionamento urgente'
+  if (item.urgency === 'priority') return 'Prioridade operacional'
+  return null
+}
+
 export default function ConciergeOperations() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -95,6 +119,12 @@ export default function ConciergeOperations() {
         setAlerts([])
         return
       }
+      // Refresh time-based workflow alerts before loading the professional queue.
+      // Failure here must not block access to existing requests/alerts.
+      await refreshConciergeTimeAlerts().catch((error) => {
+        console.warn('Concierge time-alert refresh unavailable:', error)
+      })
+
       const [requestData, alertData] = await Promise.all([
         listOperationsRequests(),
         listOperationsAlerts(),
@@ -110,7 +140,9 @@ export default function ConciergeOperations() {
   }
 
   const roleRequests = useMemo(
-    () => requests.filter((item) => visibleForRole(item, staff?.role || '', user?.id)),
+    () => requests
+      .filter((item) => visibleForRole(item, staff?.role || '', user?.id))
+      .sort((a, b) => operationalPriority(b) - operationalPriority(a)),
     [requests, staff?.role, user?.id],
   )
 
@@ -258,7 +290,7 @@ export default function ConciergeOperations() {
                   <div className="flex items-start gap-3">
                     <div className={`h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.urgency === 'urgent_redirect' ? 'bg-red-100 text-red-700' : item.urgency === 'priority' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}><Users className="h-5 w-5" /></div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap gap-2 text-[11px]"><span className="rounded-full bg-slate-100 px-2 py-1 font-semibold">{categoryLabels[item.category] || item.category}</span><span className="rounded-full bg-slate-100 px-2 py-1 font-semibold">{statusLabels[item.status] || item.status}</span>{ageInHours(item.created_at) >= 24 && <span className="rounded-full bg-orange-100 px-2 py-1 font-semibold text-orange-800">{ageInHours(item.created_at)}h na fila</span>}</div>
+                      <div className="flex flex-wrap gap-2 text-[11px]"><span className="rounded-full bg-slate-100 px-2 py-1 font-semibold">{categoryLabels[item.category] || item.category}</span><span className="rounded-full bg-slate-100 px-2 py-1 font-semibold">{statusLabels[item.status] || item.status}</span>{operationalPriorityLabel(item) && <span className={`rounded-full px-2 py-1 font-semibold ${item.urgency === 'urgent_redirect' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{operationalPriorityLabel(item)}</span>}{ageInHours(item.created_at) >= 24 && <span className="rounded-full bg-orange-100 px-2 py-1 font-semibold text-orange-800">{ageInHours(item.created_at)}h na fila</span>}</div>
                       <p className="mt-2 font-bold">{item.title}</p>
                       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.description}</p>
                     </div>
