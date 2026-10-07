@@ -197,6 +197,32 @@ export default function ConciergeAgenda() {
         <p className="mt-2 text-sm text-white/80">Consultas, lembretes e próximos passos reunidos sem duplicar o que já existe na HealthWallet.</p>
       </section>
 
+      {choiceTask && choiceOptions.length > 0 && (
+        <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-center gap-2">
+            <CalendarCheck className="h-5 w-5 text-emerald-700" />
+            <h2 className="font-bold text-emerald-950">Escolha uma opção</h2>
+          </div>
+          <p className="mt-2 text-sm text-emerald-900">{choiceTask.title}</p>
+          <div className="mt-3 space-y-2">
+            {choiceOptions.map((option: any) => (
+              <button
+                key={option.id}
+                type="button"
+                disabled={choiceBusy === option.id}
+                onClick={() => chooseCoordinationOption(option)}
+                className="w-full rounded-xl border bg-white p-3 text-left disabled:opacity-50"
+              >
+                <p className="text-sm font-bold text-gray-900">{option.provider_name}</p>
+                {option.address && <p className="mt-1 text-xs text-gray-600">{option.address}</p>}
+                {option.price_amount != null && <p className="mt-1 text-xs font-semibold text-emerald-700">{Number(option.price_amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>}
+                <p className="mt-2 text-xs font-bold text-emerald-700">{choiceBusy === option.id ? 'Registrando...' : 'Escolher esta opção'}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {groups.length === 0 ? (
         <section className="rounded-2xl border border-dashed bg-white p-6 text-center">
           <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-600" />
