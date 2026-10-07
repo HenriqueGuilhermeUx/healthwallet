@@ -66,8 +66,8 @@ jobs:
         run: |
           set -euo pipefail
           ! grep -R --line-number -E 'service_role.*VITE_|VITE_.*service_role' src netlify/functions
-          ! grep -R --line-number -E 'WHATSAPP_ACCESS_TOKEN\s*[:=]\s*["'"'][A-Za-z0-9]' src netlify/functions
-          ! grep -R --line-number -E 'OPENAI_API_KEY\s*[:=]\s*["'"'][A-Za-z0-9]' src netlify/functions
+          ! grep -R --line-number 'sk-' src netlify/functions
+          ! grep -R --line-number 'EAAG' src netlify/functions
           grep -q 'ENABLE ROW LEVEL SECURITY' SQL_CONCIERGE_OPERATIONS_V1.sql
           grep -q 'security_invoker = true' SQL_CONCIERGE_OPERATIONS_V1.sql
           grep -q 'storage_bucket = .concierge-intake.' SQL_CONCIERGE_OPERATIONS_V1.sql
