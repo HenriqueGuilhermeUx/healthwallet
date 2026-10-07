@@ -1,12 +1,95 @@
 -- =====================================================
 -- CONCIERGE EXTERNAL PATIENT PROJECTION V1
--- HealthWallet patient visibility + secure patient choice
--- Run AFTER SQL_MYDATAMED_MASTER_EXTERNAL_COORDINATION_V1.sql
+-- HealthWallet patient projection + secure patient choice.
+-- Privileged implementations live in private; public RPCs are SECURITY INVOKER wrappers.
+-- Run AFTER SQL_MYDATAMED_MASTER_EXTERNAL_COORDINATION_V1.sql.
 -- =====================================================
 
--- Patient projection uses SECURITY DEFINER RPCs so the patient never receives
--- direct SELECT access to operational task/option rows. Only safe fields are returned.
+CREATE SCHEMA IF NOT EXISTS private;
 
+GRANT USAGE ON SCHEMA private TO authenticated;
+
+-- -----------------------------------------------------
+-- 1) Private privileged implementation: patient task list
+-- -----------------------------------------------------
+CREATE OR REPLACE FUNCTION private.concierge_patient_list_external_tasks_impl(
+  p_user_id UUID
+)
+RETURNS TABLE (
+  id UUID,
+  patient_id UUID,
+  patient_name TEXT,
+  task_type TEXT,
+  title TEXT,
+  description TEXT,
+  target_specialty TEXT,
+  city TEXT,
+  state TEXT,
+  insurance_name TEXT,
+  status TEXT,
+  selected_option_id UUID,
+  provider_name TEXT,
+  provider_contact TEXT,
+  provider_address TEXT,
+  scheduled_at TIMESTAMPTZ,
+  booking_reference TEXT,
+  preparation_instructions TEXT,
+  result_expected_at TIMESTAMPTZ,
+  result_received_at TIMESTAMPTZ,
+  closed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF p_user_id IS NULL OR p_user_id IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'authentication required';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    t.id,
+    t.patient_id,
+    t.patient_name,
+    t.task_type,
+    t.title,
+    t.description,
+    t.target_specialty,
+    t.city,
+    t.state,
+    t.insurance_name,
+    t.status,
+    t.selected_option_id,
+    t.provider_name,
+    t.provider_contact,
+    t.provider_address,
+    t.scheduled_at,
+    t.booking_reference,
+    t.preparation_instructions,
+    t.result_expected_at,
+    t.result_received_at,
+    t.closed_at,
+    t.created_at,
+    t.updated_at
+  FROM public.concierge_external_tasks t
+  WHERE t.patient_id = p_user_id
+  ORDER BY t.created_at DESC;
+END;
+$$;
+
+REVOKE ALL
+ON FUNCTION private.concierge_patient_list_external_tasks_impl(UUID)
+FROM PUBLIC;
+
+GRANT EXECUTE
+ON FUNCTION private.concierge_patient_list_external_tasks_impl(UUID)
+TO authenticated;
+
+-- Public wrapper: no elevated privilege.
 CREATE OR REPLACE FUNCTION public.concierge_patient_list_external_tasks()
 RETURNS TABLE (
   id UUID,
@@ -35,36 +118,11 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 STABLE
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path = ''
 AS $$
-  SELECT
-    t.id,
-    t.patient_id,
-    t.patient_name,
-    t.task_type,
-    t.title,
-    t.description,
-    t.target_specialty,
-    t.city,
-    t.state,
-    t.insurance_name,
-    t.status,
-    t.selected_option_id,
-    t.provider_name,
-    t.provider_contact,
-    t.provider_address,
-    t.scheduled_at,
-    t.booking_reference,
-    t.preparation_instructions,
-    t.result_expected_at,
-    t.result_received_at,
-    t.closed_at,
-    t.created_at,
-    t.updated_at
-  FROM public.concierge_external_tasks t
-  WHERE t.patient_id = auth.uid()
-  ORDER BY t.created_at DESC;
+  SELECT *
+  FROM private.concierge_patient_list_external_tasks_impl((SELECT auth.uid()));
 $$;
 
 REVOKE ALL
@@ -79,6 +137,80 @@ GRANT EXECUTE
 ON FUNCTION public.concierge_patient_list_external_tasks()
 TO authenticated;
 
+-- -----------------------------------------------------
+-- 2) Private privileged implementation: offered options
+-- -----------------------------------------------------
+CREATE OR REPLACE FUNCTION private.concierge_patient_list_external_options_impl(
+  p_user_id UUID,
+  p_task_id UUID
+)
+RETURNS TABLE (
+  id UUID,
+  task_id UUID,
+  provider_name TEXT,
+  provider_type TEXT,
+  address TEXT,
+  city TEXT,
+  state TEXT,
+  phone TEXT,
+  website TEXT,
+  price_amount NUMERIC,
+  currency TEXT,
+  accepts_insurance BOOLEAN,
+  insurance_notes TEXT,
+  earliest_slot TIMESTAMPTZ,
+  distance_text TEXT,
+  status TEXT,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF p_user_id IS NULL OR p_user_id IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'authentication required';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    o.id,
+    o.task_id,
+    o.provider_name,
+    o.provider_type,
+    o.address,
+    o.city,
+    o.state,
+    o.phone,
+    o.website,
+    o.price_amount,
+    o.currency,
+    o.accepts_insurance,
+    o.insurance_notes,
+    o.earliest_slot,
+    o.distance_text,
+    o.status,
+    o.created_at,
+    o.updated_at
+  FROM public.concierge_external_options o
+  JOIN public.concierge_external_tasks t
+    ON t.id = o.task_id
+  WHERE o.task_id = p_task_id
+    AND t.patient_id = p_user_id
+    AND o.status IN ('offered', 'selected')
+  ORDER BY o.earliest_slot ASC NULLS LAST, o.created_at ASC;
+END;
+$$;
+
+REVOKE ALL
+ON FUNCTION private.concierge_patient_list_external_options_impl(UUID, UUID)
+FROM PUBLIC;
+
+GRANT EXECUTE
+ON FUNCTION private.concierge_patient_list_external_options_impl(UUID, UUID)
+TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.concierge_patient_list_external_options(
   p_task_id UUID
@@ -105,35 +237,14 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 STABLE
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path = ''
 AS $$
-  SELECT
-    o.id,
-    o.task_id,
-    o.provider_name,
-    o.provider_type,
-    o.address,
-    o.city,
-    o.state,
-    o.phone,
-    o.website,
-    o.price_amount,
-    o.currency,
-    o.accepts_insurance,
-    o.insurance_notes,
-    o.earliest_slot,
-    o.distance_text,
-    o.status,
-    o.created_at,
-    o.updated_at
-  FROM public.concierge_external_options o
-  JOIN public.concierge_external_tasks t
-    ON t.id = o.task_id
-  WHERE o.task_id = p_task_id
-    AND t.patient_id = auth.uid()
-    AND o.status IN ('offered', 'selected')
-  ORDER BY o.earliest_slot ASC NULLS LAST, o.created_at ASC;
+  SELECT *
+  FROM private.concierge_patient_list_external_options_impl(
+    (SELECT auth.uid()),
+    p_task_id
+  );
 $$;
 
 REVOKE ALL
@@ -148,10 +259,11 @@ GRANT EXECUTE
 ON FUNCTION public.concierge_patient_list_external_options(UUID)
 TO authenticated;
 
-
--- Patient choice is transactional. The patient never receives UPDATE permission
--- on tasks/options; this RPC validates ownership and allowed states.
-CREATE OR REPLACE FUNCTION public.concierge_patient_select_external_option(
+-- -----------------------------------------------------
+-- 3) Private privileged implementation: patient choice
+-- -----------------------------------------------------
+CREATE OR REPLACE FUNCTION private.concierge_patient_select_external_option_impl(
+  p_user_id UUID,
   p_task_id UUID,
   p_option_id UUID
 )
@@ -161,11 +273,10 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  current_user_id UUID := auth.uid();
   selected_task public.concierge_external_tasks%ROWTYPE;
   selected_option public.concierge_external_options%ROWTYPE;
 BEGIN
-  IF current_user_id IS NULL THEN
+  IF p_user_id IS NULL OR p_user_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'authentication required';
   END IF;
 
@@ -173,7 +284,7 @@ BEGIN
   INTO selected_task
   FROM public.concierge_external_tasks
   WHERE id = p_task_id
-    AND patient_id = current_user_id
+    AND patient_id = p_user_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
@@ -233,8 +344,8 @@ BEGIN
   )
   VALUES (
     p_task_id,
-    current_user_id,
-    current_user_id,
+    p_user_id,
+    p_user_id,
     'patient',
     'patient_selected_provider',
     'patient',
@@ -256,6 +367,30 @@ END;
 $$;
 
 REVOKE ALL
+ON FUNCTION private.concierge_patient_select_external_option_impl(UUID, UUID, UUID)
+FROM PUBLIC;
+
+GRANT EXECUTE
+ON FUNCTION private.concierge_patient_select_external_option_impl(UUID, UUID, UUID)
+TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.concierge_patient_select_external_option(
+  p_task_id UUID,
+  p_option_id UUID
+)
+RETURNS JSONB
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+  SELECT private.concierge_patient_select_external_option_impl(
+    (SELECT auth.uid()),
+    p_task_id,
+    p_option_id
+  );
+$$;
+
+REVOKE ALL
 ON FUNCTION public.concierge_patient_select_external_option(UUID, UUID)
 FROM PUBLIC;
 
@@ -266,6 +401,3 @@ FROM anon;
 GRANT EXECUTE
 ON FUNCTION public.concierge_patient_select_external_option(UUID, UUID)
 TO authenticated;
-
-COMMENT ON FUNCTION public.concierge_patient_select_external_option(UUID, UUID)
-IS 'Allows an authenticated patient to select only an offered provider option from their own external Concierge coordination task.';
