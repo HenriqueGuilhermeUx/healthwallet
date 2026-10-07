@@ -28,6 +28,7 @@ export default function ConciergeDigital() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [membership, setMembership] = useState<any>(null)
+  const [entitlement, setEntitlement] = useState<any>(null)
   const [session, setSession] = useState<any>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -45,10 +46,14 @@ export default function ConciergeDigital() {
   const endRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
 
+  const entitlementAllowed = entitlement
+    ? ['trial','active','grace'].includes(entitlement.status)
+    : Boolean(membership && ['pilot','active'].includes(membership.status))
+
   const hasDigitalAccess = !!membership
-    && ['pilot', 'active'].includes(membership.status)
+    && entitlementAllowed
     && membership.consent_status === 'accepted'
-    && String(membership.plan_code || '').startsWith('concierge')
+    && String(membership.plan_code || entitlement?.plan_code || '').startsWith('concierge')
 
   useEffect(() => {
     const w = window as any
@@ -107,8 +112,13 @@ export default function ConciergeDigital() {
     if (!user) return
     setLoading(true)
     try {
-      const [member, familyRes, casesRes, whatsappRes] = await Promise.all([
+      const [member, entitlementRes, familyRes, casesRes, whatsappRes] = await Promise.all([
         getConciergeMembershipForPatient(user.id),
+        supabase
+          .from('concierge_entitlements')
+          .select('status,plan_code,current_period_end,grace_until')
+          .eq('patient_id', user.id)
+          .maybeSingle(),
         supabase
           .from('family_members')
           .select('id,name,relationship,member_type,is_elderly,health_plan')
@@ -132,15 +142,20 @@ export default function ConciergeDigital() {
           .maybeSingle(),
       ])
       setMembership(member)
+      setEntitlement(entitlementRes.data || null)
       setFamilyMembers(familyRes.data || [])
       setOperationalCases(casesRes.data || [])
       setWhatsappIdentity(whatsappRes.data || null)
 
+      const entitlementAllowed = entitlementRes.data
+        ? ['trial','active','grace'].includes(entitlementRes.data.status)
+        : Boolean(member && ['pilot','active'].includes(member.status))
+
       if (
         member
-        && ['pilot', 'active'].includes(member.status)
+        && entitlementAllowed
         && member.consent_status === 'accepted'
-        && String(member.plan_code || '').startsWith('concierge')
+        && String(member.plan_code || entitlementRes.data?.plan_code || '').startsWith('concierge')
       ) {
         const { data } = await supabase
           .from('concierge_chat_sessions')
