@@ -55,6 +55,7 @@ import ConciergePilotDashboard from '@/pages/ConciergePilotDashboard'
 import ConciergeRoster from '@/pages/ConciergeRoster'
 import ConciergeConsent from '@/pages/ConciergeConsent'
 import ConciergePatientOps from '@/pages/ConciergePatientOps'
+import ConciergeDigital from '@/pages/ConciergeDigital'
 
 // Components
 import BottomNav from '@/components/BottomNav'
@@ -227,6 +228,7 @@ export default function App() {
             <Route path="/consent" element={<ProtectedPage><Consent /></ProtectedPage>} />
             <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
             <Route path="/concierge/consent" element={<ProtectedPage><ConciergeConsent /></ProtectedPage>} />
+            <Route path="/concierge/digital" element={<ProtectedPage><ConciergeDigital /></ProtectedPage>} />
             <Route path="/concierge" element={<ConciergePatientPage><Concierge /></ConciergePatientPage>} />
             <Route path="/concierge/health" element={<ConciergePatientPage><ConciergeHealth /></ConciergePatientPage>} />
             <Route path="/concierge/family" element={<ConciergePatientPage><ConciergeFamily /></ConciergePatientPage>} />
