@@ -55,8 +55,8 @@ jobs:
           set -euo pipefail
           npx -y netlify-cli@latest env:list             --site "$NETLIFY_SITE_ID"             --auth "$NETLIFY_AUTH_TOKEN"             --json > /tmp/netlify-env.json
 
-          echo 'Health Supabase URL configuration:'
-          jq -c '.. | objects | select(.key? == "VITE_SUPABASE_URL" or .key? == "SUPABASE_URL")' /tmp/netlify-env.json || true
+          echo 'Health Supabase project URLs:'
+          jq -r '.. | strings | select(test("^https://[a-z0-9-]+\\.supabase\\.co$"))' /tmp/netlify-env.json | sort -u || true
 
           grep -q '"SUPABASE_SERVICE_ROLE_KEY"' /tmp/netlify-env.json || {
             echo 'Missing SUPABASE_SERVICE_ROLE_KEY on isolated healthwallet1 staging site.'
