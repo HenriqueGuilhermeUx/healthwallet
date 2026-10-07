@@ -109,6 +109,7 @@ jobs:
           test -f SQL_CONCIERGE_SLA_METRICS_V1.sql
           test -f SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
           test -f SQL_CONCIERGE_EXTERNAL_PATIENT_PROJECTION_V1.sql
+          test -f SQL_CONCIERGE_EXTERNAL_PATIENT_RPC_HARDENING_V1.sql
           test -f SQL_FAMILIA_IDOSOS_FASE1.sql
           test -f HEALTH_CONCIERGE_VALIDATION.md
 
@@ -139,6 +140,10 @@ jobs:
           grep -q 'concierge_patient_list_external_tasks' SQL_CONCIERGE_EXTERNAL_PATIENT_PROJECTION_V1.sql
           grep -q 'concierge_patient_list_external_options' SQL_CONCIERGE_EXTERNAL_PATIENT_PROJECTION_V1.sql
           grep -q 'concierge_patient_select_external_option' SQL_CONCIERGE_EXTERNAL_PATIENT_PROJECTION_V1.sql
+          grep -q 'private.concierge_patient_list_external_tasks_impl' SQL_CONCIERGE_EXTERNAL_PATIENT_RPC_HARDENING_V1.sql
+          grep -q 'private.concierge_patient_list_external_options_impl' SQL_CONCIERGE_EXTERNAL_PATIENT_RPC_HARDENING_V1.sql
+          grep -q 'private.concierge_patient_select_external_option_impl' SQL_CONCIERGE_EXTERNAL_PATIENT_RPC_HARDENING_V1.sql
+          grep -q 'SECURITY INVOKER' SQL_CONCIERGE_EXTERNAL_PATIENT_RPC_HARDENING_V1.sql
           if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_*.sql; then
             echo 'Unsafe unrestricted RLS policy found in Concierge migrations'
             exit 1
