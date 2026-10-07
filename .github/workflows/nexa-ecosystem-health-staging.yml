@@ -108,7 +108,7 @@ jobs:
       - name: Smoke isolated staging
         run: |
           set -euo pipefail
-          BASE='${{ steps.netlify.outputs.deploy_url }}'
+          BASE='https://nexa-ecosystem-staging--healthwallet1.netlify.app'
 
           curl --fail --silent --show-error --location "$BASE/healthwallet" > /tmp/healthwallet.html
           grep -qi '<div id="root"' /tmp/healthwallet.html
