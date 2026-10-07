@@ -56,6 +56,8 @@ jobs:
           grep -q 'path="/concierge/programs"' src/App.tsx
           grep -q 'path="/concierge/team"' src/App.tsx
           grep -q 'path="/concierge/agenda"' src/App.tsx
+          grep -q 'path="/concierge/coordination"' src/App.tsx
+          grep -q 'path="/concierge/coordination/:id"' src/App.tsx
           grep -q 'path="/concierge/ops"' src/App.tsx
           grep -q 'path="/concierge/ops/case/:id"' src/App.tsx
           grep -q 'path="/concierge/ops/patient/:patientId"' src/App.tsx
@@ -106,6 +108,7 @@ jobs:
           test -f SQL_CONCIERGE_PATIENT_AUDIT_V1.sql
           test -f SQL_CONCIERGE_SLA_METRICS_V1.sql
           test -f SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
+          test -f SQL_CONCIERGE_EXTERNAL_PATIENT_PROJECTION_V1.sql
           test -f SQL_FAMILIA_IDOSOS_FASE1.sql
           test -f HEALTH_CONCIERGE_VALIDATION.md
 
@@ -133,6 +136,9 @@ jobs:
           grep -q 'concierge_patient_reply' SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
           grep -q "OLD.status = 'waiting_patient'" SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
           grep -q 'Active Concierge consent required' SQL_CONCIERGE_PATIENT_REPLY_ROUTING_V1.sql
+          grep -q 'concierge_patient_list_external_tasks' SQL_CONCIERGE_EXTERNAL_PATIENT_PROJECTION_V1.sql
+          grep -q 'concierge_patient_list_external_options' SQL_CONCIERGE_EXTERNAL_PATIENT_PROJECTION_V1.sql
+          grep -q 'concierge_patient_select_external_option' SQL_CONCIERGE_EXTERNAL_PATIENT_PROJECTION_V1.sql
           if grep -Eq 'USING \(true\)|WITH CHECK \(true\)' SQL_CONCIERGE_*.sql; then
             echo 'Unsafe unrestricted RLS policy found in Concierge migrations'
             exit 1
@@ -168,6 +174,18 @@ jobs:
           grep -q 'idx_health_reminders_target_family_member' SQL_FAMILIA_IDOSOS_FASE1.sql
           grep -q 'Orientação rápida' src/pages/Concierge.tsx
           grep -q 'href="/concierge/family"' src/pages/Concierge.tsx
+          test -f src/pages/ConciergeCoordination.tsx
+          test -f src/pages/ConciergeCoordinationDetail.tsx
+          test -f src/services/conciergeExternal.ts
+          grep -q 'Agendamentos coordenados' src/pages/Concierge.tsx
+          grep -q 'Escolher esta opção' src/pages/ConciergeCoordinationDetail.tsx
+          grep -q 'concierge_patient_list_external_tasks' src/services/conciergeExternal.ts
+          grep -q 'concierge_patient_list_external_options' src/services/conciergeExternal.ts
+          grep -q 'concierge_patient_select_external_option' src/services/conciergeExternal.ts
+          if grep -Eq "from\('(concierge_external_tasks|concierge_external_options)'\)" src/pages/ConciergeCoordination*.tsx src/services/conciergeExternal.ts; then
+            echo 'Patient coordination must use safe RPC projections, not direct operational table reads'
+            exit 1
+          fi
 
       - name: Messaging routing audit
         run: |
