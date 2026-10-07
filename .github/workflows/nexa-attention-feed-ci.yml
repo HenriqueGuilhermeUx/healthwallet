@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'netlify/functions/nexa-attention.mjs'
+      - 'netlify/functions/nexa-session.mjs'
+      - 'src/hooks/useAuth.tsx'
+      - 'src/pages/Login.tsx'
+      - 'src/App.tsx'
       - '.env.example'
       - '.github/workflows/nexa-attention-feed-ci.yml'
   workflow_dispatch:
@@ -24,7 +28,9 @@ jobs:
           node-version: '22'
 
       - name: Validate serverless syntax
-        run: node --check netlify/functions/nexa-attention.mjs
+        run: |
+          node --check netlify/functions/nexa-attention.mjs
+          node --check netlify/functions/nexa-session.mjs
 
       - name: Assert privacy boundary
         run: |
@@ -36,6 +42,11 @@ jobs:
           ! grep -q "prescription_text" netlify/functions/nexa-attention.mjs
           ! grep -q "reason:" netlify/functions/nexa-attention.mjs
           ! grep -q "ai_analysis" netlify/functions/nexa-attention.mjs
+          grep -q "SUPABASE_SERVICE_ROLE_KEY" netlify/functions/nexa-session.mjs
+          grep -q "generateLink" netlify/functions/nexa-session.mjs
+          grep -q "verifyOtp" src/hooks/useAuth.tsx
+          grep -q 'path="/healthwallet"' src/App.tsx
+          ! grep -q "healthwallet_nexa_user.*JSON.stringify" src/pages/Login.tsx
 
       - name: Enable Corepack
         run: corepack enable
