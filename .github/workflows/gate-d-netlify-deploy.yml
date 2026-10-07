@@ -10,7 +10,6 @@ on:
   push:
     branches:
       - main
-      - concierge-patient-release-v1
     paths:
       - '.github/gate-d-netlify-deploy-trigger.txt'
 
