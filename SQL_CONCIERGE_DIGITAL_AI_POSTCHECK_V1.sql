@@ -52,3 +52,14 @@ ORDER BY c.relname;
 SELECT
   'PASS' AS result,
   'Concierge Digital schema installed; verify both tables have RLS=true, five functions are present, policies exist and both chat tables are in supabase_realtime.' AS note;
+
+
+SELECT
+  grantee,
+  table_name,
+  privilege_type
+FROM information_schema.role_table_grants
+WHERE table_schema = 'public'
+  AND table_name IN ('concierge_chat_sessions', 'concierge_chat_messages')
+  AND grantee IN ('authenticated', 'service_role')
+ORDER BY table_name, grantee, privilege_type;
