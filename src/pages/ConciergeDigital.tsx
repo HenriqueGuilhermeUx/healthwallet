@@ -37,6 +37,7 @@ export default function ConciergeDigital() {
   const [voiceSupported, setVoiceSupported] = useState(false)
   const [familyMembers, setFamilyMembers] = useState<any[]>([])
   const [subjectFamilyMemberId, setSubjectFamilyMemberId] = useState<string>('')
+  const [operationalCases, setOperationalCases] = useState<any[]>([])
   const endRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
 
@@ -102,16 +103,24 @@ export default function ConciergeDigital() {
     if (!user) return
     setLoading(true)
     try {
-      const [member, familyRes] = await Promise.all([
+      const [member, familyRes, casesRes] = await Promise.all([
         getConciergeMembershipForPatient(user.id),
         supabase
           .from('family_members')
           .select('id,name,relationship,member_type,is_elderly,health_plan')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false }),
+        supabase
+          .from('concierge_operational_cases')
+          .select('id,case_type,title,status,insurer_name,protocol_number,regulatory_deadline_at,deadline_confirmed,next_followup_at,amount_requested,amount_reimbursed,updated_at')
+          .eq('patient_id', user.id)
+          .not('status', 'in', '(closed,cancelled)')
+          .order('updated_at', { ascending: false })
+          .limit(12),
       ])
       setMembership(member)
       setFamilyMembers(familyRes.data || [])
+      setOperationalCases(casesRes.data || [])
 
       if (
         member
@@ -139,6 +148,18 @@ export default function ConciergeDigital() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function refreshOperationalCases() {
+    if (!user) return
+    const { data } = await supabase
+      .from('concierge_operational_cases')
+      .select('id,case_type,title,status,insurer_name,protocol_number,regulatory_deadline_at,deadline_confirmed,next_followup_at,amount_requested,amount_reimbursed,updated_at')
+      .eq('patient_id', user.id)
+      .not('status', 'in', '(closed,cancelled)')
+      .order('updated_at', { ascending: false })
+      .limit(12)
+    setOperationalCases(data || [])
   }
 
   async function refreshConversation(sessionId: string) {
@@ -202,6 +223,7 @@ export default function ConciergeDigital() {
         }
 
         await refreshConversation(nextSessionId)
+        if (result.createdOperationalCase) await refreshOperationalCases()
       }
 
       if (result.reply && voiceReplies && source === 'voice') {
@@ -409,8 +431,11 @@ export default function ConciergeDigital() {
               <div className="mt-4 flex flex-wrap gap-2">
                 {[
                   'Marcar exame ou consulta',
-                  'Resolver autorização do plano',
-                  'Organizar reembolso ou glosa',
+                  'O plano deu uma data muito longe. Qual é meu prazo?',
+                  'O plano negou uma autorização. O que posso fazer?',
+                  'Quero organizar um reembolso',
+                  'Estão limitando minhas sessões de terapia',
+                  'Como funciona uma NIP na ANS?',
                   'Cuidar de internação ou cirurgia',
                 ].map((label) => (
                   <button key={label} type="button" onClick={() => setInput(label)} className="rounded-full border bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
@@ -419,6 +444,44 @@ export default function ConciergeDigital() {
                 ))}
               </div>
             </div>
+          </div>
+        </section>
+      )}
+
+      {operationalCases.length > 0 && (
+        <section className="rounded-2xl border bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-bold text-gray-900">O Concierge está cuidando</p>
+              <p className="mt-1 text-xs text-muted-foreground">Acompanhe demandas que viraram ação operacional.</p>
+            </div>
+            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">{operationalCases.length} ativo{operationalCases.length === 1 ? '' : 's'}</span>
+          </div>
+          <div className="mt-3 space-y-2">
+            {operationalCases.slice(0, 5).map((item: any) => (
+              <div key={item.id} className="rounded-xl border bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-gray-900">{item.title}</p>
+                  <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-700">{{
+                    new: 'Novo',
+                    collecting_docs: 'Coletando documentos',
+                    ready_to_contact: 'Pronto para contato',
+                    contacting_operator: 'Falando com operadora',
+                    waiting_operator: 'Aguardando operadora',
+                    action_required_patient: 'Precisamos de você',
+                    escalated_ans: 'Escalado para ANS',
+                    waiting_ans: 'Aguardando ANS',
+                    scheduled: 'Agendado',
+                    authorized: 'Autorizado',
+                    reimbursed: 'Reembolsado',
+                    resolved: 'Resolvido',
+                  }[item.status] || item.status}</span>
+                </div>
+                {item.insurer_name && <p className="mt-1 text-xs text-gray-600">{item.insurer_name}{item.protocol_number ? ` · protocolo ${item.protocol_number}` : ''}</p>}
+                {item.regulatory_deadline_at && <p className="mt-2 text-xs font-semibold text-amber-700">Prazo acompanhado: {new Date(item.regulatory_deadline_at).toLocaleDateString('pt-BR')} {item.deadline_confirmed ? '✓' : '(estimado)'}</p>}
+                {item.next_followup_at && <p className="mt-1 text-xs text-gray-500">Próxima cobrança: {new Date(item.next_followup_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>}
+              </div>
+            ))}
           </div>
         </section>
       )}
