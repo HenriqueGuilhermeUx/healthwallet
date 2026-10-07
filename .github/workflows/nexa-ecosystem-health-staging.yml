@@ -30,7 +30,7 @@ jobs:
       NEXA_API_URL: https://nexa-backend-wallet-v15-staging.onrender.com/api/v1
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
 
     steps:
       - uses: actions/checkout@v4
@@ -64,15 +64,15 @@ jobs:
           PROJECT_REF_SHA256="$(printf '%s' "$PROJECT_REF" | sha256sum | awk '{print $1}')"
           echo "Health Supabase project ref sha256: $PROJECT_REF_SHA256"
 
-          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}" || { echo 'Missing GitHub secret SUPABASE_SERVICE_ROLE_KEY.'; exit 5; }
-          echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
+          test -n "${SUPABASE_SECRET_KEY:-}" || { echo 'Missing GitHub secret SUPABASE_SECRET_KEY.'; exit 5; }
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
           echo 'Required Health staging secrets are present.'
 
       - name: Seed isolated staging environment
         run: |
           set -euo pipefail
           echo "::add-mask::$VITE_SUPABASE_ANON_KEY"
-          echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
 
           npx -y netlify-cli@latest env:set VITE_SUPABASE_URL "$VITE_SUPABASE_URL" \
             --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
@@ -80,7 +80,7 @@ jobs:
             --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
           npx -y netlify-cli@latest env:set SUPABASE_URL "$VITE_SUPABASE_URL" \
             --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
-          npx -y netlify-cli@latest env:set SUPABASE_SERVICE_ROLE_KEY "$SUPABASE_SERVICE_ROLE_KEY" \
+          npx -y netlify-cli@latest env:set SUPABASE_SECRET_KEY "$SUPABASE_SECRET_KEY" \
             --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
 
       - name: Enable Nexa integration only on staging site
