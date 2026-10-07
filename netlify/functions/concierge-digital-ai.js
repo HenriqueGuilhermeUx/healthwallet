@@ -25,6 +25,9 @@ Você NÃO é médico e NÃO deve:
 
 Você pode:
 - conversar de forma natural e acolhedora;
+- responder dúvidas regulatórias administrativas APENAS com base nos playbooks regulatórios fornecidos no contexto;
+- explicar direitos e procedimentos em linguagem simples, deixando claro quando a regra depende de contrato, cobertura, carência, abrangência ou documentação;
+- oferecer transformar a dúvida em um caso operacional rastreável;
 - usar o contexto fornecido para evitar perguntas repetidas;
 - identificar intenção administrativa;
 - sugerir criação de uma solicitação Concierge quando há algo concreto a resolver;
@@ -50,7 +53,12 @@ Se intent=create_request, request deve ser:
   "title": "título curto",
   "description": "descrição objetiva do que precisa ser resolvido",
   "urgency": "routine|priority",
-  "operational_type": "provider_search|scheduling|insurance_authorization|reimbursement|claim_denial|hospitalization|surgery|complex_case|caregiver_coordination|general_navigation"
+  "operational_type": "provider_search|scheduling|insurance_authorization|reimbursement|claim_denial|hospitalization|surgery|complex_case|caregiver_coordination|general_navigation",
+  "insurer_name": null,
+  "plan_name": null,
+  "protocol_number": null,
+  "amount_requested": null,
+  "legal_guide_code": null
 }
 
 Use create_request somente quando o paciente estiver efetivamente pedindo uma ação/coordenação concreta.
@@ -59,6 +67,13 @@ Sinais para attention_level:
 - "watch": conversa repetitiva, frustração, bloqueio operacional, idoso/familiar dependente, dificuldade com plano, autorização, reembolso ou acesso;
 - "high": internação, cirurgia próxima, caso oncológico/complexo, glosa que ameaça continuidade, sofrimento emocional importante, ou situação em que a equipe humana deveria enxergar logo mesmo sem pedido explícito.
 Não transforme attention em decisão clínica. É um sinal operacional para a equipe Concierge.
+
+LIMITES JURÍDICOS:
+- Você pode informar regras regulatórias gerais e procedimentos administrativos baseados nos playbooks fornecidos.
+- Não dê parecer jurídico individualizado, não prometa cobertura/reembolso/resultado e não diga que uma negativa é "ilegal" sem análise humana adequada.
+- Não redija conteúdo clínico em nome de médico. Pode apontar ausência formal e pedir que o profissional assistente complemente.
+- Judicialização, liminar, estratégia processual ou interpretação jurídica controversa devem ser encaminhadas a advogado.
+- Para NIP, nunca prometa resolução em 48 horas; siga o playbook atual.
 `
 
 export async function handler(event) {
@@ -243,13 +258,15 @@ export async function handler(event) {
       return response(200, { sessionId, status: 'ai_active', reply: fallback })
     }
 
-    const [profileRes, scoreRes, actionsRes, requestsRes, coordinationRes, historyRes] = await Promise.all([
+    const [profileRes, scoreRes, actionsRes, requestsRes, coordinationRes, historyRes, regulatoryGuidesRes, regulatoryPlaybooksRes] = await Promise.all([
       admin.from('profiles').select('id,full_name,name').eq('id', user.id).maybeSingle(),
       admin.from('health_scores').select('score,status,calculated_at').eq('user_id', user.id).order('calculated_at', { ascending: false }).limit(1).maybeSingle(),
       admin.from('concierge_actions').select('id,title,status,due_date').eq('patient_id', user.id).in('status', ['pending','in_progress']).order('due_date', { ascending: true, nullsFirst: false }).limit(8),
       admin.from('concierge_requests').select('id,title,status,urgency,category,created_at').eq('patient_id', user.id).not('status', 'in', '(closed,resolved)').order('created_at', { ascending: false }).limit(8),
       admin.from('concierge_external_tasks').select('id,title,status,provider_name,scheduled_at,preparation_instructions').eq('patient_id', user.id).not('status', 'in', '(closed,cancelled)').order('created_at', { ascending: false }).limit(8),
       admin.from('concierge_chat_messages').select('actor_role,content,created_at,visibility').eq('session_id', sessionId).eq('visibility', 'patient').order('created_at', { ascending: false }).limit(16),
+      admin.from('concierge_regulatory_guides').select('guide_code,topic,question,patient_answer,legal_boundary,source_refs,metadata').eq('active', true).limit(30),
+      admin.from('concierge_regulatory_playbooks').select('rule_code,title,authority,version_label,service_type,max_business_days,escalation_action,metadata').eq('active', true).limit(50),
     ])
 
     const history = (historyRes.data || []).reverse().map((item) => ({
@@ -267,6 +284,8 @@ export async function handler(event) {
       open_actions: actionsRes.data || [],
       open_requests: requestsRes.data || [],
       active_coordination: coordinationRes.data || [],
+      regulatory_guides: regulatoryGuidesRes.data || [],
+      regulatory_deadlines: regulatoryPlaybooksRes.data || [],
       conversation_subject: subjectFamilyMember ? {
         type: 'family_member',
         id: subjectFamilyMember.id,
@@ -317,6 +336,7 @@ export async function handler(event) {
     const reply = String(parsed.reply || 'Entendi. Vou acompanhar isso com você.').slice(0, 6000)
 
     let createdRequest = null
+    let createdOperationalCase = null
     if (parsed.intent === 'create_request' && parsed.request) {
       const requestInput = parsed.request
       const safeCategories = ['symptom','guidance','exam_review','second_analysis','medication_review','navigation','other']
@@ -371,6 +391,60 @@ export async function handler(event) {
             subject_family_member_id: subjectFamilyMember?.id || null,
           },
         })
+
+        try {
+          const highComplexity = new Set([
+            'insurance_authorization','reimbursement','claim_denial','hospitalization',
+            'surgery','complex_case','caregiver_coordination',
+          ])
+          const amountRaw = Number(requestInput.amount_requested)
+          const amountRequested = Number.isFinite(amountRaw) && amountRaw >= 0 ? amountRaw : null
+
+          const { data: caseRow, error: caseError } = await admin
+            .from('concierge_operational_cases')
+            .insert({
+              patient_id: user.id,
+              subject_family_member_id: subjectFamilyMember?.id || null,
+              request_id: createdRequest.id,
+              chat_session_id: sessionId,
+              case_type: safeOperationalType,
+              title: String(requestInput.title || createdRequest.title || 'Caso Concierge').slice(0, 240),
+              description: String(requestInput.description || message).slice(0, 5000),
+              insurer_name: requestInput.insurer_name ? String(requestInput.insurer_name).slice(0, 180) : null,
+              plan_name: requestInput.plan_name ? String(requestInput.plan_name).slice(0, 180) : null,
+              protocol_number: requestInput.protocol_number ? String(requestInput.protocol_number).slice(0, 180) : null,
+              amount_requested: amountRequested,
+              priority: highComplexity.has(safeOperationalType) || urgency === 'priority' ? 'high' : 'normal',
+              status: 'new',
+              metadata: {
+                source: 'concierge_digital_ai',
+                legal_guide_code: requestInput.legal_guide_code || null,
+                conversation_subject: subjectFamilyMember?.name || null,
+              },
+            })
+            .select('id,case_type,title,status,priority,insurer_name,protocol_number')
+            .single()
+
+          if (caseError) throw caseError
+          createdOperationalCase = caseRow
+
+          await admin.from('concierge_case_events').insert({
+            case_id: caseRow.id,
+            patient_id: user.id,
+            actor_user_id: user.id,
+            actor_role: 'patient',
+            event_type: 'case_created_from_digital_concierge',
+            visibility: 'patient',
+            message: 'Criamos um acompanhamento operacional para esta demanda.',
+            payload: {
+              request_id: createdRequest.id,
+              chat_session_id: sessionId,
+              legal_guide_code: requestInput.legal_guide_code || null,
+            },
+          })
+        } catch (caseError) {
+          console.warn('Operational case engine unavailable:', caseError)
+        }
       }
     }
 
@@ -414,6 +488,7 @@ export async function handler(event) {
         needs_human: needsHuman,
         attention_level: attentionLevel,
         created_request_id: createdRequest?.id || null,
+        created_operational_case_id: createdOperationalCase?.id || null,
         model: process.env.CONCIERGE_AI_MODEL || 'gpt-6-luna',
       },
     })
@@ -425,6 +500,7 @@ export async function handler(event) {
       needsHuman,
       attentionLevel,
       createdRequest,
+      createdOperationalCase,
     })
   } catch (error) {
     console.error('Concierge Digital AI error:', error)
