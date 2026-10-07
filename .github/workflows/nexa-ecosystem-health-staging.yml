@@ -7,6 +7,7 @@ on:
     paths:
       - 'netlify/functions/nexa-attention.mjs'
       - 'netlify/functions/nexa-session.mjs'
+      - 'netlify.toml'
       - 'src/hooks/useAuth.tsx'
       - 'src/pages/Login.tsx'
       - 'src/App.tsx'
