@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS public.concierge_chat_sessions (
   status TEXT NOT NULL DEFAULT 'ai_active'
     CHECK (status IN ('ai_active','attention','human_requested','human_active','closed')),
   channel TEXT NOT NULL DEFAULT 'text'
-    CHECK (channel IN ('text','voice','mixed')),
+    CHECK (channel IN ('text','voice','mixed','whatsapp')),
   assigned_staff_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   attention_reason TEXT,
   human_requested_at TIMESTAMPTZ,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS public.concierge_chat_messages (
   actor_role TEXT NOT NULL
     CHECK (actor_role IN ('patient','ai','concierge','nurse','doctor','care_coordinator','admin','system')),
   source TEXT NOT NULL DEFAULT 'text'
-    CHECK (source IN ('text','voice','system')),
+    CHECK (source IN ('text','voice','system','whatsapp','image','document')),
   visibility TEXT NOT NULL DEFAULT 'patient'
     CHECK (visibility IN ('patient','staff_only')),
   content TEXT NOT NULL,
