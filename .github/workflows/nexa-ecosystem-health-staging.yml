@@ -61,7 +61,8 @@ jobs:
           echo "::add-mask::$VITE_SUPABASE_ANON_KEY"
 
           PROJECT_REF="$(printf '%s' "$VITE_SUPABASE_URL" | sed -E 's#https://([a-z0-9-]+)\\.supabase\\.co.*#\\1#')"
-          echo "Health Supabase project ref: $PROJECT_REF"
+          PROJECT_REF_SHA256="$(printf '%s' "$PROJECT_REF" | sha256sum | awk '{print $1}')"
+          echo "Health Supabase project ref sha256: $PROJECT_REF_SHA256"
 
           test -n "${SUPABASE_SERVICE_ROLE_KEY:-}" || { echo 'Missing GitHub secret SUPABASE_SERVICE_ROLE_KEY.'; exit 5; }
           echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
