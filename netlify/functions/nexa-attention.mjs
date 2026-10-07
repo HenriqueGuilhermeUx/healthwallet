@@ -34,11 +34,32 @@ function isEnabled() {
   return env('NEXA_ECOSYSTEM_ATTENTION_ENABLED').toLowerCase() === 'true'
 }
 
-function authorize(request) {
-  const expected = env('NEXA_ECOSYSTEM_ATTENTION_SERVICE_KEY')
-  const provided = bearerToken(request)
+async function authorize(request, nexaUserId) {
+  const token = bearerToken(request)
+  if (!token) {
+    throw Object.assign(new Error('Unauthorized'), {
+      status: 401,
+      code: 'unauthorized',
+    })
+  }
 
-  if (!expected || !provided || provided !== expected) {
+  const nexaApiUrl = requiredEnv('NEXA_API_URL').replace(/\/$/, '')
+  const response = await fetch(`${nexaApiUrl}/staff/validate-token`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({ token }),
+    signal: AbortSignal.timeout(7_000),
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  const validatedUserId = String(
+    payload?.user?.userId || payload?.user?.id || payload?.user?.sub || '',
+  ).trim()
+
+  if (!response.ok || payload?.valid !== true || validatedUserId !== nexaUserId) {
     throw Object.assign(new Error('Unauthorized'), {
       status: 401,
       code: 'unauthorized',
@@ -141,8 +162,8 @@ export default async request => {
       })
     }
 
-    authorize(request)
     const nexaUserId = safeNexaUserId(request)
+    await authorize(request, nexaUserId)
     const baseUrl = requiredEnv('SUPABASE_URL', 'VITE_SUPABASE_URL').replace(/\/$/, '')
     const serviceRole = requiredEnv('SUPABASE_SERVICE_ROLE_KEY')
     const today = new Date().toISOString().slice(0, 10)
