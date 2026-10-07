@@ -102,35 +102,43 @@ GRANT USAGE ON SCHEMA private TO authenticated, service_role;
 
 
 -- 4B) Remove inherited/automatic table privileges from anon/PUBLIC.
--- Older Supabase projects may automatically expose newly-created public tables.
-DO $
+-- Older Supabase projects may automatically expose newly-created public relations.
+DO $$
 DECLARE
-  rel RECORD;
+  relation_name TEXT;
+  relations TEXT[] := ARRAY[
+    'concierge_chat_sessions',
+    'concierge_chat_messages',
+    'concierge_operational_cases',
+    'concierge_case_documents',
+    'concierge_case_events',
+    'concierge_regulatory_playbooks',
+    'concierge_regulatory_guides',
+    'concierge_channel_identities',
+    'concierge_channel_link_challenges',
+    'concierge_document_intake',
+    'concierge_case_checklist_items',
+    'concierge_case_escalations',
+    'concierge_legal_authorizations',
+    'concierge_entitlements',
+    'concierge_subscriber_readiness'
+  ];
 BEGIN
-  FOR rel IN
-    SELECT c.oid::regclass AS relation_name, c.relkind
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public'
-      AND (
-        c.relname LIKE 'concierge_%'
-        OR c.relname = 'family_members'
-      )
-      AND c.relkind IN ('r','p','v','m')
-  LOOP
-    EXECUTE format(
-      'REVOKE ALL PRIVILEGES ON TABLE %s FROM anon',
-      rel.relation_name
-    );
-
-    EXECUTE format(
-      'REVOKE ALL PRIVILEGES ON TABLE %s FROM PUBLIC',
-      rel.relation_name
-    );
+  FOREACH relation_name IN ARRAY relations LOOP
+    IF to_regclass('public.' || relation_name) IS NOT NULL THEN
+      EXECUTE format(
+        'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM anon',
+        relation_name
+      );
+      EXECUTE format(
+        'REVOKE ALL PRIVILEGES ON TABLE public.%I FROM PUBLIC',
+        relation_name
+      );
+    END IF;
   END LOOP;
-END $;
+END $$;
 
--- Re-assert the intended authenticated read surface for the readiness view.
+-- Re-assert intended view access after revoking inherited grants.
 GRANT SELECT ON public.concierge_subscriber_readiness TO authenticated, service_role;
 
 -- 5) Verification: anon must not execute any Concierge function.
