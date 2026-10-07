@@ -38,6 +38,10 @@ export default function ConciergeDigital() {
   const [familyMembers, setFamilyMembers] = useState<any[]>([])
   const [subjectFamilyMemberId, setSubjectFamilyMemberId] = useState<string>('')
   const [operationalCases, setOperationalCases] = useState<any[]>([])
+  const [whatsappIdentity, setWhatsappIdentity] = useState<any>(null)
+  const [whatsappLinkCode, setWhatsappLinkCode] = useState('')
+  const [whatsappLinkExpiresAt, setWhatsappLinkExpiresAt] = useState<string | null>(null)
+  const [whatsappLinking, setWhatsappLinking] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
 
@@ -103,7 +107,7 @@ export default function ConciergeDigital() {
     if (!user) return
     setLoading(true)
     try {
-      const [member, familyRes, casesRes] = await Promise.all([
+      const [member, familyRes, casesRes, whatsappRes] = await Promise.all([
         getConciergeMembershipForPatient(user.id),
         supabase
           .from('family_members')
@@ -117,10 +121,20 @@ export default function ConciergeDigital() {
           .not('status', 'in', '(closed,cancelled)')
           .order('updated_at', { ascending: false })
           .limit(12),
+        supabase
+          .from('concierge_channel_identities')
+          .select('id,external_address,verified_at,active')
+          .eq('patient_id', user.id)
+          .eq('channel', 'whatsapp')
+          .eq('active', true)
+          .order('verified_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ])
       setMembership(member)
       setFamilyMembers(familyRes.data || [])
       setOperationalCases(casesRes.data || [])
+      setWhatsappIdentity(whatsappRes.data || null)
 
       if (
         member
@@ -147,6 +161,31 @@ export default function ConciergeDigital() {
       console.warn('Concierge Digital bootstrap failed:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function createWhatsAppLinkCode() {
+    setWhatsappLinking(true)
+    try {
+      const { data, error } = await supabase.rpc('concierge_create_whatsapp_link_challenge')
+      if (error) throw error
+
+      const code = String(data?.code || '')
+      setWhatsappLinkCode(code)
+      setWhatsappLinkExpiresAt(data?.expires_at || null)
+
+      const number = String(import.meta.env.VITE_CONCIERGE_WHATSAPP_NUMBER || '').replace(/\D/g, '')
+      if (number && code) {
+        const text = encodeURIComponent(`VINCULAR ${code}`)
+        window.open(`https://wa.me/${number}?text=${text}`, '_blank', 'noopener,noreferrer')
+      } else {
+        toast.success('Código criado. Envie VINCULAR + o código para o WhatsApp oficial do Concierge.')
+      }
+    } catch (error) {
+      console.error('WhatsApp link challenge failed:', error)
+      toast.error('Não foi possível iniciar a vinculação do WhatsApp.')
+    } finally {
+      setWhatsappLinking(false)
     }
   }
 
@@ -393,6 +432,40 @@ export default function ConciergeDigital() {
         <div className="mt-4 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
           {statusText[session?.status || 'ai_active'] || 'Concierge Digital'}
         </div>
+      </section>
+
+      <section className="rounded-2xl border bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-bold text-gray-900">WhatsApp do Concierge</p>
+            <p className="mt-1 text-xs text-muted-foreground">Use o mesmo Concierge por texto, áudio, foto de pedido, nota ou documento.</p>
+          </div>
+          <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${whatsappIdentity ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+            {whatsappIdentity ? 'CONECTADO' : 'OPCIONAL'}
+          </span>
+        </div>
+
+        {whatsappIdentity ? (
+          <p className="mt-3 text-sm text-emerald-800">Número vinculado com segurança. Suas conversas entram na mesma fila do MyDataMed Concierge.</p>
+        ) : (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => void createWhatsAppLinkCode()}
+              disabled={whatsappLinking}
+              className="w-full rounded-xl bg-[#25D366] px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {whatsappLinking ? 'Gerando código...' : 'Conectar meu WhatsApp'}
+            </button>
+            {whatsappLinkCode && (
+              <div className="mt-3 rounded-xl bg-slate-50 p-3 text-center">
+                <p className="text-xs text-gray-500">Envie esta mensagem para o WhatsApp oficial do Concierge:</p>
+                <p className="mt-2 font-mono text-lg font-bold tracking-wider text-slate-900">VINCULAR {whatsappLinkCode}</p>
+                {whatsappLinkExpiresAt && <p className="mt-1 text-[11px] text-gray-400">Código válido por cerca de 15 minutos.</p>}
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {familyMembers.length > 0 && visibleMessages.length === 0 && (
