@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Bot, Headphones, Loader2, Mic, MicOff, Send, Sparkles, UserRound, Volume2, VolumeX } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
+import { Capacitor } from '@capacitor/core'
+import { SpeechRecognition } from '@capacitor-community/speech-recognition'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { getConciergeMembershipForPatient } from '@/services/conciergeConsent'
@@ -45,7 +47,15 @@ export default function ConciergeDigital() {
 
   useEffect(() => {
     const w = window as any
-    setVoiceSupported(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition))
+
+    if (Capacitor.isNativePlatform()) {
+      void SpeechRecognition.available()
+        .then((result: any) => setVoiceSupported(Boolean(result?.available ?? result)))
+        .catch(() => setVoiceSupported(false))
+    } else {
+      setVoiceSupported(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition))
+    }
+
     return () => {
       try { recognitionRef.current?.stop?.() } catch {}
       window.speechSynthesis?.cancel()
@@ -205,14 +215,41 @@ export default function ConciergeDigital() {
     }
   }
 
-  function startVoice() {
+  async function startVoice() {
     if (!voiceSupported || listening) return
+
+    window.speechSynthesis?.cancel()
+
+    if (Capacitor.isNativePlatform()) {
+      setListening(true)
+      try {
+        const permission = await SpeechRecognition.checkPermissions()
+        if ((permission as any)?.speechRecognition !== 'granted') {
+          await SpeechRecognition.requestPermissions()
+        }
+
+        const result: any = await SpeechRecognition.start({
+          language: 'pt-BR',
+          maxResults: 1,
+          prompt: 'Fale com o Concierge',
+          partialResults: false,
+          popup: true,
+        })
+
+        const transcript = String(result?.matches?.[0] || '').trim()
+        if (transcript) await sendMessage(transcript, 'voice')
+      } catch (error) {
+        console.warn('Native speech recognition failed:', error)
+        toast.error('Não consegui ouvir. Tente novamente.')
+      } finally {
+        setListening(false)
+      }
+      return
+    }
 
     const w = window as any
     const Recognition = w.SpeechRecognition || w.webkitSpeechRecognition
     if (!Recognition) return
-
-    window.speechSynthesis?.cancel()
 
     const recognition = new Recognition()
     recognition.lang = 'pt-BR'
@@ -235,7 +272,13 @@ export default function ConciergeDigital() {
     recognition.start()
   }
 
-  function stopVoice() {
+  async function stopVoice() {
+    if (Capacitor.isNativePlatform()) {
+      try { await SpeechRecognition.stop() } catch {}
+      setListening(false)
+      return
+    }
+
     try { recognitionRef.current?.stop?.() } catch {}
     setListening(false)
   }
