@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Bell, CalendarCheck, CalendarDays, CheckCircle2, Clock, Loader2, Target, Video } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
-import { listMyExternalCoordinations } from '@/services/conciergeExternal'
 
 type AgendaItem = {
   id: string
@@ -50,7 +49,7 @@ export default function ConciergeAgenda() {
     const today = new Date().toISOString().slice(0, 10)
 
     try {
-      const [actionsRes, appointmentsRes, remindersRes, coordinatedTasks] = await Promise.all([
+      const [actionsRes, appointmentsRes, remindersRes, coordinatedRes] = await Promise.all([
         supabase
           .from('concierge_actions')
           .select('*')
@@ -75,7 +74,7 @@ export default function ConciergeAgenda() {
           .gte('reminder_date', today)
           .order('reminder_date', { ascending: true })
           .limit(30),
-        listMyExternalCoordinations(user.id),
+        supabase.rpc('concierge_patient_list_external_tasks'),
       ])
 
       const agenda: AgendaItem[] = []
@@ -110,7 +109,7 @@ export default function ConciergeAgenda() {
         href: '/dashboard',
       }))
 
-      ;(coordinatedTasks || [])
+      ;(coordinatedRes.data || [])
         .filter((task: any) => ['booked', 'instructions_sent'].includes(task.status) && task.scheduled_at && dateKey(task.scheduled_at) >= today)
         .forEach((task: any) => agenda.push({
           id: `coordination-${task.id}`,
