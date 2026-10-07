@@ -396,6 +396,7 @@ export async function handler(event) {
           subject_name: subjectFamilyMember?.name || session.metadata?.subject_name || null,
           subject_relationship: subjectFamilyMember?.relationship || session.metadata?.subject_relationship || null,
           attention_level: attentionLevel,
+          operational_type: parsed.request?.operational_type || session.metadata?.operational_type || null,
         },
         last_activity_at: new Date().toISOString(),
       })
