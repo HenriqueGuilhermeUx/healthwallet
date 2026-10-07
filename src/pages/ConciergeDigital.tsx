@@ -1,0 +1,390 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, Bot, Headphones, Loader2, Mic, MicOff, Send, Sparkles, UserRound, Volume2, VolumeX } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
+import { useAuth } from '@/hooks/useAuth'
+import { supabase } from '@/lib/supabase'
+import { getConciergeMembershipForPatient } from '@/services/conciergeConsent'
+
+type ChatMessage = {
+  id: string
+  actor_role: string
+  source: string
+  content: string
+  created_at: string
+}
+
+const statusText: Record<string, string> = {
+  ai_active: 'Concierge Digital atendendo',
+  attention: 'Equipe acompanhando',
+  human_requested: 'Aguardando atendimento humano',
+  human_active: 'Concierge humano na conversa',
+  closed: 'Conversa encerrada',
+}
+
+export default function ConciergeDigital() {
+  const { user } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [membership, setMembership] = useState<any>(null)
+  const [session, setSession] = useState<any>(null)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
+  const [listening, setListening] = useState(false)
+  const [voiceReplies, setVoiceReplies] = useState(true)
+  const [voiceSupported, setVoiceSupported] = useState(false)
+  const endRef = useRef<HTMLDivElement>(null)
+  const recognitionRef = useRef<any>(null)
+
+  const hasDigitalAccess = !!membership
+    && ['pilot', 'active'].includes(membership.status)
+    && membership.consent_status === 'accepted'
+    && String(membership.plan_code || '').startsWith('concierge')
+
+  useEffect(() => {
+    const w = window as any
+    setVoiceSupported(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition))
+    return () => {
+      try { recognitionRef.current?.stop?.() } catch {}
+      window.speechSynthesis?.cancel()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+    void bootstrap()
+  }, [user?.id])
+
+  useEffect(() => {
+    if (!session?.id) return
+    const timer = window.setInterval(() => void refreshConversation(session.id), 5000)
+    return () => window.clearInterval(timer)
+  }, [session?.id])
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [messages.length])
+
+  async function bootstrap() {
+    if (!user) return
+    setLoading(true)
+    try {
+      const member = await getConciergeMembershipForPatient(user.id)
+      setMembership(member)
+
+      if (
+        member
+        && ['pilot', 'active'].includes(member.status)
+        && member.consent_status === 'accepted'
+        && String(member.plan_code || '').startsWith('concierge')
+      ) {
+        const { data } = await supabase
+          .from('concierge_chat_sessions')
+          .select('*')
+          .eq('patient_id', user.id)
+          .neq('status', 'closed')
+          .order('last_activity_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (data) {
+          setSession(data)
+          await refreshConversation(data.id)
+        }
+      }
+    } catch (error) {
+      console.warn('Concierge Digital bootstrap failed:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function refreshConversation(sessionId: string) {
+    const [{ data: current }, { data: messageRows }] = await Promise.all([
+      supabase.from('concierge_chat_sessions').select('*').eq('id', sessionId).maybeSingle(),
+      supabase
+        .from('concierge_chat_messages')
+        .select('id,actor_role,source,content,created_at')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true })
+        .limit(100),
+    ])
+
+    if (current) setSession(current)
+    setMessages(messageRows || [])
+  }
+
+  async function sendMessage(messageValue?: string, source: 'text' | 'voice' = 'text') {
+    const body = String(messageValue ?? input).trim()
+    if (!body || sending || !user) return
+
+    setSending(true)
+    if (!messageValue) setInput('')
+
+    try {
+      const { data: authData } = await supabase.auth.getSession()
+      const token = authData.session?.access_token
+      if (!token) throw new Error('Sessão expirada. Entre novamente.')
+
+      const res = await fetch('/.netlify/functions/concierge-digital-ai', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: session?.id || null,
+          message: body,
+          source,
+        }),
+      })
+
+      const result = await res.json()
+      if (!res.ok) {
+        if (result?.error === 'concierge_subscription_required') {
+          throw new Error('O Concierge Digital exige uma assinatura ativa.')
+        }
+        throw new Error('Não foi possível falar com o Concierge agora.')
+      }
+
+      const nextSessionId = result.sessionId || session?.id
+      if (nextSessionId) {
+        if (!session?.id) {
+          const { data: created } = await supabase
+            .from('concierge_chat_sessions')
+            .select('*')
+            .eq('id', nextSessionId)
+            .maybeSingle()
+          if (created) setSession(created)
+        }
+
+        await refreshConversation(nextSessionId)
+      }
+
+      if (result.reply && voiceReplies && source === 'voice') {
+        speak(result.reply)
+      }
+
+      if (result.urgent) toast.error('Procure atendimento de urgência imediatamente.')
+      if (result.needsHuman) toast.success('Sua equipe Concierge foi avisada.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Não foi possível enviar sua mensagem.')
+      setInput(body)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function requestHuman() {
+    if (!session?.id) {
+      await sendMessage('Quero falar com uma pessoa da equipe Concierge.', 'text')
+      return
+    }
+
+    try {
+      const { error } = await supabase.rpc('concierge_chat_request_human', {
+        p_session_id: session.id,
+      })
+      if (error) throw error
+      toast.success('Atendimento humano solicitado.')
+      await refreshConversation(session.id)
+    } catch {
+      toast.error('Não foi possível chamar a equipe agora.')
+    }
+  }
+
+  function startVoice() {
+    if (!voiceSupported || listening) return
+
+    const w = window as any
+    const Recognition = w.SpeechRecognition || w.webkitSpeechRecognition
+    if (!Recognition) return
+
+    window.speechSynthesis?.cancel()
+
+    const recognition = new Recognition()
+    recognition.lang = 'pt-BR'
+    recognition.interimResults = false
+    recognition.maxAlternatives = 1
+    recognition.continuous = false
+
+    recognition.onstart = () => setListening(true)
+    recognition.onend = () => setListening(false)
+    recognition.onerror = () => {
+      setListening(false)
+      toast.error('Não consegui ouvir. Tente novamente.')
+    }
+    recognition.onresult = (event: any) => {
+      const transcript = String(event.results?.[0]?.[0]?.transcript || '').trim()
+      if (transcript) void sendMessage(transcript, 'voice')
+    }
+
+    recognitionRef.current = recognition
+    recognition.start()
+  }
+
+  function stopVoice() {
+    try { recognitionRef.current?.stop?.() } catch {}
+    setListening(false)
+  }
+
+  function speak(text: string) {
+    if (!('speechSynthesis' in window)) return
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'pt-BR'
+    utterance.rate = 1
+    window.speechSynthesis.speak(utterance)
+  }
+
+  const firstName = user?.user_metadata?.full_name?.split(' ')[0]
+    || user?.user_metadata?.name?.split(' ')[0]
+    || user?.email?.split('@')[0]
+    || ''
+
+  const humanMode = ['human_requested', 'human_active'].includes(session?.status)
+
+  const visibleMessages = useMemo(
+    () => messages.filter((item) => item.content?.trim()),
+    [messages],
+  )
+
+  if (loading) {
+    return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>
+  }
+
+  if (!hasDigitalAccess) {
+    return (
+      <div className="space-y-5 pb-28">
+        <Link to="/dashboard" className="inline-flex items-center gap-2 text-sm text-muted-foreground"><ArrowLeft className="h-4 w-4" /> HealthWallet</Link>
+        <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-teal-950 to-emerald-800 p-6 text-white">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-white/65"><Sparkles className="h-4 w-4" /> Upgrade HealthWallet</div>
+          <h1 className="mt-3 text-3xl font-bold">Concierge Digital</h1>
+          <p className="mt-3 text-sm leading-relaxed text-white/80">Converse por texto ou voz, organize próximos passos e tenha uma equipe humana pronta para entrar quando necessário.</p>
+        </section>
+        <section className="rounded-2xl border bg-white p-5">
+          <h2 className="font-bold">Disponível para assinantes Concierge</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Sua HealthWallet continua funcionando normalmente. O Concierge é a camada premium de coordenação e acompanhamento.</p>
+          <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">A contratação online será conectada ao lançamento comercial. Até lá, a ativação é feita pela equipe MyDataMed.</p>
+        </section>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4 pb-[15rem]">
+      <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-teal-950 to-emerald-800 p-5 text-white">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <Link to="/concierge" className="inline-flex items-center gap-2 text-sm text-white/65"><ArrowLeft className="h-4 w-4" /> Concierge</Link>
+            <div className="mt-4 flex items-center gap-2 text-xs uppercase tracking-wider text-white/60"><Sparkles className="h-4 w-4" /> Concierge Digital</div>
+            <h1 className="mt-2 text-2xl font-bold">Olá{firstName ? `, ${firstName}` : ''}. O que você precisa resolver hoje?</h1>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              window.speechSynthesis?.cancel()
+              setVoiceReplies((value) => !value)
+            }}
+            className="rounded-xl bg-white/10 p-2.5"
+            title={voiceReplies ? 'Desativar respostas faladas' : 'Ativar respostas faladas'}
+          >
+            {voiceReplies ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+          </button>
+        </div>
+        <div className="mt-4 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
+          {statusText[session?.status || 'ai_active'] || 'Concierge Digital'}
+        </div>
+      </section>
+
+      {visibleMessages.length === 0 && (
+        <section className="rounded-2xl border bg-white p-5">
+          <div className="flex gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Bot className="h-5 w-5" /></div>
+            <div>
+              <p className="font-bold">Pode falar comigo normalmente.</p>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">Ex.: “Preciso marcar minha ressonância”, “o que ainda está pendente?”, “quero encontrar um cardiologista” ou “quero falar com uma pessoa”.</p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="space-y-3">
+        {visibleMessages.map((message) => {
+          const mine = message.actor_role === 'patient'
+          const human = ['concierge','nurse','doctor','care_coordinator','admin'].includes(message.actor_role)
+          return (
+            <div key={message.id} className={`flex gap-2 ${mine ? 'justify-end' : 'justify-start'}`}>
+              {!mine && (
+                <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${human ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {human ? <UserRound className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+                </div>
+              )}
+              <div className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${mine ? 'bg-emerald-700 text-white rounded-br-md' : human ? 'border border-blue-200 bg-blue-50 text-blue-950 rounded-bl-md' : 'border bg-white text-gray-900 rounded-bl-md'}`}>
+                {human && <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-blue-700">Equipe Concierge</p>}
+                <p className="whitespace-pre-wrap">{message.content}</p>
+              </div>
+            </div>
+          )
+        })}
+        {sending && (
+          <div className="flex gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Bot className="h-4 w-4" /></div>
+            <div className="rounded-2xl border bg-white px-4 py-3 text-sm text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Organizando...</div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </section>
+
+      <button
+        type="button"
+        onClick={requestHuman}
+        disabled={session?.status === 'human_requested' || session?.status === 'human_active'}
+        className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800 disabled:opacity-60"
+      >
+        <span className="inline-flex items-center gap-2"><Headphones className="h-4 w-4" /> {session?.status === 'human_active' ? 'Equipe humana na conversa' : session?.status === 'human_requested' ? 'Aguardando equipe humana' : 'Falar com uma pessoa'}</span>
+      </button>
+
+      <div
+        className="fixed left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t bg-background/95 p-3 backdrop-blur"
+        style={{ bottom: 'calc(7.35rem + env(safe-area-inset-bottom, 0px))' }}
+      >
+        {listening && <p className="mb-2 text-center text-xs font-semibold text-red-600">Ouvindo… fale normalmente</p>}
+        <div className="flex items-end gap-2">
+          <button
+            type="button"
+            onClick={listening ? stopVoice : startVoice}
+            disabled={!voiceSupported || sending || humanMode && session?.status === 'human_requested'}
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white disabled:opacity-40 ${listening ? 'bg-red-600' : 'bg-slate-900'}`}
+            title={voiceSupported ? 'Falar' : 'Voz indisponível neste navegador'}
+          >
+            {listening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+          </button>
+          <textarea
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            rows={1}
+            maxLength={5000}
+            placeholder={humanMode ? 'Escreva para a equipe Concierge…' : 'Fale ou escreva o que precisa resolver…'}
+            className="max-h-28 min-h-12 flex-1 resize-none rounded-2xl border bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                void sendMessage()
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => void sendMessage()}
+            disabled={!input.trim() || sending}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-white disabled:opacity-40"
+          >
+            {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+          </button>
+        </div>
+        {!voiceSupported && <p className="mt-2 text-center text-[11px] text-muted-foreground">Texto disponível. Voz será habilitada automaticamente em navegador/app compatível.</p>}
+      </div>
+    </div>
+  )
+}
