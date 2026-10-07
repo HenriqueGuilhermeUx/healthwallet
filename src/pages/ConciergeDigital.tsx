@@ -418,6 +418,7 @@ export default function ConciergeDigital() {
           <h2 className="font-bold">Disponível para assinantes Concierge</h2>
           <p className="mt-2 text-sm text-muted-foreground">Sua HealthWallet continua funcionando normalmente. O Concierge é a camada premium de coordenação e acompanhamento.</p>
           <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">A contratação online será conectada ao lançamento comercial. Até lá, a ativação é feita pela equipe MyDataMed.</p>
+          <Link to="/concierge/activate" className="mt-3 inline-flex rounded-xl border px-4 py-2.5 text-sm font-bold text-emerald-800">Ver status de ativação</Link>
         </section>
       </div>
     )
@@ -444,8 +445,13 @@ export default function ConciergeDigital() {
             {voiceReplies ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
           </button>
         </div>
-        <div className="mt-4 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
-          {statusText[session?.status || 'ai_active'] || 'Concierge Digital'}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
+            {statusText[session?.status || 'ai_active'] || 'Concierge Digital'}
+          </div>
+          <Link to="/concierge/activate" className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold text-white">
+            Configurar meu Concierge
+          </Link>
         </div>
       </section>
 
