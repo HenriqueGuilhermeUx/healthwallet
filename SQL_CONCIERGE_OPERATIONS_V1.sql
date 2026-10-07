@@ -292,13 +292,13 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
-AS $
+AS $$
   SELECT EXISTS (
     SELECT 1
     FROM public.family_members fm
     WHERE fm.user_id = p_patient
   );
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION private.concierge_readiness_open_requests_count(p_patient UUID)
 RETURNS INTEGER
@@ -306,12 +306,12 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
-AS $
+AS $$
   SELECT count(*)::integer
   FROM public.concierge_requests cr
   WHERE cr.patient_id = p_patient
     AND cr.status NOT IN ('resolved','closed');
-$;
+$$;
 
 REVOKE ALL ON FUNCTION private.concierge_readiness_has_care_circle(UUID) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION private.concierge_readiness_open_requests_count(UUID) FROM PUBLIC, anon;
