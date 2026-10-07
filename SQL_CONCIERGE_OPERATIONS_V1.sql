@@ -659,6 +659,167 @@ ON CONFLICT (guide_code) DO UPDATE SET
 
 
 -- ------------------------------------------------------------
+-- 8C) Business-day calendar and deadline computation
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.concierge_business_holidays (
+  holiday_date DATE NOT NULL,
+  scope TEXT NOT NULL DEFAULT 'national' CHECK (scope IN ('national','state','city')),
+  state_code TEXT,
+  city_name TEXT,
+  label TEXT NOT NULL,
+  source_url TEXT,
+  reviewed_at TIMESTAMPTZ,
+  active BOOLEAN NOT NULL DEFAULT true,
+  PRIMARY KEY (holiday_date, scope, COALESCE(state_code, ''), COALESCE(city_name, ''))
+);
+
+ALTER TABLE public.concierge_business_holidays ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS concierge_holidays_read ON public.concierge_business_holidays;
+CREATE POLICY concierge_holidays_read
+ON public.concierge_business_holidays
+FOR SELECT TO authenticated
+USING (active = true);
+
+DROP POLICY IF EXISTS concierge_holidays_staff_manage ON public.concierge_business_holidays;
+CREATE POLICY concierge_holidays_staff_manage
+ON public.concierge_business_holidays
+FOR ALL TO authenticated
+USING (private.concierge_operations_is_staff(auth.uid()))
+WITH CHECK (private.concierge_operations_is_staff(auth.uid()));
+
+GRANT SELECT ON public.concierge_business_holidays TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_business_holidays TO service_role;
+
+CREATE OR REPLACE FUNCTION public.concierge_compute_business_deadline(
+  p_start_date DATE,
+  p_business_days INTEGER,
+  p_state_code TEXT DEFAULT NULL,
+  p_city_name TEXT DEFAULT NULL
+)
+RETURNS DATE
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE
+  cursor_date DATE := p_start_date;
+  remaining INTEGER := GREATEST(COALESCE(p_business_days, 0), 0);
+  is_holiday BOOLEAN;
+BEGIN
+  IF p_start_date IS NULL OR remaining = 0 THEN
+    RETURN p_start_date;
+  END IF;
+
+  WHILE remaining > 0 LOOP
+    cursor_date := cursor_date + INTERVAL '1 day';
+
+    IF EXTRACT(ISODOW FROM cursor_date) IN (6, 7) THEN
+      CONTINUE;
+    END IF;
+
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.concierge_business_holidays h
+      WHERE h.holiday_date = cursor_date
+        AND h.active = true
+        AND (
+          h.scope = 'national'
+          OR (h.scope = 'state' AND p_state_code IS NOT NULL AND UPPER(h.state_code) = UPPER(p_state_code))
+          OR (h.scope = 'city' AND p_city_name IS NOT NULL AND LOWER(h.city_name) = LOWER(p_city_name))
+        )
+    )
+    INTO is_holiday;
+
+    IF NOT is_holiday THEN
+      remaining := remaining - 1;
+    END IF;
+  END LOOP;
+
+  RETURN cursor_date;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.concierge_compute_business_deadline(DATE, INTEGER, TEXT, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.concierge_compute_business_deadline(DATE, INTEGER, TEXT, TEXT) TO authenticated;
+
+-- ------------------------------------------------------------
+-- 8D) Full ANS deadline catalog used by the operational engine
+-- ------------------------------------------------------------
+INSERT INTO public.concierge_regulatory_playbooks (
+  rule_code, title, authority, source_url, version_label, effective_from,
+  reviewed_at, service_type, max_business_days, escalation_action, metadata
+)
+VALUES
+  ('ANS_RN566_LAB_ANALYSIS','Análises clínicas - prazo máximo de atendimento','ANS',
+   'https://www.gov.br/ans/pt-br/assuntos/consumidor/prazos-maximos-de-atendimento',
+   'RN 566/2022 - página ANS consultada em 07/10/2026','2022-12-30',NOW(),
+   'laboratory_analysis',3,
+   'Registrar protocolo e exigir alternativa de atendimento se a rede não garantir o serviço no prazo.',
+   '{"deadline_kind":"service_delivery","deadline_unit":"business_days"}'::jsonb),
+  ('ANS_RN566_OTHER_DIAGNOSTIC','Demais diagnósticos/terapias ambulatoriais - prazo máximo','ANS',
+   'https://www.gov.br/ans/pt-br/assuntos/consumidor/prazos-maximos-de-atendimento',
+   'RN 566/2022 - página ANS consultada em 07/10/2026','2022-12-30',NOW(),
+   'other_diagnostic_therapy',10,
+   'Registrar protocolo e exigir alternativa de atendimento se a rede não garantir o serviço no prazo.',
+   '{"deadline_kind":"service_delivery","deadline_unit":"business_days"}'::jsonb),
+  ('ANS_RN566_THERAPY_SESSION','Sessões com psicologia/fono/TO/fisioterapia/nutrição - prazo máximo','ANS',
+   'https://www.gov.br/ans/pt-br/assuntos/consumidor/prazos-maximos-de-atendimento',
+   'RN 566/2022 - página ANS consultada em 07/10/2026','2022-12-30',NOW(),
+   'therapy_session',10,
+   'Registrar protocolo e exigir garantia do atendimento dentro do prazo.',
+   '{"deadline_kind":"service_delivery","deadline_unit":"business_days"}'::jsonb),
+  ('ANS_RN566_ELECTIVE_HOSPITALIZATION','Internação eletiva - prazo máximo de atendimento','ANS',
+   'https://www.gov.br/ans/pt-br/assuntos/consumidor/prazos-maximos-de-atendimento',
+   'RN 566/2022 - página ANS consultada em 07/10/2026','2022-12-30',NOW(),
+   'elective_hospitalization',21,
+   'Registrar protocolo e acompanhar a garantia da internação; escalar administrativamente se o prazo não for cumprido.',
+   '{"deadline_kind":"service_delivery","deadline_unit":"business_days"}'::jsonb),
+  ('ANS_RN566_DAY_HOSPITAL','Hospital-dia - prazo máximo de atendimento','ANS',
+   'https://www.gov.br/ans/pt-br/assuntos/consumidor/prazos-maximos-de-atendimento',
+   'RN 566/2022 - página ANS consultada em 07/10/2026','2022-12-30',NOW(),
+   'day_hospital',10,
+   'Registrar protocolo e acompanhar a garantia do atendimento.',
+   '{"deadline_kind":"service_delivery","deadline_unit":"business_days"}'::jsonb),
+  ('ANS_RN623_ASSISTENTIAL_RESPONSE','Resposta a solicitação assistencial - regra geral','ANS',
+   'https://www.gov.br/ans/pt-br/assuntos/operadoras/atendimento-ao-beneficiario-diretrizes-da-rn-no-623-2024-para-operadoras',
+   'RN 623/2024 - vigente desde 01/07/2025','2025-07-01',NOW(),
+   'assistential_response',5,
+   'Cobrar resposta conclusiva; prazos menores da RN 566 prevalecem quando aplicáveis.',
+   '{"deadline_kind":"operator_response","deadline_unit":"business_days","does_not_replace_rn566":true}'::jsonb),
+  ('ANS_RN623_PAC_ELECTIVE_RESPONSE','Resposta de autorização para PAC/internação eletiva','ANS',
+   'https://www.gov.br/ans/pt-br/assuntos/operadoras/atendimento-ao-beneficiario-diretrizes-da-rn-no-623-2024-para-operadoras',
+   'RN 623/2024 - vigente desde 01/07/2025','2025-07-01',NOW(),
+   'pac_or_elective_authorization_response',10,
+   'Cobrar resposta conclusiva; o atendimento ainda deve ocorrer dentro da RN 566.',
+   '{"deadline_kind":"operator_response","deadline_unit":"business_days","does_not_replace_rn566":true}'::jsonb),
+  ('ANS_RN623_NON_ASSISTENTIAL_RESPONSE','Resposta a solicitação não assistencial','ANS',
+   'https://www.gov.br/ans/pt-br/assuntos/operadoras/atendimento-ao-beneficiario-diretrizes-da-rn-no-623-2024-para-operadoras',
+   'RN 623/2024 - vigente desde 01/07/2025','2025-07-01',NOW(),
+   'non_assistential_response',7,
+   'Cobrar resposta clara e conclusiva da operadora.',
+   '{"deadline_kind":"operator_response","deadline_unit":"business_days"}'::jsonb),
+  ('ANS_REIMBURSEMENT_STANDARD','Reembolso - prazo geral de pagamento','ANS',
+   'https://www.gov.br/ans/pt-br/assuntos/consumidor/o-que-o-seu-plano-de-saude-deve-cobrir-1/reembolso',
+   'Orientação ANS atualizada em 02/06/2026','2026-06-02',NOW(),
+   'reimbursement_payment',30,
+   'Acompanhar documentação completa e pagamento; distinguir livre escolha, falha de rede e urgência/emergência.',
+   '{"deadline_kind":"payment","calendar_basis":"verify_case","warning":"urgency_emergency_page_uses_business_days"}'::jsonb)
+ON CONFLICT (rule_code) DO UPDATE SET
+  title = EXCLUDED.title,
+  authority = EXCLUDED.authority,
+  source_url = EXCLUDED.source_url,
+  version_label = EXCLUDED.version_label,
+  reviewed_at = EXCLUDED.reviewed_at,
+  service_type = EXCLUDED.service_type,
+  max_business_days = EXCLUDED.max_business_days,
+  escalation_action = EXCLUDED.escalation_action,
+  metadata = EXCLUDED.metadata,
+  active = true,
+  updated_at = NOW();
+
+-- ------------------------------------------------------------
 -- 9) Realtime
 -- ------------------------------------------------------------
 DO $$
