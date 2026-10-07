@@ -78,7 +78,7 @@ jobs:
       - name: Deploy production
         run: |
           set -euo pipefail
-          npx -y netlify-cli@latest deploy --dir dist --functions netlify/functions --prod --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --message "Nexa sovereignty production ${GITHUB_SHA}"
+          npx -y netlify-cli@latest deploy --no-build --dir dist --functions netlify/functions --prod --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --message "Nexa sovereignty production ${GITHUB_SHA}"
 
       - name: Smoke production
         run: |
