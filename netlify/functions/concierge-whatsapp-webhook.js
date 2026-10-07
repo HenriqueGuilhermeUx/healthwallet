@@ -220,6 +220,7 @@ async function processMessage({ admin, cfg, item }) {
     sessionId: latestSession?.id || null,
     message: normalizedText,
     source,
+    channel: 'whatsapp',
   })
 
   if (!agentResult.ok) {
@@ -233,20 +234,29 @@ async function processMessage({ admin, cfg, item }) {
   const sessionId = agentResult.sessionId || latestSession?.id || null
 
   if (sessionId) {
-    await admin
+    const { data: latestPatientMessage } = await admin
       .from('concierge_chat_messages')
-      .update({
-        metadata: {
-          whatsapp_message_id: message.id,
-          whatsapp_from: from,
-          intake_id: intake?.id || null,
-        },
-      })
+      .select('id,metadata')
       .eq('session_id', sessionId)
       .eq('patient_id', patientId)
       .eq('actor_role', 'patient')
       .order('created_at', { ascending: false })
       .limit(1)
+      .maybeSingle()
+
+    if (latestPatientMessage?.id) {
+      await admin
+        .from('concierge_chat_messages')
+        .update({
+          metadata: {
+            ...(latestPatientMessage.metadata || {}),
+            whatsapp_message_id: message.id,
+            whatsapp_from: from,
+            intake_id: intake?.id || null,
+          },
+        })
+        .eq('id', latestPatientMessage.id)
+    }
   }
 
   if (intake?.id && agentResult.createdOperationalCase?.id) {
@@ -371,9 +381,18 @@ async function ingestDocument({ admin, cfg, patientId, sessionId, message }) {
     },
   }
 
+  const { data: existingIntake } = await admin
+    .from('concierge_document_intake')
+    .select('*')
+    .eq('channel', 'whatsapp')
+    .eq('source_message_id', message.id)
+    .maybeSingle()
+
+  if (existingIntake) return existingIntake
+
   const { data: inserted, error: insertError } = await admin
     .from('concierge_document_intake')
-    .upsert(baseRow, { onConflict: 'channel,source_message_id' })
+    .insert(baseRow)
     .select('*')
     .single()
 
