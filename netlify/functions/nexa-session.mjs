@@ -1,5 +1,3 @@
-import { createClient } from '@supabase/supabase-js'
-
 function json(body, status = 200) {
   return Response.json(body, {
     status,
@@ -30,6 +28,32 @@ function requiredEnv(name, fallback = '') {
   return value
 }
 
+function supabaseServiceHeaders(secret, jsonBody = false) {
+  const headers = {
+    apikey: secret,
+    accept: 'application/json',
+  }
+
+  // New sb_secret_ keys must be sent as apikey, not as a Bearer JWT.
+  // Keep legacy service_role compatibility only while old projects migrate.
+  if (!secret.startsWith('sb_secret_')) {
+    headers.authorization = `Bearer ${secret}`
+  }
+  if (jsonBody) headers['content-type'] = 'application/json'
+
+  return headers
+}
+
+async function parseJson(response) {
+  const text = await response.text()
+  if (!text) return {}
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { raw: text.slice(0, 500) }
+  }
+}
+
 async function validateNexaToken(token) {
   const baseUrl = (env('NEXA_API_URL') || 'https://nexa-backend-p2u0.onrender.com/api/v1').replace(/\/$/, '')
   const response = await fetch(
@@ -40,7 +64,7 @@ async function validateNexaToken(token) {
     },
   )
 
-  const payload = await response.json().catch(() => ({}))
+  const payload = await parseJson(response)
   if (!response.ok || payload?.success !== true || !payload?.user?.email || !payload?.user?.id) {
     throw Object.assign(new Error('Invalid or expired Nexa ID token'), {
       status: 401,
@@ -51,17 +75,52 @@ async function validateNexaToken(token) {
   return payload.user
 }
 
-async function findFederatedUser(admin, email, nexaUserId) {
+async function authAdminRequest(baseUrl, secret, path, options = {}) {
+  const response = await fetch(`${baseUrl}/auth/v1/admin${path}`, {
+    method: options.method || 'GET',
+    headers: supabaseServiceHeaders(secret, options.body !== undefined),
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    signal: AbortSignal.timeout(8_000),
+  })
+
+  const payload = await parseJson(response)
+  if (!response.ok) {
+    throw Object.assign(
+      new Error(
+        String(
+          payload?.msg ||
+            payload?.message ||
+            payload?.error_description ||
+            payload?.error ||
+            `Supabase Auth admin failed with HTTP ${response.status}`,
+        ),
+      ),
+      {
+        status: 502,
+        code: 'health_auth_admin_unavailable',
+        upstreamStatus: response.status,
+      },
+    )
+  }
+
+  return payload
+}
+
+async function findFederatedUser(baseUrl, secret, email, nexaUserId) {
   let emailMatch = null
 
   for (let page = 1; page <= 5; page += 1) {
-    const { data, error } = await admin.auth.admin.listUsers({
-      page,
-      perPage: 200,
-    })
-    if (error) throw error
+    const payload = await authAdminRequest(
+      baseUrl,
+      secret,
+      `/users?page=${page}&per_page=200`,
+    )
 
-    const users = Array.isArray(data?.users) ? data.users : []
+    const users = Array.isArray(payload?.users)
+      ? payload.users
+      : Array.isArray(payload)
+        ? payload
+        : []
 
     const linkedMatch = users.find(
       user =>
@@ -80,6 +139,25 @@ async function findFederatedUser(admin, email, nexaUserId) {
   }
 
   return { linked: null, emailMatch }
+}
+
+async function bestEffortUpsert(baseUrl, secret, table, row) {
+  const url = new URL(`${baseUrl}/rest/v1/${table}`)
+  url.searchParams.set('on_conflict', 'id')
+
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...supabaseServiceHeaders(secret, true),
+        prefer: 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify(row),
+      signal: AbortSignal.timeout(7_000),
+    })
+  } catch {
+    // Mirror tables are compatibility helpers only; Auth remains canonical.
+  }
 }
 
 export default async request => {
@@ -102,98 +180,137 @@ export default async request => {
     const nexaUser = await validateNexaToken(token)
     const email = String(nexaUser.email).trim().toLowerCase()
     const fullName = String(nexaUser.fullName || email.split('@')[0]).trim().slice(0, 160)
+    const nexaUserId = String(nexaUser.id).trim()
+    const nexaId = String(nexaUser.nexaId || '').trim()
 
-    const supabaseUrl = requiredEnv('SUPABASE_URL', 'VITE_SUPABASE_URL')
-    const serviceRole = env('SUPABASE_SECRET_KEY') || requiredEnv('SUPABASE_SERVICE_ROLE_KEY')
-    const admin = createClient(supabaseUrl, serviceRole, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    })
+    const supabaseUrl = requiredEnv('SUPABASE_URL', 'VITE_SUPABASE_URL').replace(/\/$/, '')
+    const secret = env('SUPABASE_SECRET_KEY') || requiredEnv('SUPABASE_SERVICE_ROLE_KEY')
 
-    const nexaUserId = String(nexaUser.id)
-    const matches = await findFederatedUser(admin, email, nexaUserId)
+    const matches = await findFederatedUser(
+      supabaseUrl,
+      secret,
+      email,
+      nexaUserId,
+    )
+
     let healthUser = matches.linked
     let created = false
 
     if (!healthUser && matches.emailMatch) {
-      return json({
-        success: false,
-        error: 'account_link_required',
-        message:
-          'Já existe uma conta Health Wallet com este e-mail. Entre nela uma vez para vincular seu Nexa ID com segurança.',
-      }, 409)
+      return json(
+        {
+          success: false,
+          error: 'account_link_required',
+          message:
+            'Já existe uma conta Health Wallet com este e-mail. Entre nela uma vez para vincular seu Nexa ID com segurança.',
+        },
+        409,
+      )
+    }
+
+    const federationMetadata = {
+      full_name: fullName,
+      name: fullName,
+      source: 'nexa',
+      nexa_user_id: nexaUserId,
+      nexa_id: nexaId,
     }
 
     if (!healthUser) {
-      const { data, error } = await admin.auth.admin.createUser({
-        email,
-        email_confirm: true,
-        user_metadata: {
-          full_name: fullName,
-          name: fullName,
-          source: 'nexa',
-          nexa_user_id: nexaUserId,
-          nexa_id: String(nexaUser.nexaId || ''),
+      const createdPayload = await authAdminRequest(
+        supabaseUrl,
+        secret,
+        '/users',
+        {
+          method: 'POST',
+          body: {
+            email,
+            email_confirm: true,
+            user_metadata: federationMetadata,
+          },
         },
-      })
-      if (error || !data?.user) throw error || new Error('Could not provision Health Wallet user')
-      healthUser = data.user
+      )
+
+      healthUser = createdPayload?.user || createdPayload
+      if (!healthUser?.id) {
+        throw Object.assign(new Error('Could not provision Health Wallet user'), {
+          status: 502,
+          code: 'health_user_provision_failed',
+        })
+      }
       created = true
     } else {
-      await admin.auth.admin
-        .updateUserById(healthUser.id, {
-          user_metadata: {
-            ...(healthUser.user_metadata || {}),
-            full_name: healthUser.user_metadata?.full_name || fullName,
-            name: healthUser.user_metadata?.name || fullName,
-            source: 'nexa',
-            nexa_user_id: nexaUserId,
-            nexa_id: String(nexaUser.nexaId || ''),
+      const currentMetadata =
+        healthUser?.user_metadata && typeof healthUser.user_metadata === 'object'
+          ? healthUser.user_metadata
+          : {}
+
+      const updatedPayload = await authAdminRequest(
+        supabaseUrl,
+        secret,
+        `/users/${encodeURIComponent(healthUser.id)}`,
+        {
+          method: 'PUT',
+          body: {
+            user_metadata: {
+              ...currentMetadata,
+              full_name: currentMetadata.full_name || fullName,
+              name: currentMetadata.name || fullName,
+              source: 'nexa',
+              nexa_user_id: nexaUserId,
+              nexa_id: nexaId,
+            },
           },
-        })
-        .catch(() => null)
+        },
+      )
+      healthUser = updatedPayload?.user || updatedPayload || healthUser
     }
 
-    await admin
-      .from('profiles')
-      .upsert(
-        {
-          id: healthUser.id,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' },
-      )
-      .then(() => null, () => null)
+    await Promise.all([
+      bestEffortUpsert(supabaseUrl, secret, 'profiles', {
+        id: healthUser.id,
+        updated_at: new Date().toISOString(),
+      }),
+      bestEffortUpsert(supabaseUrl, secret, 'users', {
+        id: healthUser.id,
+        email,
+        name: fullName,
+      }),
+    ])
 
-    await admin
-      .from('users')
-      .upsert(
-        {
-          id: healthUser.id,
+    const linkPayload = await authAdminRequest(
+      supabaseUrl,
+      secret,
+      '/generate_link',
+      {
+        method: 'POST',
+        body: {
+          type: 'magiclink',
           email,
-          name: fullName,
-        },
-        { onConflict: 'id' },
-      )
-      .then(() => null, () => null)
-
-    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-      type: 'magiclink',
-      email,
-      options: {
-        data: {
-          source: 'nexa',
-          nexa_user_id: String(nexaUser.id),
-          nexa_id: String(nexaUser.nexaId || ''),
+          data: {
+            source: 'nexa',
+            nexa_user_id: nexaUserId,
+            nexa_id: nexaId,
+          },
         },
       },
-    })
+    )
 
-    const tokenHash = String(linkData?.properties?.hashed_token || '').trim()
-    if (linkError || !tokenHash) {
-      throw linkError || new Error('Could not mint Health Wallet session exchange')
+    const tokenHash = String(
+      linkPayload?.hashed_token ||
+        linkPayload?.properties?.hashed_token ||
+        linkPayload?.properties?.hashedToken ||
+        '',
+    ).trim()
+
+    if (!tokenHash) {
+      throw Object.assign(
+        new Error('Could not mint Health Wallet session exchange'),
+        {
+          status: 502,
+          code: 'health_session_exchange_failed',
+        },
+      )
     }
 
     return json({
@@ -207,7 +324,11 @@ export default async request => {
     const status = Number(error?.status || 502)
     const safeStatus = status >= 400 && status < 600 ? status : 502
     const code = String(error?.code || 'nexa_sso_unavailable')
-    console.error('[HealthWallet Nexa SSO]', code)
+    console.error(
+      '[HealthWallet Nexa SSO]',
+      code,
+      Number(error?.upstreamStatus || 0) || '',
+    )
     return json({ success: false, error: code }, safeStatus)
   }
 }
