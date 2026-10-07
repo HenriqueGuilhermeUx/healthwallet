@@ -98,7 +98,7 @@ jobs:
         id: netlify
         run: |
           set -euo pipefail
-          npx -y netlify-cli@latest deploy             --build             --site "$NETLIFY_SITE_ID"             --auth "$NETLIFY_AUTH_TOKEN"             --message "Nexa ecosystem staging ${GITHUB_SHA}"             --json > /tmp/netlify-deploy.json
+          npx -y netlify-cli@latest deploy             --build             --site "$NETLIFY_SITE_ID"             --auth "$NETLIFY_AUTH_TOKEN"             --alias nexa-ecosystem-staging             --message "Nexa ecosystem staging ${GITHUB_SHA}"             --json > /tmp/netlify-deploy.json
 
           DEPLOY_URL="$(jq -r '.deploy_url // .deploy_ssl_url // empty' /tmp/netlify-deploy.json)"
           test -n "$DEPLOY_URL"
