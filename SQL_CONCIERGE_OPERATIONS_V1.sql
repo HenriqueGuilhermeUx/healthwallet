@@ -922,6 +922,45 @@ WITH CHECK (private.concierge_operations_is_staff(auth.uid()));
 GRANT SELECT ON public.concierge_channel_identities TO authenticated;
 GRANT SELECT ON public.concierge_channel_link_challenges TO authenticated;
 GRANT SELECT ON public.concierge_document_intake TO authenticated;
+
+DROP POLICY IF EXISTS concierge_intake_patient_insert ON public.concierge_document_intake;
+CREATE POLICY concierge_intake_patient_insert
+ON public.concierge_document_intake
+FOR INSERT TO authenticated
+WITH CHECK (
+  patient_id = auth.uid()
+  AND channel = 'healthwallet'
+  AND storage_bucket = 'concierge-intake'
+  AND storage_path LIKE auth.uid()::text || '/%'
+);
+
+DROP POLICY IF EXISTS concierge_storage_patient_insert ON storage.objects;
+CREATE POLICY concierge_storage_patient_insert
+ON storage.objects
+FOR INSERT TO authenticated
+WITH CHECK (
+  bucket_id = 'concierge-intake'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
+
+DROP POLICY IF EXISTS concierge_storage_patient_read ON storage.objects;
+CREATE POLICY concierge_storage_patient_read
+ON storage.objects
+FOR SELECT TO authenticated
+USING (
+  bucket_id = 'concierge-intake'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
+
+DROP POLICY IF EXISTS concierge_storage_staff_read ON storage.objects;
+CREATE POLICY concierge_storage_staff_read
+ON storage.objects
+FOR SELECT TO authenticated
+USING (
+  bucket_id = 'concierge-intake'
+  AND private.concierge_operations_is_staff(auth.uid())
+);
+
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_channel_identities TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_channel_link_challenges TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_document_intake TO service_role;
