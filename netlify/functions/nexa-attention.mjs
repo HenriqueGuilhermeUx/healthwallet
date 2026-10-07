@@ -30,6 +30,19 @@ function requiredEnv(name, fallback = '') {
   return value
 }
 
+function supabaseServiceHeaders(secret) {
+  const headers = {
+    apikey: secret,
+    accept: 'application/json',
+  }
+
+  if (!secret.startsWith('sb_secret_')) {
+    headers.authorization = `Bearer ${secret}`
+  }
+
+  return headers
+}
+
 function isEnabled() {
   return env('NEXA_ECOSYSTEM_ATTENTION_ENABLED').toLowerCase() === 'true'
 }
@@ -87,11 +100,7 @@ async function supabaseRest({ baseUrl, serviceRole, table, params }) {
   }
 
   const response = await fetch(url, {
-    headers: {
-      apikey: serviceRole,
-      authorization: `Bearer ${serviceRole}`,
-      accept: 'application/json',
-    },
+    headers: supabaseServiceHeaders(serviceRole),
     signal: AbortSignal.timeout(7_000),
   })
 
@@ -114,11 +123,7 @@ async function findHealthUserId(baseUrl, serviceRole, nexaUserId) {
     url.searchParams.set('per_page', '200')
 
     const response = await fetch(url, {
-      headers: {
-        apikey: serviceRole,
-        authorization: `Bearer ${serviceRole}`,
-        accept: 'application/json',
-      },
+      headers: supabaseServiceHeaders(serviceRole),
       signal: AbortSignal.timeout(7_000),
     })
 
