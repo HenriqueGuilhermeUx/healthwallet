@@ -51,7 +51,9 @@ async function validateNexaToken(token) {
   return payload.user
 }
 
-async function findUserByEmail(admin, email) {
+async function findFederatedUser(admin, email, nexaUserId) {
+  let emailMatch = null
+
   for (let page = 1; page <= 5; page += 1) {
     const { data, error } = await admin.auth.admin.listUsers({
       page,
@@ -60,14 +62,24 @@ async function findUserByEmail(admin, email) {
     if (error) throw error
 
     const users = Array.isArray(data?.users) ? data.users : []
-    const match = users.find(
-      user => String(user?.email || '').trim().toLowerCase() === email,
+
+    const linkedMatch = users.find(
+      user =>
+        String(user?.user_metadata?.nexa_user_id || '').trim() === nexaUserId,
     )
-    if (match) return match
+    if (linkedMatch) return { linked: linkedMatch, emailMatch: null }
+
+    if (!emailMatch) {
+      emailMatch =
+        users.find(
+          user => String(user?.email || '').trim().toLowerCase() === email,
+        ) || null
+    }
+
     if (users.length < 200) break
   }
 
-  return null
+  return { linked: null, emailMatch }
 }
 
 export default async request => {
@@ -100,7 +112,19 @@ export default async request => {
       },
     })
 
-    let healthUser = await findUserByEmail(admin, email)
+    const nexaUserId = String(nexaUser.id)
+    const matches = await findFederatedUser(admin, email, nexaUserId)
+    let healthUser = matches.linked
+    let created = false
+
+    if (!healthUser && matches.emailMatch) {
+      return json({
+        success: false,
+        error: 'account_link_required',
+        message:
+          'Já existe uma conta Health Wallet com este e-mail. Entre nela uma vez para vincular seu Nexa ID com segurança.',
+      }, 409)
+    }
 
     if (!healthUser) {
       const { data, error } = await admin.auth.admin.createUser({
@@ -110,12 +134,13 @@ export default async request => {
           full_name: fullName,
           name: fullName,
           source: 'nexa',
-          nexa_user_id: String(nexaUser.id),
+          nexa_user_id: nexaUserId,
           nexa_id: String(nexaUser.nexaId || ''),
         },
       })
       if (error || !data?.user) throw error || new Error('Could not provision Health Wallet user')
       healthUser = data.user
+      created = true
     } else {
       await admin.auth.admin
         .updateUserById(healthUser.id, {
@@ -124,7 +149,7 @@ export default async request => {
             full_name: healthUser.user_metadata?.full_name || fullName,
             name: healthUser.user_metadata?.name || fullName,
             source: 'nexa',
-            nexa_user_id: String(nexaUser.id),
+            nexa_user_id: nexaUserId,
             nexa_id: String(nexaUser.nexaId || ''),
           },
         })
@@ -175,7 +200,7 @@ export default async request => {
       success: true,
       tokenHash,
       otpType: 'magiclink',
-      provisioned: true,
+      provisioned: created,
       source: 'nexa',
     })
   } catch (error) {
