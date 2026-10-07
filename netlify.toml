@@ -7,6 +7,8 @@
 
 [functions]
   directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["@supabase/supabase-js"]
 
 # Concierge uses the same HealthWallet SPA. Once this alias is attached to the
 # Netlify site, opening the subdomain root lands on the patient Concierge home.
