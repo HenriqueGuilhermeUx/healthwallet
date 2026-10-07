@@ -23,7 +23,6 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { listMyConciergeActions, listMyConciergeRequests, listMyConciergeTeam, listMyProgramEnrollments } from '@/services/concierge'
-import { listMyExternalCoordinations } from '@/services/conciergeExternal'
 
 type PendingItem = {
   id: string
@@ -98,7 +97,9 @@ export default function Concierge() {
         setConciergeReady(true)
 
         try {
-          setCoordinations(await listMyExternalCoordinations(user.id))
+          const { data: coordinationData, error: coordinationError } = await supabase.rpc('concierge_patient_list_external_tasks')
+          if (coordinationError) throw coordinationError
+          setCoordinations(coordinationData || [])
         } catch (externalError) {
           console.warn('External coordination projection not activated yet:', externalError)
           setCoordinations([])
@@ -137,7 +138,7 @@ export default function Concierge() {
         id: 'coordination-' + coordinationChoice.id,
         title: 'O Concierge encontrou opções para você',
         subtitle: coordinationChoice.title,
-        href: '/concierge/coordination/' + coordinationChoice.id,
+        href: '/concierge/agenda',
         kind: 'coordination',
       })
     }
@@ -258,7 +259,7 @@ export default function Concierge() {
           <ActionCard icon={FileSearch} title="Segunda análise" subtitle="Revisar exames, laudos e contexto" href="/concierge/request?category=second_analysis" />
           <ActionCard icon={Navigation} title="Navegação em saúde" subtitle="Saiba qual é o próximo passo" href="/concierge/request?category=navigation" />
           <ActionCard icon={ClipboardList} title="Mensagens e casos" subtitle="Acompanhe cada solicitação com sua equipe" href="/concierge/requests" />
-          <ActionCard icon={CalendarCheck} title="Agendamentos coordenados" subtitle="Opções, escolha, preparo e resultados" href="/concierge/coordination" />
+          <ActionCard icon={CalendarCheck} title="Agendamentos coordenados" subtitle="Opções, escolha, preparo e resultados" href="/concierge/agenda" />
           <ActionCard icon={CalendarDays} title="Agenda" subtitle="Consultas, lembretes e ações" href="/concierge/agenda" />
           <ActionCard icon={Target} title="Plano de ação" subtitle="Pendências e próximos passos" href="/concierge/plan" />
           <ActionCard icon={Activity} title="Programas" subtitle="Jornadas de acompanhamento" href="/concierge/programs" />
