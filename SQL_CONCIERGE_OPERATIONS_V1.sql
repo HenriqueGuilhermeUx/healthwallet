@@ -167,6 +167,9 @@ CREATE INDEX IF NOT EXISTS idx_concierge_ops_chat
   ON public.concierge_operational_cases(chat_session_id);
 CREATE INDEX IF NOT EXISTS idx_concierge_case_documents_case
   ON public.concierge_case_documents(case_id, status, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_concierge_case_documents_type
+  ON public.concierge_case_documents(case_id, document_type)
+  WHERE document_type IN ('service_terms','privacy_consent','representation_authorization','combined_onboarding');
 CREATE INDEX IF NOT EXISTS idx_concierge_case_events_case
   ON public.concierge_case_events(case_id, created_at ASC);
 
