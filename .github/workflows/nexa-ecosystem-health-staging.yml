@@ -30,7 +30,7 @@ jobs:
       NEXA_API_URL: https://nexa-backend-wallet-v15-staging.onrender.com/api/v1
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY || secrets.HEALTHWALLETNEXASTAGING || secrets.healthwalletnexastaging }}
 
     steps:
       - uses: actions/checkout@v4
