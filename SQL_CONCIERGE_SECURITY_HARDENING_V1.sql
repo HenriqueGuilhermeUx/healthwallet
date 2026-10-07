@@ -13,7 +13,9 @@ DECLARE
   fn RECORD;
 BEGIN
   FOR fn IN
-    SELECT n.nspname AS schema_name, p.oid::regprocedure AS signature
+    SELECT n.nspname AS schema_name,
+           p.proname AS function_name,
+           pg_get_function_identity_arguments(p.oid) AS identity_args
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname IN ('public','private')
@@ -23,15 +25,17 @@ BEGIN
       )
   LOOP
     EXECUTE format(
-      'REVOKE EXECUTE ON FUNCTION %s.%s FROM PUBLIC',
-      quote_ident(fn.schema_name),
-      fn.signature
+      'REVOKE EXECUTE ON FUNCTION %I.%I(%s) FROM PUBLIC',
+      fn.schema_name,
+      fn.function_name,
+      fn.identity_args
     );
 
     EXECUTE format(
-      'REVOKE EXECUTE ON FUNCTION %s.%s FROM anon',
-      quote_ident(fn.schema_name),
-      fn.signature
+      'REVOKE EXECUTE ON FUNCTION %I.%I(%s) FROM anon',
+      fn.schema_name,
+      fn.function_name,
+      fn.identity_args
     );
   END LOOP;
 END $$;
@@ -54,9 +58,10 @@ BEGIN
       AND p.prorettype = 'pg_catalog.trigger'::regtype
   LOOP
     EXECUTE format(
-      'REVOKE EXECUTE ON FUNCTION %s.%s FROM authenticated',
-      quote_ident(fn.schema_name),
-      fn.signature
+      'REVOKE EXECUTE ON FUNCTION %I.%I(%s) FROM authenticated',
+      fn.schema_name,
+      fn.function_name,
+      fn.identity_args
     );
   END LOOP;
 END $$;
@@ -78,9 +83,10 @@ BEGIN
       AND p.prorettype = 'pg_catalog.trigger'::regtype
   LOOP
     EXECUTE format(
-      'ALTER FUNCTION %s.%s SET search_path = %s',
-      quote_ident(fn.schema_name),
-      fn.signature,
+      'ALTER FUNCTION %I.%I(%s) SET search_path = %s',
+      fn.schema_name,
+      fn.function_name,
+      fn.identity_args,
       CASE WHEN fn.schema_name = 'private' THEN quote_literal('') ELSE quote_literal('public') END
     );
   END LOOP;
