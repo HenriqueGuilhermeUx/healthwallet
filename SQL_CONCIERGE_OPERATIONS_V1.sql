@@ -10,7 +10,7 @@ BEGIN;
 
 -- Concierge Operations compatibility guard.
 -- Fails before any DDL if the existing Concierge base is not the expected version.
-DO $
+DO $$
 DECLARE
   missing TEXT[] := ARRAY[]::TEXT[];
   rec RECORD;
@@ -61,7 +61,7 @@ BEGIN
     RAISE EXCEPTION 'Concierge Operations compatibility check failed. Missing columns: %',
       array_to_string(missing, ', ');
   END IF;
-END $;
+END $$;
 
 CREATE SCHEMA IF NOT EXISTS private;
 GRANT USAGE ON SCHEMA private TO authenticated;
