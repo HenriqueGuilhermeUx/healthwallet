@@ -1193,6 +1193,115 @@ REVOKE ALL ON FUNCTION public.concierge_refresh_operational_alerts_system() FROM
 GRANT EXECUTE ON FUNCTION public.concierge_refresh_operational_alerts_system() TO service_role;
 
 -- ------------------------------------------------------------
+-- 8G) Executable case checklists and escalation trail
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.concierge_case_checklist_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id UUID NOT NULL REFERENCES public.concierge_operational_cases(id) ON DELETE CASCADE,
+  patient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  item_key TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'action'
+    CHECK (category IN ('question','document','verification','action','boundary')),
+  label TEXT NOT NULL,
+  required BOOLEAN NOT NULL DEFAULT true,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','done','not_applicable')),
+  completed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  completed_at TIMESTAMPTZ,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(case_id, item_key)
+);
+
+CREATE TABLE IF NOT EXISTS public.concierge_case_escalations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id UUID NOT NULL REFERENCES public.concierge_operational_cases(id) ON DELETE CASCADE,
+  patient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  escalation_type TEXT NOT NULL CHECK (escalation_type IN (
+    'operator_sac',
+    'operator_ombudsman',
+    'ans_nip',
+    'procon',
+    'legal_referral',
+    'clinical_referral'
+  )),
+  status TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft','ready','submitted','waiting_response','resolved','not_resolved','cancelled')),
+  protocol_number TEXT,
+  narrative TEXT,
+  requested_outcome TEXT,
+  submitted_at TIMESTAMPTZ,
+  response_due_at TIMESTAMPTZ,
+  response_received_at TIMESTAMPTZ,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  assigned_to UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  visibility TEXT NOT NULL DEFAULT 'staff_only'
+    CHECK (visibility IN ('patient','staff_only')),
+  snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_concierge_checklist_case
+ON public.concierge_case_checklist_items(case_id, status, required);
+
+CREATE INDEX IF NOT EXISTS idx_concierge_escalations_case
+ON public.concierge_case_escalations(case_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_concierge_escalations_due
+ON public.concierge_case_escalations(status, response_due_at)
+WHERE status IN ('submitted','waiting_response');
+
+ALTER TABLE public.concierge_case_checklist_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.concierge_case_escalations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS concierge_checklist_patient_read ON public.concierge_case_checklist_items;
+CREATE POLICY concierge_checklist_patient_read
+ON public.concierge_case_checklist_items
+FOR SELECT TO authenticated
+USING (patient_id = auth.uid());
+
+DROP POLICY IF EXISTS concierge_checklist_staff_manage ON public.concierge_case_checklist_items;
+CREATE POLICY concierge_checklist_staff_manage
+ON public.concierge_case_checklist_items
+FOR ALL TO authenticated
+USING (private.concierge_operations_is_staff(auth.uid()))
+WITH CHECK (private.concierge_operations_is_staff(auth.uid()));
+
+DROP POLICY IF EXISTS concierge_escalations_patient_read ON public.concierge_case_escalations;
+CREATE POLICY concierge_escalations_patient_read
+ON public.concierge_case_escalations
+FOR SELECT TO authenticated
+USING (patient_id = auth.uid() AND visibility = 'patient');
+
+DROP POLICY IF EXISTS concierge_escalations_staff_manage ON public.concierge_case_escalations;
+CREATE POLICY concierge_escalations_staff_manage
+ON public.concierge_case_escalations
+FOR ALL TO authenticated
+USING (private.concierge_operations_is_staff(auth.uid()))
+WITH CHECK (private.concierge_operations_is_staff(auth.uid()));
+
+GRANT SELECT ON public.concierge_case_checklist_items TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.concierge_case_checklist_items TO authenticated;
+GRANT SELECT ON public.concierge_case_escalations TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.concierge_case_escalations TO authenticated;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_case_checklist_items TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_case_escalations TO service_role;
+
+DROP TRIGGER IF EXISTS trg_concierge_case_checklist_updated_at ON public.concierge_case_checklist_items;
+CREATE TRIGGER trg_concierge_case_checklist_updated_at
+BEFORE UPDATE ON public.concierge_case_checklist_items
+FOR EACH ROW EXECUTE FUNCTION public.set_concierge_operations_updated_at();
+
+DROP TRIGGER IF EXISTS trg_concierge_case_escalations_updated_at ON public.concierge_case_escalations;
+CREATE TRIGGER trg_concierge_case_escalations_updated_at
+BEFORE UPDATE ON public.concierge_case_escalations
+FOR EACH ROW EXECUTE FUNCTION public.set_concierge_operations_updated_at();
+
+-- ------------------------------------------------------------
 -- 9) Realtime
 -- ------------------------------------------------------------
 DO $$
