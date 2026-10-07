@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 
 const navItems = [
   { icon: Home, label: 'Início', path: '/dashboard' },
-  { icon: HeartPulse, label: 'Concierge', path: '/concierge' },
+  { icon: HeartPulse, label: 'Concierge', path: '/concierge/digital' },
   { icon: Watch, label: 'Dados', path: '/devices' },
   { icon: FileText, label: 'Exames', path: '/exams' },
   { icon: Video, label: 'Consulta', path: '/telemedicine' },
@@ -24,7 +24,7 @@ export default function BottomNav() {
     >
       <div className="flex items-center justify-around">
         {navItems.map(({ icon: Icon, label, path }) => {
-          const isActive = location.pathname === path
+          const isActive = path.startsWith('/concierge') ? location.pathname.startsWith('/concierge') : location.pathname === path
           return (
             <Link
               key={path}
