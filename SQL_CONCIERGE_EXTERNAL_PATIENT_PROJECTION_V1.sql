@@ -4,32 +4,150 @@
 -- Run AFTER SQL_MYDATAMED_MASTER_EXTERNAL_COORDINATION_V1.sql
 -- =====================================================
 
--- Patient can read only their own coordination tasks.
-DROP POLICY IF EXISTS external_tasks_patient_read ON public.concierge_external_tasks;
-CREATE POLICY external_tasks_patient_read
-ON public.concierge_external_tasks
-FOR SELECT
-TO authenticated
-USING (
-  patient_id = (SELECT auth.uid())
-);
+-- Patient projection uses SECURITY DEFINER RPCs so the patient never receives
+-- direct SELECT access to operational task/option rows. Only safe fields are returned.
 
--- Patient can see only provider options explicitly offered by the Concierge
--- or the option already selected for that task.
-DROP POLICY IF EXISTS external_options_patient_read ON public.concierge_external_options;
-CREATE POLICY external_options_patient_read
-ON public.concierge_external_options
-FOR SELECT
-TO authenticated
-USING (
-  status IN ('offered', 'selected')
-  AND EXISTS (
-    SELECT 1
-    FROM public.concierge_external_tasks t
-    WHERE t.id = task_id
-      AND t.patient_id = (SELECT auth.uid())
-  )
-);
+CREATE OR REPLACE FUNCTION public.concierge_patient_list_external_tasks()
+RETURNS TABLE (
+  id UUID,
+  patient_id UUID,
+  patient_name TEXT,
+  task_type TEXT,
+  title TEXT,
+  description TEXT,
+  target_specialty TEXT,
+  city TEXT,
+  state TEXT,
+  insurance_name TEXT,
+  status TEXT,
+  selected_option_id UUID,
+  provider_name TEXT,
+  provider_contact TEXT,
+  provider_address TEXT,
+  scheduled_at TIMESTAMPTZ,
+  booking_reference TEXT,
+  preparation_instructions TEXT,
+  result_expected_at TIMESTAMPTZ,
+  result_received_at TIMESTAMPTZ,
+  closed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT
+    t.id,
+    t.patient_id,
+    t.patient_name,
+    t.task_type,
+    t.title,
+    t.description,
+    t.target_specialty,
+    t.city,
+    t.state,
+    t.insurance_name,
+    t.status,
+    t.selected_option_id,
+    t.provider_name,
+    t.provider_contact,
+    t.provider_address,
+    t.scheduled_at,
+    t.booking_reference,
+    t.preparation_instructions,
+    t.result_expected_at,
+    t.result_received_at,
+    t.closed_at,
+    t.created_at,
+    t.updated_at
+  FROM public.concierge_external_tasks t
+  WHERE t.patient_id = auth.uid()
+  ORDER BY t.created_at DESC;
+$$;
+
+REVOKE ALL
+ON FUNCTION public.concierge_patient_list_external_tasks()
+FROM PUBLIC;
+
+REVOKE ALL
+ON FUNCTION public.concierge_patient_list_external_tasks()
+FROM anon;
+
+GRANT EXECUTE
+ON FUNCTION public.concierge_patient_list_external_tasks()
+TO authenticated;
+
+
+CREATE OR REPLACE FUNCTION public.concierge_patient_list_external_options(
+  p_task_id UUID
+)
+RETURNS TABLE (
+  id UUID,
+  task_id UUID,
+  provider_name TEXT,
+  provider_type TEXT,
+  address TEXT,
+  city TEXT,
+  state TEXT,
+  phone TEXT,
+  website TEXT,
+  price_amount NUMERIC,
+  currency TEXT,
+  accepts_insurance BOOLEAN,
+  insurance_notes TEXT,
+  earliest_slot TIMESTAMPTZ,
+  distance_text TEXT,
+  status TEXT,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT
+    o.id,
+    o.task_id,
+    o.provider_name,
+    o.provider_type,
+    o.address,
+    o.city,
+    o.state,
+    o.phone,
+    o.website,
+    o.price_amount,
+    o.currency,
+    o.accepts_insurance,
+    o.insurance_notes,
+    o.earliest_slot,
+    o.distance_text,
+    o.status,
+    o.created_at,
+    o.updated_at
+  FROM public.concierge_external_options o
+  JOIN public.concierge_external_tasks t
+    ON t.id = o.task_id
+  WHERE o.task_id = p_task_id
+    AND t.patient_id = auth.uid()
+    AND o.status IN ('offered', 'selected')
+  ORDER BY o.earliest_slot ASC NULLS LAST, o.created_at ASC;
+$$;
+
+REVOKE ALL
+ON FUNCTION public.concierge_patient_list_external_options(UUID)
+FROM PUBLIC;
+
+REVOKE ALL
+ON FUNCTION public.concierge_patient_list_external_options(UUID)
+FROM anon;
+
+GRANT EXECUTE
+ON FUNCTION public.concierge_patient_list_external_options(UUID)
+TO authenticated;
+
 
 -- Patient choice is transactional. The patient never receives UPDATE permission
 -- on tasks/options; this RPC validates ownership and allowed states.
