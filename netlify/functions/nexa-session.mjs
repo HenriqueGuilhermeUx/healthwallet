@@ -104,7 +104,7 @@ export default async request => {
     const fullName = String(nexaUser.fullName || email.split('@')[0]).trim().slice(0, 160)
 
     const supabaseUrl = requiredEnv('SUPABASE_URL', 'VITE_SUPABASE_URL')
-    const serviceRole = requiredEnv('SUPABASE_SERVICE_ROLE_KEY')
+    const serviceRole = env('SUPABASE_SECRET_KEY') || requiredEnv('SUPABASE_SERVICE_ROLE_KEY')
     const admin = createClient(supabaseUrl, serviceRole, {
       auth: {
         persistSession: false,
