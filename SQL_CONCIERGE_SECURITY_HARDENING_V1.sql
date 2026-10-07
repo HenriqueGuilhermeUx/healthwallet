@@ -100,6 +100,39 @@ END $$;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon;
 GRANT USAGE ON SCHEMA private TO authenticated, service_role;
 
+
+-- 4B) Remove inherited/automatic table privileges from anon/PUBLIC.
+-- Older Supabase projects may automatically expose newly-created public tables.
+DO $
+DECLARE
+  rel RECORD;
+BEGIN
+  FOR rel IN
+    SELECT c.oid::regclass AS relation_name, c.relkind
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND (
+        c.relname LIKE 'concierge_%'
+        OR c.relname = 'family_members'
+      )
+      AND c.relkind IN ('r','p','v','m')
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL PRIVILEGES ON TABLE %s FROM anon',
+      rel.relation_name
+    );
+
+    EXECUTE format(
+      'REVOKE ALL PRIVILEGES ON TABLE %s FROM PUBLIC',
+      rel.relation_name
+    );
+  END LOOP;
+END $;
+
+-- Re-assert the intended authenticated read surface for the readiness view.
+GRANT SELECT ON public.concierge_subscriber_readiness TO authenticated, service_role;
+
 -- 5) Verification: anon must not execute any Concierge function.
 DO $$
 DECLARE
