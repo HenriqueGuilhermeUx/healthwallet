@@ -63,6 +63,16 @@ import AppErrorBoundary from '@/components/AppErrorBoundary'
 import ConciergeAccessGate from '@/components/ConciergeAccessGate'
 import ConciergeProfessionalHeader from '@/components/ConciergeProfessionalHeader'
 
+function HealthWalletEntry() {
+  const location = useLocation()
+  return (
+    <Navigate
+      to={{ pathname: '/dashboard', search: location.search }}
+      replace
+    />
+  )
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
   const location = useLocation()
@@ -216,6 +226,7 @@ export default function App() {
             {/* Public routes */}
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/healthwallet" element={<HealthWalletEntry />} />
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/share" element={<ShareQRCode />} />
             <Route path="/access/:code" element={<AccessCode />} />
