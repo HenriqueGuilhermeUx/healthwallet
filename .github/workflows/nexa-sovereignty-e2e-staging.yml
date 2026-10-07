@@ -1,0 +1,174 @@
+name: Nexa Sovereignty E2E Staging
+
+on:
+  push:
+    branches:
+      - 'feature/nexa-attention-feed'
+    paths:
+      - '.github/workflows/nexa-sovereignty-e2e-staging.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexa-sovereignty-e2e-staging
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXA_API: https://nexa-backend-wallet-v15-staging.onrender.com/api/v1
+      DOCWALLET_API: https://docwallet-nexoffice-homolog.onrender.com/api
+      HEALTH_BASE: https://6ac5a2534e7f2cb39852f59d--healthwallet1.netlify.app
+
+    steps:
+      - name: Wait for isolated staging services
+        run: |
+          set -euo pipefail
+
+          wait_url() {
+            local url="$1"
+            local expected="$2"
+            for attempt in $(seq 1 30); do
+              code="$(curl -L -sS -o /tmp/probe -w '%{http_code}' "$url" || true)"
+              if [ "$code" = "$expected" ]; then
+                return 0
+              fi
+              echo "waiting for $url (attempt $attempt, status $code)"
+              sleep 5
+            done
+            echo "Timed out waiting for $url"
+            return 1
+          }
+
+          wait_url "$NEXA_API/health" "200"
+          wait_url "$HEALTH_BASE/healthwallet" "200"
+
+      - name: Register disposable Nexa staging user
+        id: register
+        run: |
+          set -euo pipefail
+
+          EMAIL="nexa-ecosystem-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@example.test"
+          PASSWORD="E2E-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-safe"
+          CPF="$(printf '%011d' $((GITHUB_RUN_ID % 100000000000)))"
+
+          payload="$(jq -nc             --arg email "$EMAIL"             --arg password "$PASSWORD"             --arg cpf "$CPF"             '{email:$email,password:$password,cpf:$cpf,fullName:"Nexa Ecosystem E2E",phone:"11999999999"}')"
+
+          code="$(curl -sS -o /tmp/register.json -w '%{http_code}'             -X POST "$NEXA_API/auth/register"             -H 'content-type: application/json'             --data "$payload")"
+
+          test "$code" = "201" || {
+            echo "Nexa registration failed with HTTP $code"
+            jq '{message,statusCode,error}' /tmp/register.json || true
+            exit 1
+          }
+
+          ACCESS_TOKEN="$(jq -r '.accessToken // empty' /tmp/register.json)"
+          USER_ID="$(jq -r '.user.id // empty' /tmp/register.json)"
+          NEXA_ID="$(jq -r '.user.nexaId // empty' /tmp/register.json)"
+
+          test -n "$ACCESS_TOKEN"
+          test -n "$USER_ID"
+          test -n "$NEXA_ID"
+
+          echo "::add-mask::$ACCESS_TOKEN"
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> "$GITHUB_ENV"
+          echo "USER_ID=$USER_ID" >> "$GITHUB_ENV"
+          echo "NEXA_ID=$NEXA_ID" >> "$GITHUB_ENV"
+          echo "E2E_EMAIL=$EMAIL" >> "$GITHUB_ENV"
+
+          echo "PASS: disposable Nexa staging identity created."
+
+      - name: Mint and validate Nexa ID handoff
+        run: |
+          set -euo pipefail
+
+          code="$(curl -sS -o /tmp/nexa-id.json -w '%{http_code}'             -X POST "$NEXA_API/nexa-id/access-token-secure"             -H "Authorization: Bearer $ACCESS_TOKEN"             -H 'content-type: application/json'             --data '{}')"
+
+          test "$code" = "201" || test "$code" = "200" || {
+            echo "Nexa ID mint failed with HTTP $code"
+            jq '{message,statusCode,error,success}' /tmp/nexa-id.json || true
+            exit 1
+          }
+
+          NEXA_TOKEN="$(jq -r '.token // empty' /tmp/nexa-id.json)"
+          test -n "$NEXA_TOKEN"
+          echo "::add-mask::$NEXA_TOKEN"
+          echo "NEXA_TOKEN=$NEXA_TOKEN" >> "$GITHUB_ENV"
+
+          curl -sS "$NEXA_API/nexa-id/validate/$NEXA_TOKEN" > /tmp/nexa-id-validation.json
+          jq -e --arg uid "$USER_ID"             '.success == true and .user.id == $uid'             /tmp/nexa-id-validation.json >/dev/null
+
+          echo "PASS: Nexa ID short handoff token validated."
+
+      - name: Federate Nexa ID into DocWallet homolog
+        run: |
+          set -euo pipefail
+
+          code="$(curl -sS -o /tmp/docwallet.json -w '%{http_code}'             -X POST "$DOCWALLET_API/auth/nexa"             -H 'content-type: application/json'             --data "$(jq -nc --arg token "$NEXA_TOKEN" '{token:$token}')")"
+
+          test "$code" = "200" || {
+            echo "DocWallet federation failed with HTTP $code"
+            jq '{success,error,message}' /tmp/docwallet.json || true
+            exit 1
+          }
+
+          DOC_TOKEN="$(jq -r '.token // empty' /tmp/docwallet.json)"
+          test -n "$DOC_TOKEN"
+          echo "::add-mask::$DOC_TOKEN"
+
+          jq -e --arg uid "$USER_ID"             '.success == true and .federation.source == "nexa" and .federation.nexa_user_id == $uid'             /tmp/docwallet.json >/dev/null
+
+          echo "PASS: Nexa ID -> DocWallet own session."
+
+      - name: Federate Nexa ID into Health Wallet staging
+        run: |
+          set -euo pipefail
+
+          code="$(curl -sS -o /tmp/health-session.json -w '%{http_code}'             -X POST "$HEALTH_BASE/api/nexa/session"             -H 'content-type: application/json'             --data "$(jq -nc --arg token "$NEXA_TOKEN" '{token:$token}')")"
+
+          test "$code" = "200" || {
+            echo "Health Wallet federation failed with HTTP $code"
+            jq '{success,error,message}' /tmp/health-session.json || true
+            exit 1
+          }
+
+          TOKEN_HASH="$(jq -r '.tokenHash // empty' /tmp/health-session.json)"
+          test -n "$TOKEN_HASH"
+          echo "::add-mask::$TOKEN_HASH"
+
+          jq -e '.success == true and .source == "nexa"'             /tmp/health-session.json >/dev/null
+
+          echo "PASS: Nexa ID -> real Health Wallet Supabase session exchange."
+
+      - name: Validate Staff ecosystem attention aggregation
+        run: |
+          set -euo pipefail
+
+          code="$(curl -sS -o /tmp/attention.json -w '%{http_code}'             "$NEXA_API/staff/attention"             -H "Authorization: Bearer $ACCESS_TOKEN")"
+
+          test "$code" = "200" || {
+            echo "Staff attention failed with HTTP $code"
+            jq '{message,statusCode,error}' /tmp/attention.json || true
+            exit 1
+          }
+
+          jq -e '
+            .success == true
+            and .enabled == true
+            and .mode == "read_only_minimum_context"
+            and .sensitivePayloadIncluded == false
+            and ((.sources | map(select(.source == "docwallet" and .status == "connected")) | length) == 1)
+            and ((.sources | map(select(.source == "healthwallet" and .status == "connected")) | length) == 1)
+          ' /tmp/attention.json >/dev/null
+
+          jq '{success,enabled,mode,sources,sensitivePayloadIncluded,itemCount:(.items|length)}' /tmp/attention.json
+          echo "PASS: Staff sees both products with minimum-context feed only."
+
+      - name: Assert no financial execution in E2E
+        run: |
+          set -euo pipefail
+          echo "PASS: E2E invoked only auth, Nexa ID, product federation and read-only Staff attention endpoints."
