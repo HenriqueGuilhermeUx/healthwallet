@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bell, CalendarDays, CheckCircle2, Clock, Loader2, Target, Video } from 'lucide-react'
+import { ArrowLeft, Bell, CalendarCheck, CalendarDays, CheckCircle2, Clock, Loader2, Target, Video } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 
@@ -8,7 +8,7 @@ type AgendaItem = {
   id: string
   date: string
   time?: string | null
-  type: 'action' | 'appointment' | 'reminder'
+  type: 'action' | 'appointment' | 'reminder' | 'coordination'
   title: string
   subtitle?: string
   href: string
@@ -27,6 +27,7 @@ function formatDate(value: string) {
 
 function typeIcon(type: AgendaItem['type']) {
   if (type === 'appointment') return Video
+  if (type === 'coordination') return CalendarCheck
   if (type === 'reminder') return Bell
   return Target
 }
@@ -48,7 +49,7 @@ export default function ConciergeAgenda() {
     const today = new Date().toISOString().slice(0, 10)
 
     try {
-      const [actionsRes, appointmentsRes, remindersRes] = await Promise.all([
+      const [actionsRes, appointmentsRes, remindersRes, coordinatedRes] = await Promise.all([
         supabase
           .from('concierge_actions')
           .select('*')
@@ -72,6 +73,15 @@ export default function ConciergeAgenda() {
           .eq('is_active', true)
           .gte('reminder_date', today)
           .order('reminder_date', { ascending: true })
+          .limit(30),
+        supabase
+          .from('concierge_external_tasks')
+          .select('*')
+          .eq('patient_id', user.id)
+          .in('status', ['booked', 'instructions_sent'])
+          .not('scheduled_at', 'is', null)
+          .gte('scheduled_at', today + 'T00:00:00')
+          .order('scheduled_at', { ascending: true })
           .limit(30),
       ])
 
@@ -105,6 +115,16 @@ export default function ConciergeAgenda() {
         title: reminder.title || 'Lembrete de saúde',
         subtitle: reminder.description || undefined,
         href: '/dashboard',
+      }))
+
+      ;(coordinatedRes.data || []).forEach((task: any) => agenda.push({
+        id: `coordination-${task.id}`,
+        date: dateKey(task.scheduled_at),
+        time: task.scheduled_at ? new Date(task.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null,
+        type: 'coordination',
+        title: task.title,
+        subtitle: task.provider_name || 'Agendamento coordenado pelo Concierge',
+        href: `/concierge/coordination/${task.id}`,
       }))
 
       agenda.sort((a, b) => `${a.date} ${a.time || ''}`.localeCompare(`${b.date} ${b.time || ''}`))
