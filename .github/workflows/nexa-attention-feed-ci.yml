@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           grep -q "read_only_minimum_context" netlify/functions/nexa-attention.mjs
           grep -q "sensitivePayloadIncluded: false" netlify/functions/nexa-attention.mjs
-          grep -q "NEXA_ECOSYSTEM_ATTENTION_SERVICE_KEY" netlify/functions/nexa-attention.mjs
+          grep -q "staff/validate-token" netlify/functions/nexa-attention.mjs
           ! grep -q "professional_notes" netlify/functions/nexa-attention.mjs
           ! grep -q "prescription_text" netlify/functions/nexa-attention.mjs
           ! grep -q "reason:" netlify/functions/nexa-attention.mjs
