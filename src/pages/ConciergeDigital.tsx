@@ -33,6 +33,8 @@ export default function ConciergeDigital() {
   const [listening, setListening] = useState(false)
   const [voiceReplies, setVoiceReplies] = useState(true)
   const [voiceSupported, setVoiceSupported] = useState(false)
+  const [familyMembers, setFamilyMembers] = useState<any[]>([])
+  const [subjectFamilyMemberId, setSubjectFamilyMemberId] = useState<string>('')
   const endRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
 
@@ -69,8 +71,16 @@ export default function ConciergeDigital() {
     if (!user) return
     setLoading(true)
     try {
-      const member = await getConciergeMembershipForPatient(user.id)
+      const [member, familyRes] = await Promise.all([
+        getConciergeMembershipForPatient(user.id),
+        supabase
+          .from('family_members')
+          .select('id,name,relationship,member_type,is_elderly,health_plan')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
+      ])
       setMembership(member)
+      setFamilyMembers(familyRes.data || [])
 
       if (
         member
@@ -89,6 +99,7 @@ export default function ConciergeDigital() {
 
         if (data) {
           setSession(data)
+          setSubjectFamilyMemberId(data.metadata?.subject_family_member_id || '')
           await refreshConversation(data.id)
         }
       }
@@ -136,6 +147,7 @@ export default function ConciergeDigital() {
           sessionId: session?.id || null,
           message: body,
           source,
+          subjectFamilyMemberId: subjectFamilyMemberId || null,
         }),
       })
 
@@ -297,13 +309,51 @@ export default function ConciergeDigital() {
         </div>
       </section>
 
+      {familyMembers.length > 0 && visibleMessages.length === 0 && (
+        <section className="rounded-2xl border bg-white p-4">
+          <p className="text-sm font-bold text-gray-900">Para quem é esta conversa?</p>
+          <p className="mt-1 text-xs text-muted-foreground">Você pode cuidar da sua própria saúde ou coordenar alguém do seu Círculo de Cuidado.</p>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            <button
+              type="button"
+              onClick={() => setSubjectFamilyMemberId('')}
+              className={`shrink-0 rounded-full border px-3 py-2 text-xs font-bold ${!subjectFamilyMemberId ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'bg-white text-gray-700'}`}
+            >
+              Eu
+            </button>
+            {familyMembers.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setSubjectFamilyMemberId(item.id)}
+                className={`shrink-0 rounded-full border px-3 py-2 text-xs font-bold ${subjectFamilyMemberId === item.id ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'bg-white text-gray-700'}`}
+              >
+                {item.name}{item.relationship ? ` · ${item.relationship}` : ''}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {visibleMessages.length === 0 && (
         <section className="rounded-2xl border bg-white p-5">
           <div className="flex gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Bot className="h-5 w-5" /></div>
             <div>
               <p className="font-bold">Pode falar comigo normalmente.</p>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">Ex.: “Preciso marcar minha ressonância”, “o que ainda está pendente?”, “quero encontrar um cardiologista” ou “quero falar com uma pessoa”.</p>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">Ex.: “Preciso marcar minha ressonância”, “o plano negou a autorização”, “quero organizar o reembolso da minha mãe” ou “quero falar com uma pessoa”.</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {[
+                  'Marcar exame ou consulta',
+                  'Resolver autorização do plano',
+                  'Organizar reembolso ou glosa',
+                  'Cuidar de internação ou cirurgia',
+                ].map((label) => (
+                  <button key={label} type="button" onClick={() => setInput(label)} className="rounded-full border bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </section>
