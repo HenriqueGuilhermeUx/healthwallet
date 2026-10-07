@@ -39,6 +39,7 @@ Retorne SOMENTE JSON válido:
   "reply": "resposta curta, clara e conversacional em português do Brasil",
   "intent": "conversation|create_request|human_handoff|status|attention",
   "needs_human": false,
+  "attention_level": "none|watch|high",
   "attention_reason": null,
   "request": null
 }
@@ -48,10 +49,16 @@ Se intent=create_request, request deve ser:
   "category": "symptom|guidance|exam_review|second_analysis|medication_review|navigation|other",
   "title": "título curto",
   "description": "descrição objetiva do que precisa ser resolvido",
-  "urgency": "routine|priority"
+  "urgency": "routine|priority",
+  "operational_type": "provider_search|scheduling|insurance_authorization|reimbursement|claim_denial|hospitalization|surgery|complex_case|caregiver_coordination|general_navigation"
 }
 
 Use create_request somente quando o paciente estiver efetivamente pedindo uma ação/coordenação concreta.
+
+Sinais para attention_level:
+- "watch": conversa repetitiva, frustração, bloqueio operacional, idoso/familiar dependente, dificuldade com plano, autorização, reembolso ou acesso;
+- "high": internação, cirurgia próxima, caso oncológico/complexo, glosa que ameaça continuidade, sofrimento emocional importante, ou situação em que a equipe humana deveria enxergar logo mesmo sem pedido explícito.
+Não transforme attention em decisão clínica. É um sinal operacional para a equipe Concierge.
 `
 
 export async function handler(event) {
@@ -92,6 +99,7 @@ export async function handler(event) {
     const body = JSON.parse(event.body || '{}')
     const message = String(body.message || '').trim().slice(0, 5000)
     const source = body.source === 'voice' ? 'voice' : 'text'
+    const requestedSubjectFamilyMemberId = body.subjectFamilyMemberId ? String(body.subjectFamilyMemberId) : null
     let sessionId = body.sessionId ? String(body.sessionId) : null
 
     if (!message) return response(400, { error: 'message_required' })
@@ -110,6 +118,17 @@ export async function handler(event) {
 
     if (!allowed) {
       return response(403, { error: 'concierge_subscription_required' })
+    }
+
+    let subjectFamilyMember = null
+    if (requestedSubjectFamilyMemberId) {
+      const { data: familyRow } = await admin
+        .from('family_members')
+        .select('id,name,relationship,member_type,birth_date,health_plan,is_elderly,conditions,care_notes')
+        .eq('id', requestedSubjectFamilyMemberId)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      subjectFamilyMember = familyRow || null
     }
 
     let session = null
@@ -131,7 +150,13 @@ export async function handler(event) {
           patient_id: user.id,
           status: 'ai_active',
           channel: source === 'voice' ? 'voice' : 'text',
-          metadata: { product: 'concierge_digital', plan_code: membership.plan_code },
+          metadata: {
+            product: 'concierge_digital',
+            plan_code: membership.plan_code,
+            subject_family_member_id: subjectFamilyMember?.id || null,
+            subject_name: subjectFamilyMember?.name || null,
+            subject_relationship: subjectFamilyMember?.relationship || null,
+          },
         })
         .select('*')
         .single()
@@ -242,6 +267,21 @@ export async function handler(event) {
       open_actions: actionsRes.data || [],
       open_requests: requestsRes.data || [],
       active_coordination: coordinationRes.data || [],
+      conversation_subject: subjectFamilyMember ? {
+        type: 'family_member',
+        id: subjectFamilyMember.id,
+        name: subjectFamilyMember.name,
+        relationship: subjectFamilyMember.relationship,
+        member_type: subjectFamilyMember.member_type,
+        birth_date: subjectFamilyMember.birth_date,
+        health_plan: subjectFamilyMember.health_plan,
+        is_elderly: subjectFamilyMember.is_elderly,
+        conditions: subjectFamilyMember.conditions,
+        care_notes: subjectFamilyMember.care_notes,
+      } : {
+        type: 'self',
+        name: profileRes.data?.full_name || profileRes.data?.name || membership.metadata?.patient_name || null,
+      },
     }
 
     const aiRes = await fetch('https://api.openai.com/v1/responses', {
@@ -282,6 +322,12 @@ export async function handler(event) {
       const safeCategories = ['symptom','guidance','exam_review','second_analysis','medication_review','navigation','other']
       const category = safeCategories.includes(requestInput.category) ? requestInput.category : 'other'
       const urgency = requestInput.urgency === 'priority' ? 'priority' : 'routine'
+      const operationalType = String(requestInput.operational_type || 'general_navigation')
+      const allowedOperationalTypes = new Set([
+        'provider_search','scheduling','insurance_authorization','reimbursement','claim_denial',
+        'hospitalization','surgery','complex_case','caregiver_coordination','general_navigation',
+      ])
+      const safeOperationalType = allowedOperationalTypes.has(operationalType) ? operationalType : 'general_navigation'
 
       const { data } = await admin
         .from('concierge_requests')
@@ -292,12 +338,17 @@ export async function handler(event) {
           description: String(requestInput.description || message).slice(0, 5000),
           urgency,
           status: 'new',
+          subject_name: subjectFamilyMember?.name || null,
+          subject_relationship: subjectFamilyMember?.relationship || null,
+          subject_family_member_id: subjectFamilyMember?.id || null,
           context_snapshot: {},
           symptom_payload: {},
           metadata: {
             source_app: 'healthwallet',
             source: 'concierge_digital_ai',
             chat_session_id: sessionId,
+            operational_type: safeOperationalType,
+            caregiver_mode: Boolean(subjectFamilyMember),
           },
         })
         .select('id,title,status,category,urgency')
@@ -314,21 +365,38 @@ export async function handler(event) {
           event_type: 'request_created_from_digital_concierge',
           visibility: 'patient',
           message: 'O Concierge Digital abriu esta solicitação para acompanhamento da equipe.',
-          payload: { chat_session_id: sessionId },
+          payload: {
+            chat_session_id: sessionId,
+            operational_type: safeOperationalType,
+            subject_family_member_id: subjectFamilyMember?.id || null,
+          },
         })
       }
     }
 
     const needsHuman = parsed.needs_human === true || parsed.intent === 'human_handoff'
+    const attentionLevel = ['watch','high'].includes(parsed.attention_level) ? parsed.attention_level : 'none'
     const attentionReason = parsed.attention_reason ? String(parsed.attention_reason).slice(0, 500) : null
-    const nextStatus = needsHuman ? 'human_requested' : attentionReason ? 'attention' : 'ai_active'
+
+    const deterministicAttention =
+      /glosa|negad[oa]|autoriza[cç][aã]o|reembolso|internad[oa]|internação|cirurgia|oncolog|c[aâ]ncer|doen[cç]a rara|meu pai|minha mãe|idos[oa]/i.test(message)
+
+    const shouldSurfaceAttention = attentionLevel !== 'none' || deterministicAttention
+    const nextStatus = needsHuman ? 'human_requested' : shouldSurfaceAttention ? 'attention' : 'ai_active'
 
     await admin
       .from('concierge_chat_sessions')
       .update({
         status: nextStatus,
-        attention_reason: attentionReason,
+        attention_reason: attentionReason || (deterministicAttention ? 'Conversa com potencial complexidade operacional/familiar' : null),
         human_requested_at: needsHuman ? new Date().toISOString() : session.human_requested_at,
+        metadata: {
+          ...(session.metadata || {}),
+          subject_family_member_id: subjectFamilyMember?.id || session.metadata?.subject_family_member_id || null,
+          subject_name: subjectFamilyMember?.name || session.metadata?.subject_name || null,
+          subject_relationship: subjectFamilyMember?.relationship || session.metadata?.subject_relationship || null,
+          attention_level: attentionLevel,
+        },
         last_activity_at: new Date().toISOString(),
       })
       .eq('id', sessionId)
@@ -343,6 +411,7 @@ export async function handler(event) {
       metadata: {
         intent: parsed.intent || 'conversation',
         needs_human: needsHuman,
+        attention_level: attentionLevel,
         created_request_id: createdRequest?.id || null,
         model: process.env.CONCIERGE_AI_MODEL || 'gpt-6-luna',
       },
@@ -353,6 +422,7 @@ export async function handler(event) {
       status: nextStatus,
       reply,
       needsHuman,
+      attentionLevel,
       createdRequest,
     })
   } catch (error) {
