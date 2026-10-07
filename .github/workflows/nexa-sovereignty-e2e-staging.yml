@@ -33,7 +33,7 @@ jobs:
             local url="$1"
             local expected="$2"
             for attempt in $(seq 1 30); do
-              code="$(curl -L -sS -o /tmp/probe -w '%{http_code}' "$url" || true)"
+              code="$(curl --connect-timeout 10 --max-time 30 -L -sS -o /tmp/probe -w '%{http_code}' "$url" || true)"
               if [ "$code" = "$expected" ]; then
                 return 0
               fi
@@ -45,6 +45,7 @@ jobs:
           }
 
           wait_url "$NEXA_API/health" "200"
+          wait_url "$DOCWALLET_API/health" "200"
           wait_url "$HEALTH_BASE/healthwallet" "200"
 
       - name: Register disposable Nexa staging user
@@ -58,7 +59,7 @@ jobs:
 
           payload="$(jq -nc             --arg email "$EMAIL"             --arg password "$PASSWORD"             --arg cpf "$CPF"             '{email:$email,password:$password,cpf:$cpf,fullName:"Nexa Ecosystem E2E",phone:"11999999999"}')"
 
-          code="$(curl -sS -o /tmp/register.json -w '%{http_code}'             -X POST "$NEXA_API/auth/register"             -H 'content-type: application/json'             --data "$payload")"
+          code="$(curl --connect-timeout 10 --max-time 30 -sS -o /tmp/register.json -w '%{http_code}'             -X POST "$NEXA_API/auth/register"             -H 'content-type: application/json'             --data "$payload")"
 
           test "$code" = "201" || {
             echo "Nexa registration failed with HTTP $code"
@@ -86,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          code="$(curl -sS -o /tmp/nexa-id.json -w '%{http_code}'             -X POST "$NEXA_API/nexa-id/access-token-secure"             -H "Authorization: Bearer $ACCESS_TOKEN"             -H 'content-type: application/json'             --data '{}')"
+          code="$(curl --connect-timeout 10 --max-time 30 -sS -o /tmp/nexa-id.json -w '%{http_code}'             -X POST "$NEXA_API/nexa-id/access-token-secure"             -H "Authorization: Bearer $ACCESS_TOKEN"             -H 'content-type: application/json'             --data '{}')"
 
           test "$code" = "201" || test "$code" = "200" || {
             echo "Nexa ID mint failed with HTTP $code"
@@ -99,7 +100,7 @@ jobs:
           echo "::add-mask::$NEXA_TOKEN"
           echo "NEXA_TOKEN=$NEXA_TOKEN" >> "$GITHUB_ENV"
 
-          curl -sS "$NEXA_API/nexa-id/validate/$NEXA_TOKEN" > /tmp/nexa-id-validation.json
+          curl --connect-timeout 10 --max-time 30 -sS "$NEXA_API/nexa-id/validate/$NEXA_TOKEN" > /tmp/nexa-id-validation.json
           jq -e --arg uid "$USER_ID"             '.success == true and .user.id == $uid'             /tmp/nexa-id-validation.json >/dev/null
 
           echo "PASS: Nexa ID short handoff token validated."
@@ -108,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          code="$(curl -sS -o /tmp/docwallet.json -w '%{http_code}'             -X POST "$DOCWALLET_API/auth/nexa"             -H 'content-type: application/json'             --data "$(jq -nc --arg token "$NEXA_TOKEN" '{token:$token}')")"
+          code="$(curl --connect-timeout 10 --max-time 30 -sS -o /tmp/docwallet.json -w '%{http_code}'             -X POST "$DOCWALLET_API/auth/nexa"             -H 'content-type: application/json'             --data "$(jq -nc --arg token "$NEXA_TOKEN" '{token:$token}')")"
 
           test "$code" = "200" || {
             echo "DocWallet federation failed with HTTP $code"
@@ -128,7 +129,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          code="$(curl -sS -o /tmp/health-session.json -w '%{http_code}'             -X POST "$HEALTH_BASE/api/nexa/session"             -H 'content-type: application/json'             --data "$(jq -nc --arg token "$NEXA_TOKEN" '{token:$token}')")"
+          code="$(curl --connect-timeout 10 --max-time 30 -sS -o /tmp/health-session.json -w '%{http_code}'             -X POST "$HEALTH_BASE/api/nexa/session"             -H 'content-type: application/json'             --data "$(jq -nc --arg token "$NEXA_TOKEN" '{token:$token}')")"
 
           test "$code" = "200" || {
             echo "Health Wallet federation failed with HTTP $code"
@@ -148,7 +149,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          code="$(curl -sS -o /tmp/attention.json -w '%{http_code}'             "$NEXA_API/staff/attention"             -H "Authorization: Bearer $ACCESS_TOKEN")"
+          code="$(curl --connect-timeout 10 --max-time 30 -sS -o /tmp/attention.json -w '%{http_code}'             "$NEXA_API/staff/attention"             -H "Authorization: Bearer $ACCESS_TOKEN")"
 
           test "$code" = "200" || {
             echo "Staff attention failed with HTTP $code"
