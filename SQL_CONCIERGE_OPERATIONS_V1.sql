@@ -5,6 +5,9 @@
 -- Apply only after Concierge Digital AI V1.
 -- ============================================================
 
+-- ATOMIC MIGRATION: any failure rolls back the whole operations layer.
+BEGIN;
+
 -- Concierge Operations compatibility guard.
 -- Fails before any DDL if the existing Concierge base is not the expected version.
 DO $
@@ -1586,3 +1589,5 @@ BEGIN
   EXCEPTION WHEN duplicate_object THEN NULL;
   END;
 END $$;
+
+COMMIT;
