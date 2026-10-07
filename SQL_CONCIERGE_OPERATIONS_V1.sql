@@ -1218,7 +1218,7 @@ RETURNS INTEGER
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
-AS $
+AS $$
 BEGIN
   IF auth.role() IS DISTINCT FROM 'service_role' THEN
     RAISE EXCEPTION 'service role required';
@@ -1226,7 +1226,7 @@ BEGIN
 
   RETURN private.concierge_refresh_operational_alerts_impl();
 END;
-$;
+$$;
 
 REVOKE ALL ON FUNCTION public.concierge_refresh_operational_alerts_system() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.concierge_refresh_operational_alerts_system() TO service_role;
