@@ -1,0 +1,47 @@
+name: Nexa Attention Feed CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'netlify/functions/nexa-attention.mjs'
+      - '.env.example'
+      - '.github/workflows/nexa-attention-feed-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate serverless syntax
+        run: node --check netlify/functions/nexa-attention.mjs
+
+      - name: Assert privacy boundary
+        run: |
+          set -euo pipefail
+          grep -q "read_only_minimum_context" netlify/functions/nexa-attention.mjs
+          grep -q "sensitivePayloadIncluded: false" netlify/functions/nexa-attention.mjs
+          grep -q "NEXA_ECOSYSTEM_ATTENTION_SERVICE_KEY" netlify/functions/nexa-attention.mjs
+          ! grep -q "professional_notes" netlify/functions/nexa-attention.mjs
+          ! grep -q "prescription_text" netlify/functions/nexa-attention.mjs
+          ! grep -q "reason:" netlify/functions/nexa-attention.mjs
+          ! grep -q "ai_analysis" netlify/functions/nexa-attention.mjs
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build Health Wallet
+        run: pnpm build
