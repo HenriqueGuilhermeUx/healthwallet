@@ -165,7 +165,7 @@ export default async request => {
     const nexaUserId = safeNexaUserId(request)
     await authorize(request, nexaUserId)
     const baseUrl = requiredEnv('SUPABASE_URL', 'VITE_SUPABASE_URL').replace(/\/$/, '')
-    const serviceRole = requiredEnv('SUPABASE_SERVICE_ROLE_KEY')
+    const serviceRole = env('SUPABASE_SECRET_KEY') || requiredEnv('SUPABASE_SERVICE_ROLE_KEY')
     const today = new Date().toISOString().slice(0, 10)
 
     const userId = await findHealthUserId(baseUrl, serviceRole, nexaUserId).catch(() => '')
