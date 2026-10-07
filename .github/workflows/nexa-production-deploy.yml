@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'feature/nexa-sovereignty-mainline'
+      - main
     paths:
       - '.github/workflows/nexa-production-deploy.yml'
       - 'netlify/functions/nexa-attention.mjs'
