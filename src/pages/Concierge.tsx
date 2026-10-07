@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Activity,
+  CalendarCheck,
   CalendarClock,
   CalendarDays,
   CheckCircle2,
@@ -22,13 +23,14 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import { listMyConciergeActions, listMyConciergeRequests, listMyConciergeTeam, listMyProgramEnrollments } from '@/services/concierge'
+import { listMyExternalCoordinations } from '@/services/conciergeExternal'
 
 type PendingItem = {
   id: string
   title: string
   subtitle?: string
   href: string
-  kind?: 'team' | 'action' | 'reminder' | 'appointment'
+  kind?: 'team' | 'action' | 'reminder' | 'appointment' | 'coordination'
 }
 
 function formatDate(value?: string | null) {
@@ -56,6 +58,7 @@ export default function Concierge() {
   const [requests, setRequests] = useState<any[]>([])
   const [actions, setActions] = useState<any[]>([])
   const [programs, setPrograms] = useState<any[]>([])
+  const [coordinations, setCoordinations] = useState<any[]>([])
   const [conciergeReady, setConciergeReady] = useState(true)
 
   useEffect(() => {
@@ -93,6 +96,13 @@ export default function Concierge() {
         setActions(actionData)
         setPrograms(programData)
         setConciergeReady(true)
+
+        try {
+          setCoordinations(await listMyExternalCoordinations(user.id))
+        } catch (externalError) {
+          console.warn('External coordination projection not activated yet:', externalError)
+          setCoordinations([])
+        }
       } catch (error) {
         console.warn('Concierge data model not activated yet:', error)
         setConciergeReady(false)
@@ -116,9 +126,21 @@ export default function Concierge() {
   const activeRequests = requests.filter((item) => !['resolved', 'closed'].includes(item.status))
   const pendingActions = actions.filter((item) => !['completed', 'cancelled'].includes(item.status))
   const activePrograms = programs.filter((item) => item.status === 'active')
+  const activeCoordinations = coordinations.filter((item) => !['closed', 'cancelled'].includes(item.status))
+  const coordinationChoice = coordinations.find((item) => item.status === 'awaiting_patient_choice')
 
   const pendingItems = useMemo<PendingItem[]>(() => {
     const items: PendingItem[] = []
+
+    if (coordinationChoice) {
+      items.push({
+        id: 'coordination-' + coordinationChoice.id,
+        title: 'O Concierge encontrou opções para você',
+        subtitle: coordinationChoice.title,
+        href: '/concierge/coordination/' + coordinationChoice.id,
+        kind: 'coordination',
+      })
+    }
 
     activeRequests
       .filter((item: any) => item.status === 'waiting_patient')
@@ -160,7 +182,7 @@ export default function Concierge() {
     }
 
     return items.slice(0, 4)
-  }, [activeRequests, pendingActions, reminders, nextAppointment])
+  }, [activeRequests, pendingActions, reminders, nextAppointment, coordinationChoice])
 
   const firstName = user?.user_metadata?.full_name?.split(' ')[0]
     || user?.user_metadata?.name?.split(' ')[0]
@@ -197,9 +219,10 @@ export default function Concierge() {
         </section>
       )}
 
-      <section className="grid grid-cols-3 gap-3">
-        <MiniStat label="Casos ativos" value={activeRequests.length} />
-        <MiniStat label="Próximas ações" value={pendingActions.length} />
+      <section className="grid grid-cols-4 gap-2">
+        <MiniStat label="Casos" value={activeRequests.length} />
+        <MiniStat label="Ações" value={pendingActions.length} />
+        <MiniStat label="Coordenação" value={activeCoordinations.length} />
         <MiniStat label="Programas" value={activePrograms.length} />
       </section>
 
@@ -235,6 +258,7 @@ export default function Concierge() {
           <ActionCard icon={FileSearch} title="Segunda análise" subtitle="Revisar exames, laudos e contexto" href="/concierge/request?category=second_analysis" />
           <ActionCard icon={Navigation} title="Navegação em saúde" subtitle="Saiba qual é o próximo passo" href="/concierge/request?category=navigation" />
           <ActionCard icon={ClipboardList} title="Mensagens e casos" subtitle="Acompanhe cada solicitação com sua equipe" href="/concierge/requests" />
+          <ActionCard icon={CalendarCheck} title="Agendamentos coordenados" subtitle="Opções, escolha, preparo e resultados" href="/concierge/coordination" />
           <ActionCard icon={CalendarDays} title="Agenda" subtitle="Consultas, lembretes e ações" href="/concierge/agenda" />
           <ActionCard icon={Target} title="Plano de ação" subtitle="Pendências e próximos passos" href="/concierge/plan" />
           <ActionCard icon={Activity} title="Programas" subtitle="Jornadas de acompanhamento" href="/concierge/programs" />
