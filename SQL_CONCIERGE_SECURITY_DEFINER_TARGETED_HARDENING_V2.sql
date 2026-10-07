@@ -24,13 +24,7 @@ BEGIN
   END IF;
 
   IF caller IS NOT NULL THEN
-    SELECT EXISTS (
-      SELECT 1
-      FROM public.concierge_staff s
-      WHERE s.user_id = caller
-        AND s.active = true
-    )
-    INTO caller_is_staff;
+    caller_is_staff := private.concierge_operations_is_staff(caller);
   END IF;
 
   IF NOT caller_is_service
@@ -80,20 +74,16 @@ BEGIN
     END IF;
 
     IF caller IS DISTINCT FROM target_patient THEN
-      SELECT s.role
-      INTO caller_role
-      FROM public.concierge_staff s
-      WHERE s.user_id = caller
-        AND s.active = true
-      LIMIT 1;
+      SELECT private.concierge_operations_staff_role(caller)
+      INTO caller_role;
 
       IF caller_role IS NULL THEN
         RETURN NULL;
       END IF;
 
       -- A clinician may resolve only patients they are actively assigned to.
-      -- Coordinators/admins may resolve the portfolio for routing.
-      IF caller_role NOT IN ('admin','care_coordinator','concierge_agent') THEN
+      -- Master/admin/coordinator/Concierge Agent may resolve the portfolio.
+      IF caller_role NOT IN ('master','admin','care_coordinator','concierge_agent') THEN
         IF NOT EXISTS (
           SELECT 1
           FROM public.concierge_assignments own_assignment
