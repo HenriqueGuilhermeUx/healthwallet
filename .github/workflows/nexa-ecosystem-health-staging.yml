@@ -58,13 +58,13 @@ jobs:
           set -euo pipefail
           test -n "${VITE_SUPABASE_URL:-}" || { echo 'Missing GitHub secret VITE_SUPABASE_URL.'; exit 3; }
           test -n "${VITE_SUPABASE_ANON_KEY:-}" || { echo 'Missing GitHub secret VITE_SUPABASE_ANON_KEY.'; exit 4; }
-          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}" || { echo 'Missing GitHub secret SUPABASE_SERVICE_ROLE_KEY.'; exit 5; }
-
           echo "::add-mask::$VITE_SUPABASE_ANON_KEY"
-          echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
 
           PROJECT_REF="$(printf '%s' "$VITE_SUPABASE_URL" | sed -E 's#https://([a-z0-9-]+)\\.supabase\\.co.*#\\1#')"
           echo "Health Supabase project ref: $PROJECT_REF"
+
+          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}" || { echo 'Missing GitHub secret SUPABASE_SERVICE_ROLE_KEY.'; exit 5; }
+          echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
           echo 'Required Health staging secrets are present.'
 
       - name: Seed isolated staging environment
