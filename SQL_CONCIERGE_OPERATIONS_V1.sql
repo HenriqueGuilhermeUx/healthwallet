@@ -638,7 +638,9 @@ VALUES
   '["Concierge administrativo","enfermagem/médico","advogado parceiro"]'::jsonb,
   'As informações regulatórias do produto são educativas e operacionais; não substituem consulta jurídica individualizada.',
   '[
-    {"authority":"ANS","rule":"RN 623/2024 - atendimento e rastreabilidade","url":"https://bvsms.saude.gov.br/bvs/saudelegis/ans/2024/res0623_19_12_2024.html","reviewed":"2026-10-07"}
+    {"authority":"ANS","rule":"RN 623/2024 - atendimento e rastreabilidade","url":"https://bvsms.saude.gov.br/bvs/saudelegis/ans/2024/res0623_19_12_2024.html","reviewed":"2026-10-07"},
+    {"authority":"Planalto","rule":"Lei 8.906/1994 art. 1 - atividade privativa de advocacia","url":"https://www.planalto.gov.br/ccivil_03/leis/l8906.htm","reviewed":"2026-10-07"},
+    {"authority":"Planalto","rule":"Lei 12.842/2013 - exercício da Medicina","url":"https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2013/lei/l12842.htm","reviewed":"2026-10-07"}
   ]'::jsonb,
   NOW(),
   '{"patient_safe":true,"staff_actionable":true}'::jsonb
