@@ -15,36 +15,22 @@ export type ExternalCoordinationStatus =
   | 'closed'
   | 'cancelled'
 
-export async function listMyExternalCoordinations(patientId: string) {
-  const { data, error } = await supabase
-    .from('concierge_external_tasks')
-    .select('*')
-    .eq('patient_id', patientId)
-    .order('created_at', { ascending: false })
+export async function listMyExternalCoordinations(_patientId?: string) {
+  const { data, error } = await supabase.rpc('concierge_patient_list_external_tasks')
 
   if (error) throw error
   return data || []
 }
 
-export async function getMyExternalCoordination(taskId: string, patientId: string) {
-  const { data, error } = await supabase
-    .from('concierge_external_tasks')
-    .select('*')
-    .eq('id', taskId)
-    .eq('patient_id', patientId)
-    .maybeSingle()
-
-  if (error) throw error
-  return data
+export async function getMyExternalCoordination(taskId: string, _patientId?: string) {
+  const rows = await listMyExternalCoordinations()
+  return rows.find((item: any) => item.id === taskId) || null
 }
 
 export async function listMyExternalCoordinationOptions(taskId: string) {
-  const { data, error } = await supabase
-    .from('concierge_external_options')
-    .select('id,task_id,provider_name,provider_type,address,city,state,phone,website,price_amount,currency,accepts_insurance,insurance_notes,earliest_slot,distance_text,status,created_at,updated_at')
-    .eq('task_id', taskId)
-    .in('status', ['offered', 'selected'])
-    .order('earliest_slot', { ascending: true, nullsFirst: false })
+  const { data, error } = await supabase.rpc('concierge_patient_list_external_options', {
+    p_task_id: taskId,
+  })
 
   if (error) throw error
   return data || []
