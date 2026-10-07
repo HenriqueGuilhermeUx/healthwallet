@@ -5,6 +5,61 @@
 -- Apply only after Concierge Digital AI V1.
 -- ============================================================
 
+-- Concierge Operations compatibility guard.
+-- Fails before any DDL if the existing Concierge base is not the expected version.
+DO $
+DECLARE
+  missing TEXT[] := ARRAY[]::TEXT[];
+  rec RECORD;
+BEGIN
+  FOR rec IN
+    SELECT *
+    FROM (VALUES
+      ('family_members','id'),
+      ('family_members','user_id'),
+      ('concierge_memberships','patient_id'),
+      ('concierge_memberships','status'),
+      ('concierge_memberships','plan_code'),
+      ('concierge_memberships','consent_status'),
+      ('concierge_requests','id'),
+      ('concierge_requests','patient_id'),
+      ('concierge_requests','status'),
+      ('concierge_alerts','patient_id'),
+      ('concierge_alerts','source'),
+      ('concierge_alerts','source_id'),
+      ('concierge_alerts','severity'),
+      ('concierge_alerts','title'),
+      ('concierge_alerts','explanation'),
+      ('concierge_alerts','suggested_action'),
+      ('concierge_alerts','status'),
+      ('concierge_alerts','resolved_at'),
+      ('concierge_alerts','metadata'),
+      ('concierge_alerts','updated_at'),
+      ('concierge_staff','user_id'),
+      ('concierge_staff','role'),
+      ('concierge_staff','active'),
+      ('concierge_chat_sessions','id'),
+      ('concierge_chat_sessions','patient_id'),
+      ('concierge_chat_sessions','metadata')
+    ) AS required(table_name, column_name)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1
+      FROM information_schema.columns c
+      WHERE c.table_schema = 'public'
+        AND c.table_name = rec.table_name
+        AND c.column_name = rec.column_name
+    ) THEN
+      missing := array_append(missing, rec.table_name || '.' || rec.column_name);
+    END IF;
+  END LOOP;
+
+  IF cardinality(missing) > 0 THEN
+    RAISE EXCEPTION 'Concierge Operations compatibility check failed. Missing columns: %',
+      array_to_string(missing, ', ');
+  END IF;
+END $;
+
 CREATE SCHEMA IF NOT EXISTS private;
 GRANT USAGE ON SCHEMA private TO authenticated;
 
@@ -229,6 +284,21 @@ REVOKE ALL ON FUNCTION private.concierge_operations_staff_role(UUID) FROM PUBLIC
 REVOKE ALL ON FUNCTION private.concierge_operations_is_staff(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION private.concierge_operations_staff_role(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION private.concierge_operations_is_staff(UUID) TO authenticated;
+
+-- Allow the expanded MyDataMed Concierge team (including master/concierge_agent)
+-- to read/update operational enrollment without weakening patient-facing RLS.
+DROP POLICY IF EXISTS concierge_memberships_operations_staff_read ON public.concierge_memberships;
+CREATE POLICY concierge_memberships_operations_staff_read
+ON public.concierge_memberships
+FOR SELECT TO authenticated
+USING (private.concierge_operations_is_staff(auth.uid()));
+
+DROP POLICY IF EXISTS concierge_memberships_operations_staff_update ON public.concierge_memberships;
+CREATE POLICY concierge_memberships_operations_staff_update
+ON public.concierge_memberships
+FOR UPDATE TO authenticated
+USING (private.concierge_operations_is_staff(auth.uid()))
+WITH CHECK (private.concierge_operations_is_staff(auth.uid()));
 
 -- ------------------------------------------------------------
 -- 6) RLS
