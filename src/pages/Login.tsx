@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { Heart, Loader2, Eye, EyeOff, ShieldCheck } from 'lucide-react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 
 const SHOW_NEXA_LOGIN = import.meta.env.VITE_ENABLE_NEXA_LOGIN === 'true'
 
 export default function Login() {
   const { user, loading: authLoading, signInWithEmail, signUpWithEmail } = useAuth()
-  const navigate = useNavigate()
   const [isSignUp, setIsSignUp] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
