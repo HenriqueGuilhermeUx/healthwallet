@@ -127,6 +127,11 @@ export async function handler(event) {
     const body = rawBody
     const message = String(body.message || '').trim().slice(0, 5000)
     const source = ['voice','whatsapp','image','document'].includes(body.source) ? body.source : 'text'
+    const interactionChannel = body.channel === 'whatsapp'
+      ? 'whatsapp'
+      : source === 'voice'
+        ? 'voice'
+        : 'text'
     const requestedSubjectFamilyMemberId = body.subjectFamilyMemberId ? String(body.subjectFamilyMemberId) : null
     let sessionId = body.sessionId ? String(body.sessionId) : null
 
@@ -177,7 +182,7 @@ export async function handler(event) {
         .insert({
           patient_id: user.id,
           status: 'ai_active',
-          channel: source === 'whatsapp' ? 'whatsapp' : source === 'voice' ? 'voice' : 'text',
+          channel: interactionChannel,
           metadata: {
             product: 'concierge_digital',
             plan_code: membership.plan_code,
@@ -209,7 +214,7 @@ export async function handler(event) {
       .from('concierge_chat_sessions')
       .update({
         last_activity_at: new Date().toISOString(),
-        channel: session.channel === source ? session.channel : 'mixed',
+        channel: session.channel === interactionChannel ? session.channel : session.channel === 'whatsapp' || interactionChannel === 'whatsapp' ? 'whatsapp' : 'mixed',
       })
       .eq('id', sessionId)
 
