@@ -1,0 +1,90 @@
+name: Health Wallet Nexa Production Deploy
+
+on:
+  push:
+    branches:
+      - 'feature/nexa-sovereignty-mainline'
+    paths:
+      - '.github/workflows/nexa-production-deploy.yml'
+      - 'netlify/functions/nexa-attention.mjs'
+      - 'netlify/functions/nexa-session.mjs'
+      - 'src/App.tsx'
+      - 'src/hooks/useAuth.tsx'
+      - 'src/pages/Login.tsx'
+      - '.env.example'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: healthwallet-nexa-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NETLIFY_SITE_ID: abcd98db-ad87-4d7a-80fb-627b72d00c82
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_TOKEN || secrets.NETLIFY_ACCESS_TOKEN || secrets.NETLIFY_API_TOKEN }}
+      NEXA_API_URL: https://nexa-backend-p2u0.onrender.com/api/v1
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY || secrets.HEALTHWALLETNEXASTAGING || secrets.healthwalletnexastaging }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Require production credentials
+        run: |
+          set -euo pipefail
+          test -n "${NETLIFY_AUTH_TOKEN:-}"
+          test -n "${VITE_SUPABASE_URL:-}"
+          test -n "${VITE_SUPABASE_ANON_KEY:-}"
+          test -n "${SUPABASE_SECRET_KEY:-}"
+          echo "::add-mask::$VITE_SUPABASE_ANON_KEY"
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
+
+      - name: Seed production environment
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$VITE_SUPABASE_ANON_KEY"
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
+
+          npx -y netlify-cli@latest env:set VITE_SUPABASE_URL "$VITE_SUPABASE_URL" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set VITE_SUPABASE_ANON_KEY "$VITE_SUPABASE_ANON_KEY" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set SUPABASE_URL "$VITE_SUPABASE_URL" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set SUPABASE_SECRET_KEY "$SUPABASE_SECRET_KEY" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set NEXA_API_URL "$NEXA_API_URL" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set NEXA_ID_SSO_ENABLED true --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set NEXA_ECOSYSTEM_ATTENTION_ENABLED true --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set VITE_ENABLE_NEXA_LOGIN true --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+
+      - name: Build
+        run: pnpm build
+
+      - name: Deploy production
+        run: |
+          set -euo pipefail
+          npx -y netlify-cli@latest deploy             --build             --prod             --site "$NETLIFY_SITE_ID"             --auth "$NETLIFY_AUTH_TOKEN"             --message "Nexa sovereignty production ${GITHUB_SHA}"
+
+      - name: Smoke production
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location https://mydatamed.com/healthwallet > /tmp/healthwallet.html
+          grep -qi '<div id="root"' /tmp/healthwallet.html
+
+          STATUS="$(curl --silent --output /tmp/attention.json --write-out '%{http_code}'             -H 'X-Nexa-User-ID: production-smoke'             https://mydatamed.com/api/nexa/attention)"
+          test "$STATUS" = '401'
+          echo "PASS: Health Wallet production is live with protected Nexa endpoints."
