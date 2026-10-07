@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 
 const URGENT_PATTERNS = [
@@ -86,8 +87,13 @@ export async function handler(event) {
   }
 
   try {
+    const rawBody = JSON.parse(event.body || '{}')
+    const internalKey = String(event.headers?.['x-concierge-internal-key'] || event.headers?.['X-Concierge-Internal-Key'] || '')
+    const configuredInternalKey = String(process.env.CONCIERGE_INTERNAL_SERVICE_KEY || '')
+    const internalTrusted = safeEqual(internalKey, configuredInternalKey)
+
     const token = bearer(event.headers?.authorization || event.headers?.Authorization)
-    if (!token) return response(401, { error: 'authentication_required' })
+    if (!token && !internalTrusted) return response(401, { error: 'authentication_required' })
 
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
     const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
@@ -107,13 +113,20 @@ export async function handler(event) {
       auth: { persistSession: false, autoRefreshToken: false },
     })
 
-    const { data: authData, error: authError } = await userClient.auth.getUser(token)
-    const user = authData?.user
-    if (authError || !user) return response(401, { error: 'invalid_session' })
+    let user = null
+    if (internalTrusted) {
+      const patientId = String(rawBody.patientId || '').trim()
+      if (!patientId) return response(400, { error: 'patient_id_required' })
+      user = { id: patientId }
+    } else {
+      const { data: authData, error: authError } = await userClient.auth.getUser(token)
+      user = authData?.user
+      if (authError || !user) return response(401, { error: 'invalid_session' })
+    }
 
-    const body = JSON.parse(event.body || '{}')
+    const body = rawBody
     const message = String(body.message || '').trim().slice(0, 5000)
-    const source = body.source === 'voice' ? 'voice' : 'text'
+    const source = ['voice','whatsapp','image','document'].includes(body.source) ? body.source : 'text'
     const requestedSubjectFamilyMemberId = body.subjectFamilyMemberId ? String(body.subjectFamilyMemberId) : null
     let sessionId = body.sessionId ? String(body.sessionId) : null
 
@@ -164,7 +177,7 @@ export async function handler(event) {
         .insert({
           patient_id: user.id,
           status: 'ai_active',
-          channel: source === 'voice' ? 'voice' : 'text',
+          channel: source === 'whatsapp' ? 'whatsapp' : source === 'voice' ? 'voice' : 'text',
           metadata: {
             product: 'concierge_digital',
             plan_code: membership.plan_code,
@@ -522,6 +535,14 @@ function parseAI(raw) {
       request: null,
     }
   }
+}
+
+function safeEqual(a, b) {
+  if (!a || !b) return false
+  const left = Buffer.from(String(a))
+  const right = Buffer.from(String(b))
+  if (left.length !== right.length) return false
+  return crypto.timingSafeEqual(left, right)
 }
 
 function bearer(value) {
