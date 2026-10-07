@@ -22,7 +22,7 @@ jobs:
     env:
       NEXA_API: https://nexa-backend-wallet-v15-staging.onrender.com/api/v1
       DOCWALLET_API: https://docwallet-nexoffice-homolog.onrender.com/api
-      HEALTH_BASE: https://6ac5a2534e7f2cb39852f59d--healthwallet1.netlify.app
+      HEALTH_BASE: https://nexa-ecosystem-staging--healthwallet1.netlify.app
 
     steps:
       - name: Wait for isolated staging services
