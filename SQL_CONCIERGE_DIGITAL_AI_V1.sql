@@ -1,6 +1,9 @@
 -- HealthWallet Concierge Digital AI V1
 -- Paid digital concierge chat, voice transcript logging and human handoff.
 
+CREATE SCHEMA IF NOT EXISTS private;
+GRANT USAGE ON SCHEMA private TO authenticated;
+
 CREATE TABLE IF NOT EXISTS public.concierge_chat_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   patient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -210,6 +213,8 @@ BEGIN
   UPDATE public.concierge_chat_sessions
   SET status = 'ai_active',
       assigned_staff_id = NULL,
+      attention_reason = NULL,
+      human_requested_at = NULL,
       last_activity_at = NOW()
   WHERE id = p_session_id;
 
