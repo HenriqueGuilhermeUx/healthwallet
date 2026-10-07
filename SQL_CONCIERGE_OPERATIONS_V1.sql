@@ -1340,6 +1340,143 @@ CREATE TRIGGER trg_concierge_case_escalations_updated_at
 BEFORE UPDATE ON public.concierge_case_escalations
 FOR EACH ROW EXECUTE FUNCTION public.set_concierge_operations_updated_at();
 
+
+-- ------------------------------------------------------------
+-- 8H) Subscriber legal readiness + commercial entitlement
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.concierge_legal_authorizations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  authorization_type TEXT NOT NULL CHECK (authorization_type IN (
+    'service_terms','privacy_consent','representation_authorization','combined_onboarding'
+  )),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','signature_pending','signed','revoked','expired')),
+  docwallet_signature_request_id TEXT,
+  content_hash TEXT,
+  final_hash TEXT,
+  signed_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(patient_id, authorization_type)
+);
+
+CREATE TABLE IF NOT EXISTS public.concierge_entitlements (
+  patient_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  plan_code TEXT NOT NULL DEFAULT 'concierge',
+  status TEXT NOT NULL DEFAULT 'inactive'
+    CHECK (status IN ('inactive','trial','active','past_due','paused','cancelled','grace')),
+  billing_provider TEXT,
+  billing_external_customer_id TEXT,
+  billing_external_subscription_id TEXT,
+  current_period_start TIMESTAMPTZ,
+  current_period_end TIMESTAMPTZ,
+  grace_until TIMESTAMPTZ,
+  cancel_at_period_end BOOLEAN NOT NULL DEFAULT false,
+  activated_at TIMESTAMPTZ,
+  cancelled_at TIMESTAMPTZ,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.concierge_legal_authorizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.concierge_entitlements ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS concierge_legal_patient_read ON public.concierge_legal_authorizations;
+CREATE POLICY concierge_legal_patient_read
+ON public.concierge_legal_authorizations FOR SELECT TO authenticated
+USING (patient_id = auth.uid());
+
+DROP POLICY IF EXISTS concierge_legal_staff_manage ON public.concierge_legal_authorizations;
+CREATE POLICY concierge_legal_staff_manage
+ON public.concierge_legal_authorizations FOR ALL TO authenticated
+USING (private.concierge_operations_is_staff(auth.uid()))
+WITH CHECK (private.concierge_operations_is_staff(auth.uid()));
+
+DROP POLICY IF EXISTS concierge_entitlement_patient_read ON public.concierge_entitlements;
+CREATE POLICY concierge_entitlement_patient_read
+ON public.concierge_entitlements FOR SELECT TO authenticated
+USING (patient_id = auth.uid());
+
+DROP POLICY IF EXISTS concierge_entitlement_staff_manage ON public.concierge_entitlements;
+CREATE POLICY concierge_entitlement_staff_manage
+ON public.concierge_entitlements FOR ALL TO authenticated
+USING (private.concierge_operations_is_staff(auth.uid()))
+WITH CHECK (private.concierge_operations_is_staff(auth.uid()));
+
+GRANT SELECT ON public.concierge_legal_authorizations TO authenticated;
+GRANT SELECT ON public.concierge_entitlements TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_legal_authorizations TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_entitlements TO service_role;
+
+DROP TRIGGER IF EXISTS trg_concierge_legal_authorizations_updated_at ON public.concierge_legal_authorizations;
+CREATE TRIGGER trg_concierge_legal_authorizations_updated_at
+BEFORE UPDATE ON public.concierge_legal_authorizations
+FOR EACH ROW EXECUTE FUNCTION public.set_concierge_operations_updated_at();
+
+DROP TRIGGER IF EXISTS trg_concierge_entitlements_updated_at ON public.concierge_entitlements;
+CREATE TRIGGER trg_concierge_entitlements_updated_at
+BEFORE UPDATE ON public.concierge_entitlements
+FOR EACH ROW EXECUTE FUNCTION public.set_concierge_operations_updated_at();
+
+CREATE OR REPLACE VIEW public.concierge_subscriber_readiness
+WITH (security_invoker = true)
+AS
+SELECT
+  m.patient_id,
+  m.status AS membership_status,
+  m.plan_code,
+  m.consent_status,
+  COALESCE(e.status, CASE WHEN m.status IN ('active','pilot') THEN 'active' ELSE 'inactive' END) AS entitlement_status,
+  EXISTS (
+    SELECT 1 FROM public.concierge_channel_identities ci
+    WHERE ci.patient_id = m.patient_id
+      AND ci.channel = 'whatsapp'
+      AND ci.active = true
+      AND ci.verified_at IS NOT NULL
+  ) AS whatsapp_ready,
+  EXISTS (
+    SELECT 1 FROM public.concierge_legal_authorizations la
+    WHERE la.patient_id = m.patient_id
+      AND la.authorization_type IN ('privacy_consent','combined_onboarding')
+      AND la.status = 'signed'
+  ) AS privacy_ready,
+  EXISTS (
+    SELECT 1 FROM public.concierge_legal_authorizations la
+    WHERE la.patient_id = m.patient_id
+      AND la.authorization_type IN ('representation_authorization','combined_onboarding')
+      AND la.status = 'signed'
+  ) AS representation_ready,
+  EXISTS (
+    SELECT 1 FROM public.family_members fm
+    WHERE fm.user_id = m.patient_id
+  ) AS has_care_circle,
+  (
+    SELECT count(*)::integer
+    FROM public.concierge_operational_cases oc
+    WHERE oc.patient_id = m.patient_id
+      AND oc.status NOT IN ('resolved','closed','cancelled')
+  ) AS open_operational_cases,
+  (
+    SELECT count(*)::integer
+    FROM public.concierge_requests cr
+    WHERE cr.patient_id = m.patient_id
+      AND cr.status NOT IN ('resolved','closed')
+  ) AS open_concierge_requests,
+  e.current_period_end,
+  e.grace_until,
+  e.cancel_at_period_end
+FROM public.concierge_memberships m
+LEFT JOIN public.concierge_entitlements e ON e.patient_id = m.patient_id;
+
+REVOKE ALL ON public.concierge_subscriber_readiness FROM anon;
+GRANT SELECT ON public.concierge_subscriber_readiness TO authenticated;
+GRANT SELECT ON public.concierge_subscriber_readiness TO service_role;
+
 -- ------------------------------------------------------------
 -- 9) Realtime
 -- ------------------------------------------------------------
