@@ -662,6 +662,7 @@ ON CONFLICT (guide_code) DO UPDATE SET
 -- 8C) Business-day calendar and deadline computation
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.concierge_business_holidays (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   holiday_date DATE NOT NULL,
   scope TEXT NOT NULL DEFAULT 'national' CHECK (scope IN ('national','state','city')),
   state_code TEXT,
@@ -669,8 +670,15 @@ CREATE TABLE IF NOT EXISTS public.concierge_business_holidays (
   label TEXT NOT NULL,
   source_url TEXT,
   reviewed_at TIMESTAMPTZ,
-  active BOOLEAN NOT NULL DEFAULT true,
-  PRIMARY KEY (holiday_date, scope, COALESCE(state_code, ''), COALESCE(city_name, ''))
+  active BOOLEAN NOT NULL DEFAULT true
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_concierge_business_holidays_scope
+ON public.concierge_business_holidays (
+  holiday_date,
+  scope,
+  COALESCE(state_code, ''),
+  COALESCE(city_name, '')
 );
 
 ALTER TABLE public.concierge_business_holidays ENABLE ROW LEVEL SECURITY;
