@@ -3,7 +3,7 @@ name: Nexa Ecosystem Health Staging
 on:
   push:
     branches:
-      - 'feature/nexa-attention-feed'
+      - 'feature/nexa-sovereignty-mainline'
     paths:
       - 'netlify/functions/nexa-attention.mjs'
       - 'netlify/functions/nexa-session.mjs'
