@@ -23,6 +23,9 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE (n.nspname, p.proname) IN (
   ('private', 'concierge_chat_staff_role'),
   ('private', 'concierge_chat_is_staff'),
+  ('private', 'concierge_chat_request_human_impl'),
+  ('private', 'concierge_chat_staff_take_impl'),
+  ('private', 'concierge_chat_staff_return_to_ai_impl'),
   ('public', 'concierge_chat_request_human'),
   ('public', 'concierge_chat_staff_take'),
   ('public', 'concierge_chat_staff_return_to_ai')
@@ -51,7 +54,7 @@ ORDER BY c.relname;
 
 SELECT
   'PASS' AS result,
-  'Concierge Digital schema installed; verify both tables have RLS=true, five functions are present, policies exist and both chat tables are in supabase_realtime.' AS note;
+  'Concierge Digital schema installed; verify both tables have RLS=true, private implementations are SECURITY DEFINER, public RPC wrappers are SECURITY INVOKER, policies/grants exist and both chat tables are in supabase_realtime.' AS note;
 
 
 SELECT
