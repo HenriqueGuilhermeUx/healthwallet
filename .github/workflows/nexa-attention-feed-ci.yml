@@ -35,7 +35,7 @@ jobs:
 
           while IFS= read -r path; do
             case "$path" in
-              .env.example|.github/workflows/nexa-attention-feed-ci.yml|.github/workflows/nexa-ecosystem-health-staging.yml|.github/workflows/nexoffice-addon-minimal-ci.yml|netlify/functions/nexa-attention.mjs|netlify/functions/nexa-session.mjs|src/App.tsx|src/hooks/useAuth.tsx|src/pages/Login.tsx)
+              .env.example|.github/workflows/nexa-attention-feed-ci.yml|.github/workflows/nexa-ecosystem-health-staging.yml|.github/workflows/nexa-production-deploy.yml|.github/workflows/nexoffice-addon-minimal-ci.yml|netlify/functions/nexa-attention.mjs|netlify/functions/nexa-session.mjs|src/App.tsx|src/hooks/useAuth.tsx|src/pages/Login.tsx)
                 ;;
               *)
                 echo "Unexpected Health Wallet file changed by Nexa integration: $path"
