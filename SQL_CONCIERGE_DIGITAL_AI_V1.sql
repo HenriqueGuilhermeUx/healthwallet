@@ -47,23 +47,58 @@ CREATE INDEX IF NOT EXISTS concierge_chat_messages_session_idx
 ALTER TABLE public.concierge_chat_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.concierge_chat_messages ENABLE ROW LEVEL SECURITY;
 
+CREATE OR REPLACE FUNCTION private.concierge_chat_staff_role(p_user UUID)
+RETURNS TEXT
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $
+DECLARE
+  resolved_role TEXT;
+BEGIN
+  IF to_regclass('public.concierge_staff') IS NOT NULL THEN
+    EXECUTE $q$
+      SELECT role
+      FROM public.concierge_staff
+      WHERE user_id = $1
+        AND active = true
+      LIMIT 1
+    $q$
+    INTO resolved_role
+    USING p_user;
+  END IF;
+
+  IF resolved_role IS NULL AND to_regclass('public.mydatamed_team_members') IS NOT NULL THEN
+    EXECUTE $q$
+      SELECT role
+      FROM public.mydatamed_team_members
+      WHERE user_id = $1
+        AND active = true
+        AND role IN ('master','admin','care_coordinator','concierge_agent','nurse','doctor')
+      LIMIT 1
+    $q$
+    INTO resolved_role
+    USING p_user;
+  END IF;
+
+  RETURN resolved_role;
+END;
+$;
+
 CREATE OR REPLACE FUNCTION private.concierge_chat_is_staff(p_user UUID)
 RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
-AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.concierge_staff s
-    WHERE s.user_id = p_user
-      AND s.active = true
-      AND s.role IN ('admin','care_coordinator','nurse','doctor','concierge_agent')
-  );
-$$;
+AS $
+  SELECT private.concierge_chat_staff_role(p_user) IS NOT NULL;
+$;
 
+REVOKE ALL ON FUNCTION private.concierge_chat_staff_role(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION private.concierge_chat_is_staff(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION private.concierge_chat_staff_role(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION private.concierge_chat_is_staff(UUID) TO authenticated;
 
 DROP POLICY IF EXISTS concierge_chat_sessions_patient_select ON public.concierge_chat_sessions;
@@ -154,12 +189,9 @@ DECLARE
   staff_role TEXT;
   target public.concierge_chat_sessions%ROWTYPE;
 BEGIN
-  SELECT s.role INTO staff_role
-  FROM public.concierge_staff s
-  WHERE s.user_id = auth.uid() AND s.active = true
-  LIMIT 1;
+  SELECT private.concierge_chat_staff_role(auth.uid()) INTO staff_role;
 
-  IF staff_role IS NULL OR staff_role NOT IN ('admin','care_coordinator','nurse','doctor','concierge_agent') THEN
+  IF staff_role IS NULL OR staff_role NOT IN ('master','admin','care_coordinator','nurse','doctor','concierge_agent') THEN
     RAISE EXCEPTION 'staff access required';
   END IF;
 
@@ -181,7 +213,7 @@ BEGIN
       WHEN staff_role = 'care_coordinator' THEN 'care_coordinator'
       WHEN staff_role = 'nurse' THEN 'nurse'
       WHEN staff_role = 'doctor' THEN 'doctor'
-      WHEN staff_role = 'admin' THEN 'admin'
+      WHEN staff_role IN ('master','admin') THEN 'admin'
       ELSE 'concierge'
     END,
     'system','patient','Uma pessoa da equipe Concierge entrou na conversa.'
@@ -231,3 +263,17 @@ $$;
 
 REVOKE ALL ON FUNCTION public.concierge_chat_staff_return_to_ai(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.concierge_chat_staff_return_to_ai(UUID) TO authenticated;
+
+
+-- Realtime keeps patient and staff consoles synchronized without storing audio.
+DO $$
+BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.concierge_chat_sessions;
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END;
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.concierge_chat_messages;
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END;
+END $$;
