@@ -53,7 +53,7 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
-AS $
+AS $$
 DECLARE
   resolved_role TEXT;
 BEGIN
@@ -84,7 +84,7 @@ BEGIN
 
   RETURN resolved_role;
 END;
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION private.concierge_chat_is_staff(p_user UUID)
 RETURNS BOOLEAN
@@ -92,9 +92,9 @@ LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
-AS $
+AS $$
   SELECT private.concierge_chat_staff_role(p_user) IS NOT NULL;
-$;
+$$;
 
 REVOKE ALL ON FUNCTION private.concierge_chat_staff_role(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION private.concierge_chat_is_staff(UUID) FROM PUBLIC;
