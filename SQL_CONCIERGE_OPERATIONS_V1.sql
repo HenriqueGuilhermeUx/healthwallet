@@ -285,6 +285,39 @@ REVOKE ALL ON FUNCTION private.concierge_operations_is_staff(UUID) FROM PUBLIC, 
 GRANT EXECUTE ON FUNCTION private.concierge_operations_staff_role(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION private.concierge_operations_is_staff(UUID) TO authenticated;
 
+
+CREATE OR REPLACE FUNCTION private.concierge_readiness_has_care_circle(p_patient UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.family_members fm
+    WHERE fm.user_id = p_patient
+  );
+$;
+
+CREATE OR REPLACE FUNCTION private.concierge_readiness_open_requests_count(p_patient UUID)
+RETURNS INTEGER
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $
+  SELECT count(*)::integer
+  FROM public.concierge_requests cr
+  WHERE cr.patient_id = p_patient
+    AND cr.status NOT IN ('resolved','closed');
+$;
+
+REVOKE ALL ON FUNCTION private.concierge_readiness_has_care_circle(UUID) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION private.concierge_readiness_open_requests_count(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION private.concierge_readiness_has_care_circle(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION private.concierge_readiness_open_requests_count(UUID) TO authenticated;
+
 -- Allow the expanded MyDataMed Concierge team (including master/concierge_agent)
 -- to read/update operational enrollment without weakening patient-facing RLS.
 DROP POLICY IF EXISTS concierge_memberships_operations_staff_read ON public.concierge_memberships;
@@ -1521,22 +1554,14 @@ SELECT
       AND la.authorization_type IN ('representation_authorization','combined_onboarding')
       AND la.status = 'signed'
   ) AS representation_ready,
-  EXISTS (
-    SELECT 1 FROM public.family_members fm
-    WHERE fm.user_id = m.patient_id
-  ) AS has_care_circle,
+  private.concierge_readiness_has_care_circle(m.patient_id) AS has_care_circle,
   (
     SELECT count(*)::integer
     FROM public.concierge_operational_cases oc
     WHERE oc.patient_id = m.patient_id
       AND oc.status NOT IN ('resolved','closed','cancelled')
   ) AS open_operational_cases,
-  (
-    SELECT count(*)::integer
-    FROM public.concierge_requests cr
-    WHERE cr.patient_id = m.patient_id
-      AND cr.status NOT IN ('resolved','closed')
-  ) AS open_concierge_requests,
+  private.concierge_readiness_open_requests_count(m.patient_id) AS open_concierge_requests,
   e.current_period_end,
   e.grace_until,
   e.cancel_at_period_end
