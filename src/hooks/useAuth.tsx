@@ -20,6 +20,45 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 })
 
+async function exchangeNexaHandoff() {
+  const params = new URLSearchParams(window.location.search)
+  const token = String(params.get('nexaToken') || '').trim()
+  if (!token) return null
+
+  params.delete('nexaToken')
+  params.delete('source')
+  const nextQuery = params.toString()
+  window.history.replaceState(
+    {},
+    '',
+    `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`,
+  )
+
+  const response = await fetch('/api/nexa/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || payload?.success !== true || !payload?.tokenHash) {
+    throw new Error('Nexa ID handoff unavailable')
+  }
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    token_hash: String(payload.tokenHash),
+    type: 'magiclink',
+  })
+
+  if (error || !data?.session?.user) {
+    throw error || new Error('Health Wallet session exchange failed')
+  }
+
+  localStorage.removeItem('healthwallet_nexa_user')
+  localStorage.removeItem('healthwallet_nexa_token')
+  return data.session
+}
+
 async function ensureUserProfile(user: User | any | null) {
   if (!user?.id) return
 
@@ -45,15 +84,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const loadAuth = async () => {
-      const nexaUser = localStorage.getItem('healthwallet_nexa_user')
-
-      if (nexaUser) {
-        const parsed = JSON.parse(nexaUser)
-        setUser(parsed)
-        setSession(null)
-        setLoading(false)
-        return
+      try {
+        const federatedSession = await exchangeNexaHandoff()
+        if (federatedSession) {
+          setSession(federatedSession)
+          setUser(federatedSession.user)
+          setLoading(false)
+          void ensureUserProfile(federatedSession.user)
+          return
+        }
+      } catch (error) {
+        console.warn('Nexa ID handoff failed:', error)
       }
+
+      // Remove the legacy local-only Nexa identity. A Nexa login is valid only
+      // after it has been exchanged for a real Supabase session.
+      localStorage.removeItem('healthwallet_nexa_user')
+      localStorage.removeItem('healthwallet_nexa_token')
 
       const { data: { session } } = await supabase.auth.getSession()
 
@@ -67,16 +114,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadAuth()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      const nexaUser = localStorage.getItem('healthwallet_nexa_user')
-
-      if (nexaUser) {
-        const parsed = JSON.parse(nexaUser)
-        setUser(parsed)
-        setSession(null)
-        setLoading(false)
-        return
-      }
-
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
