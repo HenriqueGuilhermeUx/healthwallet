@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Bell, CalendarCheck, CalendarDays, CheckCircle2, Clock, Loader2, Target, Video } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import { listMyExternalCoordinations } from '@/services/conciergeExternal'
 
 type AgendaItem = {
   id: string
@@ -49,7 +50,7 @@ export default function ConciergeAgenda() {
     const today = new Date().toISOString().slice(0, 10)
 
     try {
-      const [actionsRes, appointmentsRes, remindersRes, coordinatedRes] = await Promise.all([
+      const [actionsRes, appointmentsRes, remindersRes, coordinatedTasks] = await Promise.all([
         supabase
           .from('concierge_actions')
           .select('*')
@@ -74,15 +75,7 @@ export default function ConciergeAgenda() {
           .gte('reminder_date', today)
           .order('reminder_date', { ascending: true })
           .limit(30),
-        supabase
-          .from('concierge_external_tasks')
-          .select('*')
-          .eq('patient_id', user.id)
-          .in('status', ['booked', 'instructions_sent'])
-          .not('scheduled_at', 'is', null)
-          .gte('scheduled_at', today + 'T00:00:00')
-          .order('scheduled_at', { ascending: true })
-          .limit(30),
+        listMyExternalCoordinations(user.id),
       ])
 
       const agenda: AgendaItem[] = []
@@ -117,7 +110,7 @@ export default function ConciergeAgenda() {
         href: '/dashboard',
       }))
 
-      ;(coordinatedRes.data || []).forEach((task: any) => agenda.push({
+      ;(coordinatedTasks || []).filter((task: any) => ['booked', 'instructions_sent'].includes(task.status) && task.scheduled_at && dateKey(task.scheduled_at) >= today).forEach((task: any) => agenda.push({
         id: `coordination-${task.id}`,
         date: dateKey(task.scheduled_at),
         time: task.scheduled_at ? new Date(task.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null,
