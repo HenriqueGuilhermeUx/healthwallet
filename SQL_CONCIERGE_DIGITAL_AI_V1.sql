@@ -144,7 +144,10 @@ GRANT SELECT, INSERT ON public.concierge_chat_messages TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_chat_sessions TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_chat_messages TO service_role;
 
-CREATE OR REPLACE FUNCTION public.concierge_chat_request_human(p_session_id UUID)
+CREATE OR REPLACE FUNCTION private.concierge_chat_request_human_impl(
+  p_user_id UUID,
+  p_session_id UUID
+)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -153,10 +156,14 @@ AS $$
 DECLARE
   target public.concierge_chat_sessions%ROWTYPE;
 BEGIN
+  IF p_user_id IS NULL OR p_user_id IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'invalid caller';
+  END IF;
+
   SELECT * INTO target
   FROM public.concierge_chat_sessions
   WHERE id = p_session_id
-    AND patient_id = auth.uid()
+    AND patient_id = p_user_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
@@ -172,7 +179,7 @@ BEGIN
   INSERT INTO public.concierge_chat_messages (
     session_id, patient_id, actor_role, source, visibility, content
   ) VALUES (
-    p_session_id, auth.uid(), 'system', 'system', 'patient',
+    p_session_id, p_user_id, 'system', 'system', 'patient',
     'Atendimento humano solicitado. Sua equipe foi avisada e entrará assim que possível.'
   );
 
@@ -180,10 +187,10 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.concierge_chat_request_human(UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.concierge_chat_request_human(UUID) TO authenticated;
-
-CREATE OR REPLACE FUNCTION public.concierge_chat_staff_take(p_session_id UUID)
+CREATE OR REPLACE FUNCTION private.concierge_chat_staff_take_impl(
+  p_user_id UUID,
+  p_session_id UUID
+)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -193,18 +200,28 @@ DECLARE
   staff_role TEXT;
   target public.concierge_chat_sessions%ROWTYPE;
 BEGIN
-  SELECT private.concierge_chat_staff_role(auth.uid()) INTO staff_role;
+  IF p_user_id IS NULL OR p_user_id IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'invalid caller';
+  END IF;
+
+  SELECT private.concierge_chat_staff_role(p_user_id) INTO staff_role;
 
   IF staff_role IS NULL OR staff_role NOT IN ('master','admin','care_coordinator','nurse','doctor','concierge_agent') THEN
     RAISE EXCEPTION 'staff access required';
   END IF;
 
-  SELECT * INTO target FROM public.concierge_chat_sessions WHERE id = p_session_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'chat session not found'; END IF;
+  SELECT * INTO target
+  FROM public.concierge_chat_sessions
+  WHERE id = p_session_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'chat session not found';
+  END IF;
 
   UPDATE public.concierge_chat_sessions
   SET status = 'human_active',
-      assigned_staff_id = auth.uid(),
+      assigned_staff_id = p_user_id,
       human_joined_at = COALESCE(human_joined_at, NOW()),
       last_activity_at = NOW()
   WHERE id = p_session_id;
@@ -212,7 +229,7 @@ BEGIN
   INSERT INTO public.concierge_chat_messages (
     session_id, patient_id, actor_user_id, actor_role, source, visibility, content
   ) VALUES (
-    p_session_id, target.patient_id, auth.uid(),
+    p_session_id, target.patient_id, p_user_id,
     CASE
       WHEN staff_role = 'care_coordinator' THEN 'care_coordinator'
       WHEN staff_role = 'nurse' THEN 'nurse'
@@ -227,10 +244,10 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.concierge_chat_staff_take(UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.concierge_chat_staff_take(UUID) TO authenticated;
-
-CREATE OR REPLACE FUNCTION public.concierge_chat_staff_return_to_ai(p_session_id UUID)
+CREATE OR REPLACE FUNCTION private.concierge_chat_staff_return_to_ai_impl(
+  p_user_id UUID,
+  p_session_id UUID
+)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -239,12 +256,22 @@ AS $$
 DECLARE
   target public.concierge_chat_sessions%ROWTYPE;
 BEGIN
-  IF NOT private.concierge_chat_is_staff(auth.uid()) THEN
+  IF p_user_id IS NULL OR p_user_id IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'invalid caller';
+  END IF;
+
+  IF NOT private.concierge_chat_is_staff(p_user_id) THEN
     RAISE EXCEPTION 'staff access required';
   END IF;
 
-  SELECT * INTO target FROM public.concierge_chat_sessions WHERE id = p_session_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'chat session not found'; END IF;
+  SELECT * INTO target
+  FROM public.concierge_chat_sessions
+  WHERE id = p_session_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'chat session not found';
+  END IF;
 
   UPDATE public.concierge_chat_sessions
   SET status = 'ai_active',
@@ -265,9 +292,46 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.concierge_chat_staff_return_to_ai(UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.concierge_chat_staff_return_to_ai(UUID) TO authenticated;
+REVOKE ALL ON FUNCTION private.concierge_chat_request_human_impl(UUID, UUID) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION private.concierge_chat_staff_take_impl(UUID, UUID) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION private.concierge_chat_staff_return_to_ai_impl(UUID, UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION private.concierge_chat_request_human_impl(UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION private.concierge_chat_staff_take_impl(UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION private.concierge_chat_staff_return_to_ai_impl(UUID, UUID) TO authenticated;
 
+CREATE OR REPLACE FUNCTION public.concierge_chat_request_human(p_session_id UUID)
+RETURNS JSONB
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+  SELECT private.concierge_chat_request_human_impl(auth.uid(), p_session_id);
+$$;
+
+CREATE OR REPLACE FUNCTION public.concierge_chat_staff_take(p_session_id UUID)
+RETURNS JSONB
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+  SELECT private.concierge_chat_staff_take_impl(auth.uid(), p_session_id);
+$$;
+
+CREATE OR REPLACE FUNCTION public.concierge_chat_staff_return_to_ai(p_session_id UUID)
+RETURNS JSONB
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+  SELECT private.concierge_chat_staff_return_to_ai_impl(auth.uid(), p_session_id);
+$$;
+
+REVOKE ALL ON FUNCTION public.concierge_chat_request_human(UUID) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.concierge_chat_staff_take(UUID) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.concierge_chat_staff_return_to_ai(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.concierge_chat_request_human(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.concierge_chat_staff_take(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.concierge_chat_staff_return_to_ai(UUID) TO authenticated;
 
 -- Realtime keeps patient and staff consoles synchronized without storing audio.
 DO $$
