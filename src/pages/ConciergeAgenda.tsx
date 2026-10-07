@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { ArrowLeft, Bell, CalendarCheck, CalendarDays, CheckCircle2, Clock, Loader2, Target, Video } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
@@ -37,6 +38,9 @@ export default function ConciergeAgenda() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<AgendaItem[]>([])
+  const [coordinations, setCoordinations] = useState<any[]>([])
+  const [choiceOptions, setChoiceOptions] = useState<any[]>([])
+  const [choiceBusy, setChoiceBusy] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -76,6 +80,20 @@ export default function ConciergeAgenda() {
           .limit(30),
         supabase.rpc('concierge_patient_list_external_tasks'),
       ])
+
+      const coordinationRows = coordinatedRes.data || []
+      setCoordinations(coordinationRows)
+
+      const choiceTask = coordinationRows.find((task: any) => task.status === 'awaiting_patient_choice')
+      if (choiceTask) {
+        const { data: optionData, error: optionError } = await supabase.rpc('concierge_patient_list_external_options', {
+          p_task_id: choiceTask.id,
+        })
+        if (optionError) throw optionError
+        setChoiceOptions(optionData || [])
+      } else {
+        setChoiceOptions([])
+      }
 
       const agenda: AgendaItem[] = []
 
@@ -118,7 +136,7 @@ export default function ConciergeAgenda() {
           type: 'coordination',
           title: task.title,
           subtitle: task.provider_name || 'Agendamento coordenado pelo Concierge',
-          href: `/concierge/coordination/${task.id}`,
+          href: '/concierge/agenda',
         }))
 
       agenda.sort((a, b) => `${a.date} ${a.time || ''}`.localeCompare(`${b.date} ${b.time || ''}`))
