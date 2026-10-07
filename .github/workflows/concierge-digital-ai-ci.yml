@@ -40,3 +40,13 @@ jobs:
           grep -q 'Falar com uma pessoa' src/pages/ConciergeDigital.tsx
       - name: Build
         run: pnpm build
+
+      - name: Netlify parity build
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: |
+          set -euo pipefail
+          test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'NETLIFY_AUTH_TOKEN unavailable'; exit 2; }
+          npx --yes netlify-cli@27.8.0 build --context deploy-preview
