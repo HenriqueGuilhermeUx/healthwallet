@@ -137,17 +137,36 @@ export async function handler(event) {
 
     if (!message) return response(400, { error: 'message_required' })
 
-    const { data: membership } = await admin
-      .from('concierge_memberships')
-      .select('patient_id,status,plan_code,consent_status,metadata')
-      .eq('patient_id', user.id)
-      .maybeSingle()
+    const [{ data: membership }, { data: entitlement }, { data: representationAuth }] = await Promise.all([
+      admin
+        .from('concierge_memberships')
+        .select('patient_id,status,plan_code,consent_status,metadata')
+        .eq('patient_id', user.id)
+        .maybeSingle(),
+      admin
+        .from('concierge_entitlements')
+        .select('status,plan_code,current_period_end,grace_until')
+        .eq('patient_id', user.id)
+        .maybeSingle(),
+      admin
+        .from('concierge_legal_authorizations')
+        .select('authorization_type,status')
+        .eq('patient_id', user.id)
+        .in('authorization_type', ['representation_authorization','combined_onboarding'])
+        .eq('status', 'signed')
+        .limit(1)
+        .maybeSingle(),
+    ])
+
+    const entitlementAllowed = entitlement
+      ? ['trial','active','grace'].includes(entitlement.status)
+      : Boolean(membership && ['pilot','active'].includes(membership.status))
 
     const allowed =
       membership
-      && ['pilot', 'active'].includes(membership.status)
+      && entitlementAllowed
       && membership.consent_status === 'accepted'
-      && String(membership.plan_code || '').startsWith('concierge')
+      && String(membership.plan_code || entitlement?.plan_code || '').startsWith('concierge')
 
     if (!allowed) {
       return response(403, { error: 'concierge_subscription_required' })
@@ -304,6 +323,12 @@ export async function handler(event) {
       active_coordination: coordinationRes.data || [],
       regulatory_guides: regulatoryGuidesRes.data || [],
       regulatory_deadlines: regulatoryPlaybooksRes.data || [],
+      legal_readiness: {
+        representation_authorized: Boolean(representationAuth),
+        note: representationAuth
+          ? 'Representação administrativa autorizada.'
+          : 'O paciente ainda não concluiu autorização para atuação em seu nome perante operadoras/órgãos. A conversa e organização podem continuar, mas a equipe deve solicitar assinatura antes de representar o paciente.',
+      },
       conversation_subject: subjectFamilyMember ? {
         type: 'family_member',
         id: subjectFamilyMember.id,
@@ -366,6 +391,9 @@ export async function handler(event) {
         'hospitalization','surgery','complex_case','caregiver_coordination','general_navigation',
       ])
       const safeOperationalType = allowedOperationalTypes.has(operationalType) ? operationalType : 'general_navigation'
+      const requiresRepresentation = new Set([
+        'insurance_authorization','reimbursement','claim_denial','hospitalization','surgery','complex_case',
+      ]).has(safeOperationalType)
 
       const { data } = await admin
         .from('concierge_requests')
@@ -433,11 +461,13 @@ export async function handler(event) {
               protocol_number: requestInput.protocol_number ? String(requestInput.protocol_number).slice(0, 180) : null,
               amount_requested: amountRequested,
               priority: highComplexity.has(safeOperationalType) || urgency === 'priority' ? 'high' : 'normal',
-              status: 'new',
+              status: requiresRepresentation && !representationAuth ? 'collecting_docs' : 'new',
               metadata: {
                 source: 'concierge_digital_ai',
                 legal_guide_code: requestInput.legal_guide_code || null,
                 conversation_subject: subjectFamilyMember?.name || null,
+                representation_required: requiresRepresentation,
+                representation_ready: Boolean(representationAuth),
               },
             })
             .select('id,case_type,title,status,priority,insurer_name,protocol_number')
