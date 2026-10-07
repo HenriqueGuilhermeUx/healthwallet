@@ -78,13 +78,20 @@ export async function loadDocumentInbox(userId: string) {
 }
 
 export async function approveInboxDocument(userId: string, item: HealthDocumentInboxItem) {
-  if (!item.file_url) throw new Error('Este item não tem anexo para adicionar à carteira.')
+  const hasStoredObject = Boolean(item.storage_bucket && item.storage_path)
+  const hasLegacyUrl = Boolean(item.file_url)
+
+  if (!hasStoredObject && !hasLegacyUrl) {
+    throw new Error('Este item não tem anexo para adicionar à carteira.')
+  }
 
   const { data: record, error: recordError } = await supabase
     .from('medical_records')
     .insert({
       user_id: userId,
-      file_url: item.file_url,
+      file_url: hasStoredObject ? null : item.file_url,
+      storage_bucket: hasStoredObject ? item.storage_bucket : null,
+      storage_path: hasStoredObject ? item.storage_path : null,
       file_name: item.original_file_name || item.file_name || item.subject || 'Documento recebido por e-mail',
       exam_type: item.suggested_document_type || 'Documento de saúde',
       exam_date: item.received_at ? String(item.received_at).slice(0, 10) : null,
