@@ -136,9 +136,13 @@ WITH CHECK (
   AND actor_role IN ('concierge','nurse','doctor','care_coordinator','admin')
 );
 
-GRANT SELECT ON public.concierge_chat_sessions TO authenticated;
+GRANT SELECT, UPDATE ON public.concierge_chat_sessions TO authenticated;
 GRANT SELECT, INSERT ON public.concierge_chat_messages TO authenticated;
-GRANT UPDATE ON public.concierge_chat_sessions TO authenticated;
+
+-- Explicit Data API grants: required for new public tables as Supabase moves
+-- away from automatic exposure. service_role is server-side only.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_chat_sessions TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_chat_messages TO service_role;
 
 CREATE OR REPLACE FUNCTION public.concierge_chat_request_human(p_session_id UUID)
 RETURNS JSONB
