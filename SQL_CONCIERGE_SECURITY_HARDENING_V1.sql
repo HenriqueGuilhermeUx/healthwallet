@@ -47,7 +47,9 @@ DECLARE
   fn RECORD;
 BEGIN
   FOR fn IN
-    SELECT n.nspname AS schema_name, p.oid::regprocedure AS signature
+    SELECT n.nspname AS schema_name,
+           p.proname AS function_name,
+           pg_get_function_identity_arguments(p.oid) AS identity_args
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname IN ('public','private')
@@ -72,7 +74,9 @@ DECLARE
   fn RECORD;
 BEGIN
   FOR fn IN
-    SELECT n.nspname AS schema_name, p.oid::regprocedure AS signature
+    SELECT n.nspname AS schema_name,
+           p.proname AS function_name,
+           pg_get_function_identity_arguments(p.oid) AS identity_args
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname IN ('public','private')
