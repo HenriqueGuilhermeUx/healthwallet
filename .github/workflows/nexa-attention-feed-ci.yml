@@ -1,0 +1,58 @@
+name: Nexa Attention Feed CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'netlify/functions/nexa-attention.mjs'
+      - 'netlify/functions/nexa-session.mjs'
+      - 'src/hooks/useAuth.tsx'
+      - 'src/pages/Login.tsx'
+      - 'src/App.tsx'
+      - '.env.example'
+      - '.github/workflows/nexa-attention-feed-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate serverless syntax
+        run: |
+          node --check netlify/functions/nexa-attention.mjs
+          node --check netlify/functions/nexa-session.mjs
+
+      - name: Assert privacy boundary
+        run: |
+          set -euo pipefail
+          grep -q "read_only_minimum_context" netlify/functions/nexa-attention.mjs
+          grep -q "sensitivePayloadIncluded: false" netlify/functions/nexa-attention.mjs
+          grep -q "staff/validate-token" netlify/functions/nexa-attention.mjs
+          ! grep -q "professional_notes" netlify/functions/nexa-attention.mjs
+          ! grep -q "prescription_text" netlify/functions/nexa-attention.mjs
+          ! grep -q "reason:" netlify/functions/nexa-attention.mjs
+          ! grep -q "ai_analysis" netlify/functions/nexa-attention.mjs
+          grep -q "SUPABASE_SERVICE_ROLE_KEY" netlify/functions/nexa-session.mjs
+          grep -q "generateLink" netlify/functions/nexa-session.mjs
+          grep -q "verifyOtp" src/hooks/useAuth.tsx
+          grep -q 'path="/healthwallet"' src/App.tsx
+          ! grep -q "healthwallet_nexa_user.*JSON.stringify" src/pages/Login.tsx
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build Health Wallet
+        run: pnpm build
