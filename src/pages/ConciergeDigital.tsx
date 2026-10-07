@@ -68,10 +68,31 @@ export default function ConciergeDigital() {
   }, [user?.id])
 
   useEffect(() => {
-    if (!session?.id) return
-    const timer = window.setInterval(() => void refreshConversation(session.id), 5000)
-    return () => window.clearInterval(timer)
-  }, [session?.id])
+    if (!session?.id || !user) return
+
+    const channel = supabase
+      .channel(`concierge-patient-${session.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'concierge_chat_sessions',
+        filter: `id=eq.${session.id}`,
+      }, () => void refreshConversation(session.id))
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'concierge_chat_messages',
+        filter: `session_id=eq.${session.id}`,
+      }, () => void refreshConversation(session.id))
+      .subscribe()
+
+    const timer = window.setInterval(() => void refreshConversation(session.id), 15000)
+
+    return () => {
+      window.clearInterval(timer)
+      void supabase.removeChannel(channel)
+    }
+  }, [session?.id, user?.id])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
