@@ -46,10 +46,10 @@ function authorize(request) {
   }
 }
 
-function safeEmail(request) {
-  const value = String(request.headers.get('x-nexa-user-email') || '').trim().toLowerCase()
-  if (!value || value.length > 254 || !value.includes('@')) {
-    throw Object.assign(new Error('Nexa user email is required'), {
+function safeNexaUserId(request) {
+  const value = String(request.headers.get('x-nexa-user-id') || '').trim()
+  if (!value || value.length > 120) {
+    throw Object.assign(new Error('Nexa user ID is required'), {
       status: 400,
       code: 'invalid_identity',
     })
@@ -86,48 +86,34 @@ async function supabaseRest({ baseUrl, serviceRole, table, params }) {
   return Array.isArray(data) ? data : []
 }
 
-async function findHealthUserId(baseUrl, serviceRole, email) {
-  // Prefer the app-level users mirror when present. This avoids exporting any
-  // auth metadata and keeps the Nexa bridge limited to a stable internal UUID.
-  try {
-    const rows = await supabaseRest({
-      baseUrl,
-      serviceRole,
-      table: 'users',
-      params: {
-        select: 'id',
-        email: `eq.${email}`,
-        limit: '1',
+async function findHealthUserId(baseUrl, serviceRole, nexaUserId) {
+  for (let page = 1; page <= 5; page += 1) {
+    const url = new URL(`${baseUrl}/auth/v1/admin/users`)
+    url.searchParams.set('page', String(page))
+    url.searchParams.set('per_page', '200')
+
+    const response = await fetch(url, {
+      headers: {
+        apikey: serviceRole,
+        authorization: `Bearer ${serviceRole}`,
+        accept: 'application/json',
       },
+      signal: AbortSignal.timeout(7_000),
     })
-    if (rows[0]?.id) return String(rows[0].id)
-  } catch {
-    // Some older Health Wallet deployments do not maintain public.users.
+
+    if (!response.ok) return ''
+
+    const payload = await response.json().catch(() => ({}))
+    const users = Array.isArray(payload?.users) ? payload.users : []
+    const match = users.find(
+      user =>
+        String(user?.user_metadata?.nexa_user_id || '').trim() === nexaUserId,
+    )
+    if (match?.id) return String(match.id)
+    if (users.length < 200) break
   }
 
-  // Compatibility fallback for older deployments: use Supabase Admin only to
-  // resolve the UUID, never returning auth metadata to Nexa.
-  const url = new URL(`${baseUrl}/auth/v1/admin/users`)
-  url.searchParams.set('page', '1')
-  url.searchParams.set('per_page', '1000')
-
-  const response = await fetch(url, {
-    headers: {
-      apikey: serviceRole,
-      authorization: `Bearer ${serviceRole}`,
-      accept: 'application/json',
-    },
-    signal: AbortSignal.timeout(7_000),
-  })
-
-  if (!response.ok) return ''
-
-  const payload = await response.json().catch(() => ({}))
-  const users = Array.isArray(payload?.users) ? payload.users : []
-  const match = users.find(
-    user => String(user?.email || '').trim().toLowerCase() === email,
-  )
-  return match?.id ? String(match.id) : ''
+  return ''
 }
 
 function appointmentDueAt(item) {
@@ -156,26 +142,29 @@ export default async request => {
     }
 
     authorize(request)
-    const email = safeEmail(request)
+    const nexaUserId = safeNexaUserId(request)
     const baseUrl = requiredEnv('SUPABASE_URL', 'VITE_SUPABASE_URL').replace(/\/$/, '')
     const serviceRole = requiredEnv('SUPABASE_SERVICE_ROLE_KEY')
     const today = new Date().toISOString().slice(0, 10)
 
-    const appointmentRows = await supabaseRest({
-      baseUrl,
-      serviceRole,
-      table: 'telemedicine_appointments',
-      params: {
-        select: 'id,preferred_date,preferred_time,scheduled_at,status',
-        patient_email: `ilike.${email}`,
-        status: 'in.(requested,scheduled,confirmed,reminder_sent)',
-        preferred_date: `gte.${today}`,
-        order: 'preferred_date.asc,preferred_time.asc',
-        limit: '1',
-      },
-    }).catch(() => [])
+    const userId = await findHealthUserId(baseUrl, serviceRole, nexaUserId).catch(() => '')
 
-    const userId = await findHealthUserId(baseUrl, serviceRole, email).catch(() => '')
+    const appointmentRows = userId
+      ? await supabaseRest({
+          baseUrl,
+          serviceRole,
+          table: 'telemedicine_appointments',
+          params: {
+            select: 'id,preferred_date,preferred_time,scheduled_at,status',
+            or: `(user_id.eq.${userId},patient_id.eq.${userId})`,
+            status: 'in.(requested,scheduled,confirmed,reminder_sent)',
+            preferred_date: `gte.${today}`,
+            order: 'preferred_date.asc,preferred_time.asc',
+            limit: '1',
+          },
+        }).catch(() => [])
+      : []
+
     const inboxRows = userId
       ? await supabaseRest({
           baseUrl,
