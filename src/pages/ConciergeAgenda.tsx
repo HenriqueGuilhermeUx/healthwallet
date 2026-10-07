@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bell, CalendarDays, CheckCircle2, Clock, Loader2, Target, Video } from 'lucide-react'
+import { ArrowLeft, Bell, CalendarCheck, CalendarDays, CheckCircle2, Clock, Loader2, Target, Video } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import { listMyExternalCoordinations } from '@/services/conciergeExternal'
 
 type AgendaItem = {
   id: string
   date: string
   time?: string | null
-  type: 'action' | 'appointment' | 'reminder'
+  type: 'action' | 'appointment' | 'reminder' | 'coordination'
   title: string
   subtitle?: string
   href: string
@@ -27,6 +28,7 @@ function formatDate(value: string) {
 
 function typeIcon(type: AgendaItem['type']) {
   if (type === 'appointment') return Video
+  if (type === 'coordination') return CalendarCheck
   if (type === 'reminder') return Bell
   return Target
 }
@@ -48,7 +50,7 @@ export default function ConciergeAgenda() {
     const today = new Date().toISOString().slice(0, 10)
 
     try {
-      const [actionsRes, appointmentsRes, remindersRes] = await Promise.all([
+      const [actionsRes, appointmentsRes, remindersRes, coordinatedTasks] = await Promise.all([
         supabase
           .from('concierge_actions')
           .select('*')
@@ -73,6 +75,7 @@ export default function ConciergeAgenda() {
           .gte('reminder_date', today)
           .order('reminder_date', { ascending: true })
           .limit(30),
+        listMyExternalCoordinations(user.id),
       ])
 
       const agenda: AgendaItem[] = []
@@ -106,6 +109,18 @@ export default function ConciergeAgenda() {
         subtitle: reminder.description || undefined,
         href: '/dashboard',
       }))
+
+      ;(coordinatedTasks || [])
+        .filter((task: any) => ['booked', 'instructions_sent'].includes(task.status) && task.scheduled_at && dateKey(task.scheduled_at) >= today)
+        .forEach((task: any) => agenda.push({
+          id: `coordination-${task.id}`,
+          date: dateKey(task.scheduled_at),
+          time: task.scheduled_at ? new Date(task.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null,
+          type: 'coordination',
+          title: task.title,
+          subtitle: task.provider_name || 'Agendamento coordenado pelo Concierge',
+          href: `/concierge/coordination/${task.id}`,
+        }))
 
       agenda.sort((a, b) => `${a.date} ${a.time || ''}`.localeCompare(`${b.date} ${b.time || ''}`))
       setItems(agenda)
