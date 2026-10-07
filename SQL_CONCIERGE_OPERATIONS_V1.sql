@@ -828,6 +828,160 @@ ON CONFLICT (rule_code) DO UPDATE SET
   updated_at = NOW();
 
 -- ------------------------------------------------------------
+-- 8E) Omnichannel identities + secure document intake
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.concierge_channel_identities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email')),
+  external_address TEXT NOT NULL,
+  verified_at TIMESTAMPTZ NOT NULL,
+  consent_at TIMESTAMPTZ,
+  active BOOLEAN NOT NULL DEFAULT true,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (channel, external_address)
+);
+
+CREATE TABLE IF NOT EXISTS public.concierge_channel_link_challenges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  channel TEXT NOT NULL DEFAULT 'whatsapp' CHECK (channel = 'whatsapp'),
+  code_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.concierge_document_intake (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  case_id UUID REFERENCES public.concierge_operational_cases(id) ON DELETE SET NULL,
+  chat_session_id UUID REFERENCES public.concierge_chat_sessions(id) ON DELETE SET NULL,
+  channel TEXT NOT NULL CHECK (channel IN ('healthwallet','whatsapp','staff_upload')),
+  source_message_id TEXT,
+  storage_bucket TEXT NOT NULL DEFAULT 'concierge-intake',
+  storage_path TEXT NOT NULL,
+  mime_type TEXT,
+  original_filename TEXT,
+  status TEXT NOT NULL DEFAULT 'received'
+    CHECK (status IN ('received','processing','needs_review','classified','linked','failed','archived')),
+  document_type TEXT,
+  extracted_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
+  extraction_confidence NUMERIC(5,4),
+  reviewed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  reviewed_at TIMESTAMPTZ,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_concierge_document_source_message
+ON public.concierge_document_intake(channel, source_message_id)
+WHERE source_message_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_concierge_channel_patient
+ON public.concierge_channel_identities(patient_id, channel, active);
+
+CREATE INDEX IF NOT EXISTS idx_concierge_document_intake_queue
+ON public.concierge_document_intake(status, created_at DESC);
+
+ALTER TABLE public.concierge_channel_identities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.concierge_channel_link_challenges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.concierge_document_intake ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS concierge_channel_patient_read ON public.concierge_channel_identities;
+CREATE POLICY concierge_channel_patient_read
+ON public.concierge_channel_identities FOR SELECT TO authenticated
+USING (patient_id = auth.uid());
+
+DROP POLICY IF EXISTS concierge_channel_staff_read ON public.concierge_channel_identities;
+CREATE POLICY concierge_channel_staff_read
+ON public.concierge_channel_identities FOR SELECT TO authenticated
+USING (private.concierge_operations_is_staff(auth.uid()));
+
+DROP POLICY IF EXISTS concierge_link_patient_read ON public.concierge_channel_link_challenges;
+CREATE POLICY concierge_link_patient_read
+ON public.concierge_channel_link_challenges FOR SELECT TO authenticated
+USING (patient_id = auth.uid());
+
+DROP POLICY IF EXISTS concierge_intake_patient_read ON public.concierge_document_intake;
+CREATE POLICY concierge_intake_patient_read
+ON public.concierge_document_intake FOR SELECT TO authenticated
+USING (patient_id = auth.uid());
+
+DROP POLICY IF EXISTS concierge_intake_staff_manage ON public.concierge_document_intake;
+CREATE POLICY concierge_intake_staff_manage
+ON public.concierge_document_intake FOR ALL TO authenticated
+USING (private.concierge_operations_is_staff(auth.uid()))
+WITH CHECK (private.concierge_operations_is_staff(auth.uid()));
+
+GRANT SELECT ON public.concierge_channel_identities TO authenticated;
+GRANT SELECT ON public.concierge_channel_link_challenges TO authenticated;
+GRANT SELECT ON public.concierge_document_intake TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_channel_identities TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_channel_link_challenges TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.concierge_document_intake TO service_role;
+
+CREATE OR REPLACE FUNCTION private.concierge_create_whatsapp_link_challenge_impl(p_user_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  plain_code TEXT;
+  hashed_code TEXT;
+  expires TIMESTAMPTZ := NOW() + INTERVAL '15 minutes';
+BEGIN
+  IF p_user_id IS NULL OR p_user_id IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'invalid caller';
+  END IF;
+
+  plain_code := UPPER(SUBSTRING(REPLACE(gen_random_uuid()::text, '-', '') FROM 1 FOR 6));
+  hashed_code := encode(digest(plain_code, 'sha256'), 'hex');
+
+  DELETE FROM public.concierge_channel_link_challenges
+  WHERE patient_id = p_user_id
+    AND channel = 'whatsapp'
+    AND used_at IS NULL;
+
+  INSERT INTO public.concierge_channel_link_challenges (
+    patient_id, channel, code_hash, expires_at
+  ) VALUES (
+    p_user_id, 'whatsapp', hashed_code, expires
+  );
+
+  RETURN jsonb_build_object(
+    'code', plain_code,
+    'expires_at', expires
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.concierge_create_whatsapp_link_challenge_impl(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION private.concierge_create_whatsapp_link_challenge_impl(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.concierge_create_whatsapp_link_challenge()
+RETURNS JSONB
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+  SELECT private.concierge_create_whatsapp_link_challenge_impl(auth.uid());
+$$;
+
+REVOKE ALL ON FUNCTION public.concierge_create_whatsapp_link_challenge() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.concierge_create_whatsapp_link_challenge() TO authenticated;
+
+-- Private storage bucket for administrative intake. Files are delivered through
+-- trusted server-side flows; no public object URL is created.
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('concierge-intake', 'concierge-intake', false)
+ON CONFLICT (id) DO UPDATE SET public = false;
+
+-- ------------------------------------------------------------
 -- 9) Realtime
 -- ------------------------------------------------------------
 DO $$
