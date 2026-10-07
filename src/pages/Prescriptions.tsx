@@ -99,13 +99,23 @@ export default function Prescriptions() {
       const { error: uploadError } = await supabase.storage.from('exams').upload(fileName, file)
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage.from('exams').getPublicUrl(fileName)
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from('exams')
+        .createSignedUrl(fileName, 60 * 15)
+
+      if (signedError || !signedData?.signedUrl) {
+        throw signedError || new Error('Não foi possível criar acesso temporário à receita.')
+      }
+
+      const signedUrl = signedData.signedUrl
 
       const { data: saved, error: dbError } = await supabase
         .from('medical_records')
         .insert({
           user_id: user.id,
-          file_url: publicUrl,
+          file_url: null,
+          storage_bucket: 'exams',
+          storage_path: fileName,
           file_name: file.name,
           exam_type: 'Receita',
           status: 'pending',
@@ -125,7 +135,7 @@ export default function Prescriptions() {
         body: JSON.stringify({
           recordId: saved.id,
           userId: user.id,
-          fileUrl: publicUrl,
+          fileUrl: signedUrl,
           fileName: file.name,
           documentType: 'prescription',
           extractionHints: {
