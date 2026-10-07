@@ -149,6 +149,37 @@ export default function ConciergeAgenda() {
     }
   }
 
+  const activeCoordinations = useMemo(
+    () => coordinations.filter((task) => !['closed', 'cancelled'].includes(task.status)),
+    [coordinations],
+  )
+
+  const choiceTask = useMemo(
+    () => coordinations.find((task) => task.status === 'awaiting_patient_choice') || null,
+    [coordinations],
+  )
+
+  async function chooseCoordinationOption(option: any) {
+    if (!choiceTask) return
+    if (!confirm('Escolher ' + option.provider_name + ' para o Concierge seguir com o agendamento?')) return
+
+    setChoiceBusy(option.id)
+    try {
+      const { error } = await supabase.rpc('concierge_patient_select_external_option', {
+        p_task_id: choiceTask.id,
+        p_option_id: option.id,
+      })
+      if (error) throw error
+
+      toast.success('Opção escolhida. O Concierge seguirá com o agendamento.')
+      await load()
+    } catch (error: any) {
+      toast.error(error?.message || 'Não foi possível registrar sua escolha.')
+    } finally {
+      setChoiceBusy(null)
+    }
+  }
+
   const groups = useMemo(() => {
     const map = new Map<string, AgendaItem[]>()
     items.forEach((item) => map.set(item.date, [...(map.get(item.date) || []), item]))
