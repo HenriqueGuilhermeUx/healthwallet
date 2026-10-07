@@ -982,6 +982,197 @@ VALUES ('concierge-intake', 'concierge-intake', false)
 ON CONFLICT (id) DO UPDATE SET public = false;
 
 -- ------------------------------------------------------------
+-- 8F) Operational alert engine: deadlines, follow-ups, documents
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION private.concierge_refresh_operational_alerts_impl()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  inserted_count INTEGER := 0;
+  current_count INTEGER := 0;
+BEGIN
+  -- Follow-up due or overdue.
+  INSERT INTO public.concierge_alerts (
+    patient_id, source, source_id, severity, title, explanation, suggested_action, metadata
+  )
+  SELECT
+    c.patient_id,
+    'system',
+    'ops-followup:' || c.id::text,
+    CASE
+      WHEN c.next_followup_at < NOW() - INTERVAL '24 hours' THEN 'high'
+      ELSE 'attention'
+    END,
+    'Caso de plano precisa de follow-up',
+    format('O caso "%s" tem follow-up programado para %s.', c.title, c.next_followup_at),
+    'Abrir o caso, cobrar o canal responsável e registrar novo protocolo ou próximo prazo.',
+    jsonb_build_object(
+      'operational_case_id', c.id,
+      'case_type', c.case_type,
+      'next_followup_at', c.next_followup_at,
+      'generated_by', 'concierge_operations'
+    )
+  FROM public.concierge_operational_cases c
+  WHERE c.status NOT IN ('resolved','closed','cancelled','authorized','reimbursed','scheduled')
+    AND c.next_followup_at IS NOT NULL
+    AND c.next_followup_at <= NOW()
+    AND NOT EXISTS (
+      SELECT 1 FROM public.concierge_alerts a
+      WHERE a.patient_id = c.patient_id
+        AND a.source = 'system'
+        AND a.source_id = 'ops-followup:' || c.id::text
+        AND a.status = 'open'
+    );
+  GET DIAGNOSTICS current_count = ROW_COUNT;
+  inserted_count := inserted_count + current_count;
+
+  -- Regulatory deadline approaching in the next business day / already due.
+  INSERT INTO public.concierge_alerts (
+    patient_id, source, source_id, severity, title, explanation, suggested_action, metadata
+  )
+  SELECT
+    c.patient_id,
+    'system',
+    'ops-deadline:' || c.id::text,
+    CASE
+      WHEN c.regulatory_deadline_at <= NOW() THEN 'high'
+      ELSE 'attention'
+    END,
+    CASE
+      WHEN c.regulatory_deadline_at <= NOW() THEN 'Prazo regulatório atingido'
+      ELSE 'Prazo regulatório próximo'
+    END,
+    format(
+      'O caso "%s" possui prazo acompanhado em %s%s.',
+      c.title,
+      c.regulatory_deadline_at,
+      CASE WHEN c.deadline_confirmed THEN ' (conferido pela equipe)' ELSE ' (estimado; confirmar feriados/localidade)' END
+    ),
+    'Revisar o protocolo, a resposta da operadora e aplicar o próximo passo do playbook.',
+    jsonb_build_object(
+      'operational_case_id', c.id,
+      'case_type', c.case_type,
+      'regulatory_rule_code', c.regulatory_rule_code,
+      'regulatory_deadline_at', c.regulatory_deadline_at,
+      'deadline_confirmed', c.deadline_confirmed,
+      'generated_by', 'concierge_operations'
+    )
+  FROM public.concierge_operational_cases c
+  WHERE c.status NOT IN ('resolved','closed','cancelled','authorized','reimbursed','scheduled')
+    AND c.regulatory_deadline_at IS NOT NULL
+    AND c.regulatory_deadline_at <= NOW() + INTERVAL '24 hours'
+    AND NOT EXISTS (
+      SELECT 1 FROM public.concierge_alerts a
+      WHERE a.patient_id = c.patient_id
+        AND a.source = 'system'
+        AND a.source_id = 'ops-deadline:' || c.id::text
+        AND a.status = 'open'
+    );
+  GET DIAGNOSTICS current_count = ROW_COUNT;
+  inserted_count := inserted_count + current_count;
+
+  -- Intake documents that still need human review.
+  INSERT INTO public.concierge_alerts (
+    patient_id, source, source_id, severity, title, explanation, suggested_action, metadata
+  )
+  SELECT
+    d.patient_id,
+    'system',
+    'ops-document:' || d.id::text,
+    CASE WHEN d.created_at < NOW() - INTERVAL '4 hours' THEN 'attention' ELSE 'info' END,
+    'Documento do Concierge precisa de revisão',
+    COALESCE(
+      'Documento recebido via ' || d.channel || ': ' || d.original_filename,
+      'Documento recebido pelo Concierge.'
+    ),
+    'Conferir a classificação/OCR, vincular ao caso correto e validar os campos antes de protocolar.',
+    jsonb_build_object(
+      'document_intake_id', d.id,
+      'operational_case_id', d.case_id,
+      'document_type', d.document_type,
+      'confidence', d.extraction_confidence,
+      'generated_by', 'concierge_operations'
+    )
+  FROM public.concierge_document_intake d
+  WHERE d.status IN ('received','needs_review')
+    AND NOT EXISTS (
+      SELECT 1 FROM public.concierge_alerts a
+      WHERE a.patient_id = d.patient_id
+        AND a.source = 'system'
+        AND a.source_id = 'ops-document:' || d.id::text
+        AND a.status = 'open'
+    );
+  GET DIAGNOSTICS current_count = ROW_COUNT;
+  inserted_count := inserted_count + current_count;
+
+  -- Resolve operational alerts when their condition no longer applies.
+  UPDATE public.concierge_alerts a
+  SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
+  WHERE a.status = 'open'
+    AND a.source = 'system'
+    AND (
+      (
+        a.source_id LIKE 'ops-followup:%'
+        AND EXISTS (
+          SELECT 1
+          FROM public.concierge_operational_cases c
+          WHERE c.id::text = replace(a.source_id, 'ops-followup:', '')
+            AND (
+              c.status IN ('resolved','closed','cancelled','authorized','reimbursed','scheduled')
+              OR c.next_followup_at IS NULL
+              OR c.next_followup_at > NOW()
+            )
+        )
+      )
+      OR (
+        a.source_id LIKE 'ops-deadline:%'
+        AND EXISTS (
+          SELECT 1
+          FROM public.concierge_operational_cases c
+          WHERE c.id::text = replace(a.source_id, 'ops-deadline:', '')
+            AND c.status IN ('resolved','closed','cancelled','authorized','reimbursed','scheduled')
+        )
+      )
+      OR (
+        a.source_id LIKE 'ops-document:%'
+        AND EXISTS (
+          SELECT 1
+          FROM public.concierge_document_intake d
+          WHERE d.id::text = replace(a.source_id, 'ops-document:', '')
+            AND d.status NOT IN ('received','needs_review')
+        )
+      )
+    );
+
+  RETURN inserted_count;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.concierge_refresh_operational_alerts_impl() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION private.concierge_refresh_operational_alerts_impl() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.concierge_refresh_operational_alerts()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+BEGIN
+  IF NOT private.concierge_operations_is_staff(auth.uid()) THEN
+    RAISE EXCEPTION 'Concierge staff access required';
+  END IF;
+
+  RETURN private.concierge_refresh_operational_alerts_impl();
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.concierge_refresh_operational_alerts() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.concierge_refresh_operational_alerts() TO authenticated;
+
+-- ------------------------------------------------------------
 -- 9) Realtime
 -- ------------------------------------------------------------
 DO $$
