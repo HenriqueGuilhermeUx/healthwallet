@@ -3,6 +3,7 @@
   publish = "dist"
 
 [build.environment]
+  NODE_VERSION = "22"
   PNPM_FLAGS = "--no-frozen-lockfile"
 
 [functions]

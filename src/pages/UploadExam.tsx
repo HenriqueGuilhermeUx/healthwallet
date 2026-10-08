@@ -59,9 +59,15 @@ export default function UploadExam() {
 
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage
+      const { data: signedData, error: signedError } = await supabase.storage
         .from('exams')
-        .getPublicUrl(fileName)
+        .createSignedUrl(fileName, 60 * 15)
+
+      if (signedError || !signedData?.signedUrl) {
+        throw signedError || new Error('Não foi possível criar acesso temporário ao arquivo.')
+      }
+
+      const signedUrl = signedData.signedUrl
 
       const { data: profile } = await supabase
         .from('profiles')
@@ -73,7 +79,9 @@ export default function UploadExam() {
         .from('medical_records')
         .insert({
           user_id: user.id,
-          file_url: publicUrl,
+          file_url: null,
+          storage_bucket: 'exams',
+          storage_path: fileName,
           file_name: file.name,
           exam_type: 'Exame',
           status: 'pending',
@@ -99,7 +107,7 @@ export default function UploadExam() {
         body: JSON.stringify({
           recordId: record.id,
           userId: user.id,
-          fileUrl: publicUrl,
+          fileUrl: signedUrl,
           fileName: file.name,
           extractionHints: {
             pharmaProductMapping: true,

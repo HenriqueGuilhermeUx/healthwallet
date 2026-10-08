@@ -1,0 +1,52 @@
+name: Concierge Digital AI CI
+
+on:
+  push:
+    branches:
+      - feature/concierge-digital-ai-v1
+  pull_request:
+    paths:
+      - 'SQL_CONCIERGE_DIGITAL_AI_V1.sql'
+      - 'netlify/functions/concierge-digital-ai.js'
+      - 'src/pages/ConciergeDigital.tsx'
+      - 'src/pages/Concierge.tsx'
+      - 'src/App.tsx'
+      - '.github/workflows/concierge-digital-ai-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Concierge Digital build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable
+      - run: pnpm install --no-frozen-lockfile
+      - name: Contract checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'path="/concierge/digital"' src/App.tsx
+          grep -q 'concierge_chat_sessions' SQL_CONCIERGE_DIGITAL_AI_V1.sql
+          grep -q 'concierge_chat_request_human' SQL_CONCIERGE_DIGITAL_AI_V1.sql
+          grep -q 'SUPABASE_SERVICE_ROLE_KEY' netlify/functions/concierge-digital-ai.js
+          grep -q 'gpt-6-luna' netlify/functions/concierge-digital-ai.js
+          grep -q 'Falar com uma pessoa' src/pages/ConciergeDigital.tsx
+      - name: Build
+        run: pnpm build
+
+      - name: Netlify parity build
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: |
+          set -euo pipefail
+          test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'NETLIFY_AUTH_TOKEN unavailable'; exit 2; }
+          npx --yes netlify-cli@27.8.0 build --context deploy-preview

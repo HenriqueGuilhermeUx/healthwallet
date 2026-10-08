@@ -8,6 +8,8 @@ interface Exam {
   id: string
   file_name: string
   file_url?: string
+  storage_bucket?: string
+  storage_path?: string
   exam_type?: string
   exam_date?: string
   laboratory?: string
@@ -155,7 +157,7 @@ export default function Exams() {
                     </p>
                   )}
 
-                  {exam.file_url && (
+                  {(exam.file_url || exam.storage_path) && (
                     <span className="inline-flex items-center gap-1 mt-3 text-xs text-emerald-700 font-medium">
                       <Eye className="w-3 h-3" />
                       Abrir análise e conversar
