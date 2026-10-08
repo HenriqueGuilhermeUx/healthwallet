@@ -97,7 +97,12 @@ export async function handler(event) {
     const internalTrusted = safeEqual(internalKey, configuredInternalKey)
 
     const token = bearer(event.headers?.authorization || event.headers?.Authorization)
-    if (!token && !internalTrusted) return response(401, { error: 'authentication_required' })
+    if (!token && !internalTrusted) {
+      return response(401, {
+        error: 'authentication_required',
+        diagnostic: isDeployPreviewRequest(event) ? { stage: 'auth_header', code: 'missing_bearer_token' } : undefined,
+      })
+    }
 
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
     const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
@@ -105,7 +110,19 @@ export async function handler(event) {
     const openaiKey = process.env.OPENAI_API_KEY
 
     if (!supabaseUrl || !anonKey || !serviceKey) {
-      return response(503, { error: 'concierge_server_not_configured' })
+      return response(503, {
+        error: 'concierge_server_not_configured',
+        diagnostic: isDeployPreviewRequest(event)
+          ? {
+              stage: 'runtime_config',
+              code: [
+                !supabaseUrl ? 'missing_supabase_url' : null,
+                !anonKey ? 'missing_anon_key' : null,
+                !serviceKey ? 'missing_service_key' : null,
+              ].filter(Boolean).join('+') || 'unknown',
+            }
+          : undefined,
+      })
     }
 
     const userClient = createClient(supabaseUrl, anonKey, {
@@ -123,9 +140,20 @@ export async function handler(event) {
       if (!patientId) return response(400, { error: 'patient_id_required' })
       user = { id: patientId }
     } else {
+      failureStage = 'auth_session'
       const { data: authData, error: authError } = await userClient.auth.getUser(token)
       user = authData?.user
-      if (authError || !user) return response(401, { error: 'invalid_session' })
+      if (authError || !user) {
+        return response(401, {
+          error: 'invalid_session',
+          diagnostic: isDeployPreviewRequest(event)
+            ? {
+                stage: 'auth_session',
+                code: String(authError?.code || authError?.name || 'user_not_resolved').slice(0, 80),
+              }
+            : undefined,
+        })
+      }
     }
 
     const body = rawBody
@@ -174,7 +202,20 @@ export async function handler(event) {
       && String(membership.plan_code || entitlement?.plan_code || '').startsWith('concierge')
 
     if (!allowed) {
-      return response(403, { error: 'concierge_subscription_required' })
+      return response(403, {
+        error: 'concierge_subscription_required',
+        diagnostic: isDeployPreviewRequest(event)
+          ? {
+              stage: 'subscription_gate',
+              code: [
+                membership ? null : 'membership_missing',
+                entitlementAllowed ? null : 'entitlement_not_allowed',
+                membership?.consent_status === 'accepted' ? null : `consent_${membership?.consent_status || 'missing'}`,
+                String(membership?.plan_code || entitlement?.plan_code || '').startsWith('concierge') ? null : 'plan_not_concierge',
+              ].filter(Boolean).join('+') || 'unknown',
+            }
+          : undefined,
+      })
     }
 
     let subjectFamilyMember = null
