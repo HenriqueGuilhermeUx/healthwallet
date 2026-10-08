@@ -59,7 +59,9 @@ jobs:
 
           grep -q 'Conectar meu WhatsApp' src/pages/ConciergeDigital.tsx
           grep -q 'O Concierge está cuidando' src/pages/ConciergeDigital.tsx
-          grep -q 'Deixe o Concierge pronto para agir por você' src/pages/ConciergeActivation.tsx
+          grep -q 'Ative seu Concierge e comece a usar' src/pages/ConciergeActivation.tsx
+          grep -q 'Não bloqueiam sua entrada no Concierge' src/pages/ConciergeActivation.tsx
+          grep -q 'somente naquele momento' src/pages/ConciergeActivation.tsx
 
       - name: Security contract
         shell: bash
