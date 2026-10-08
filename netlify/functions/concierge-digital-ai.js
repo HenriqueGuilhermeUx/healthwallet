@@ -584,6 +584,7 @@ export async function handler(event) {
   }
 }
 
+// Deploy Preview diagnostics are host-scoped and never returned in production.
 function isDeployPreviewRequest(event) {
   const host = String(
     event?.headers?.host
