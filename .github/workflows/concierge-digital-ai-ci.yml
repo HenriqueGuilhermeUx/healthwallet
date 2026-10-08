@@ -43,25 +43,29 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Netlify hosted build config diagnostics
-        shell: bash
+      - name: Netlify hosted config diagnostics
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+          NETLIFY_ACCOUNT_ID: 68a5094671bba3abf89c3983
         run: |
-          set -euo pipefail
-          test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'NETLIFY_AUTH_TOKEN unavailable'; exit 2; }
-
           node <<'NODE'
           const token = process.env.NETLIFY_AUTH_TOKEN
           const siteId = process.env.NETLIFY_SITE_ID
-          const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          if (!response.ok) throw new Error(`Netlify site API failed: ${response.status}`)
-          const site = await response.json()
+          const accountId = process.env.NETLIFY_ACCOUNT_ID
+          if (!token) throw new Error('NETLIFY_AUTH_TOKEN unavailable')
+
+          const headers = { Authorization: `Bearer ${token}` }
+          const getJson = async (url) => {
+            const response = await fetch(url, { headers })
+            const text = await response.text()
+            if (!response.ok) throw new Error(`${url} -> ${response.status}: ${text.slice(0, 300)}`)
+            return text ? JSON.parse(text) : null
+          }
+
+          const site = await getJson(`https://api.netlify.com/api/v1/sites/${siteId}`)
           const build = site.build_settings || {}
-          const safe = {
+          console.log('NETLIFY_SAFE_SITE_CONFIG=' + JSON.stringify({
             site_name: site.name,
             repo_branch: build.repo_branch || null,
             build_command: build.cmd || null,
@@ -70,25 +74,25 @@ jobs:
             functions_dir: build.functions_dir || null,
             provider: build.provider || null,
             stop_builds: build.stop_builds ?? null,
-            framework: build.framework || null,
+          }))
+
+          for (const key of ['PNPM_FLAGS', 'NODE_VERSION', 'NPM_FLAGS', 'NPM_VERSION', 'YARN_FLAGS']) {
+            try {
+              const item = await getJson(
+                `https://api.netlify.com/api/v1/accounts/${accountId}/env/${encodeURIComponent(key)}?site_id=${siteId}`
+              )
+              const safeValues = (item?.values || []).map((v) => ({
+                context: v.context,
+                value: key === 'PNPM_FLAGS' || key === 'NODE_VERSION' ? v.value : (v.value ? '[set]' : ''),
+              }))
+              console.log(`NETLIFY_ENV_${key}=` + JSON.stringify({
+                key: item?.key || key,
+                scopes: item?.scopes || [],
+                values: safeValues,
+                is_secret: Boolean(item?.is_secret),
+              }))
+            } catch (error) {
+              console.log(`NETLIFY_ENV_${key}=not_set_or_unavailable`)
+            }
           }
-          console.log('NETLIFY_SAFE_SITE_CONFIG=' + JSON.stringify(safe))
           NODE
-
-          for key in PNPM_FLAGS NODE_VERSION NPM_FLAGS NPM_VERSION YARN_FLAGS; do
-            printf '%s(deploy-preview,builds)=' "$key"
-            npx --yes netlify-cli@27.8.0 env:get "$key" --context deploy-preview --scope builds 2>/dev/null || true
-          done
-
-          echo '--- effective deploy-preview build stages ---'
-          npx --yes netlify-cli@27.8.0 build --dry --context deploy-preview
-
-      - name: Netlify parity build
-        shell: bash
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
-        run: |
-          set -euo pipefail
-          test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'NETLIFY_AUTH_TOKEN unavailable'; exit 2; }
-          npx --yes netlify-cli@27.8.0 build --context deploy-preview
