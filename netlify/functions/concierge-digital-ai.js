@@ -125,11 +125,6 @@ export async function handler(event) {
       })
     }
 
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     })
@@ -141,7 +136,7 @@ export async function handler(event) {
       user = { id: patientId }
     } else {
       failureStage = 'auth_session'
-      const { data: authData, error: authError } = await userClient.auth.getUser(token)
+      const { data: authData, error: authError } = await admin.auth.getUser(token)
       user = authData?.user
       if (authError || !user) {
         return response(401, {
@@ -170,7 +165,7 @@ export async function handler(event) {
     if (!message) return response(400, { error: 'message_required' })
 
     failureStage = 'subscription_lookup'
-    const [{ data: membership }, { data: entitlement }, { data: representationAuth }] = await Promise.all([
+    const [membershipRes, entitlementRes, representationRes] = await Promise.all([
       admin
         .from('concierge_memberships')
         .select('patient_id,status,plan_code,consent_status,metadata')
@@ -190,6 +185,23 @@ export async function handler(event) {
         .limit(1)
         .maybeSingle(),
     ])
+
+    if (membershipRes.error || entitlementRes.error || representationRes.error) {
+      const lookupError = membershipRes.error || entitlementRes.error || representationRes.error
+      return response(500, {
+        error: 'concierge_subscription_lookup_failed',
+        diagnostic: isDeployPreviewRequest(event)
+          ? {
+              stage: 'subscription_lookup',
+              code: String(lookupError?.code || lookupError?.name || 'lookup_failed').slice(0, 80),
+            }
+          : undefined,
+      })
+    }
+
+    const membership = membershipRes.data
+    const entitlement = entitlementRes.data
+    const representationAuth = representationRes.data
 
     const entitlementAllowed = entitlement
       ? ['trial','active','grace'].includes(entitlement.status)
