@@ -571,17 +571,30 @@ export async function handler(event) {
       createdRequest,
       createdOperationalCase,
       aiMode,
-      diagnostic: process.env.CONTEXT === 'deploy-preview' ? providerDiagnostic : undefined,
+      diagnostic: isDeployPreviewRequest(event) ? providerDiagnostic : undefined,
     })
   } catch (error) {
     console.error('Concierge Digital AI error:', { stage: failureStage, message: error?.message || String(error) })
     return response(500, {
       error: 'concierge_ai_failed',
-      diagnostic: process.env.CONTEXT === 'deploy-preview'
+      diagnostic: isDeployPreviewRequest(event)
         ? { stage: failureStage, code: safeErrorCode(error) }
         : undefined,
     })
   }
+}
+
+function isDeployPreviewRequest(event) {
+  const host = String(
+    event?.headers?.host
+    || event?.headers?.Host
+    || event?.headers?.['x-forwarded-host']
+    || ''
+  ).toLowerCase()
+
+  return host.includes('deploy-preview-')
+    || host.includes('--healthwallet1.netlify.app')
+    || process.env.CONTEXT === 'deploy-preview'
 }
 
 function extractResponseText(payload) {
