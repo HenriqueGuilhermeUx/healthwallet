@@ -3,7 +3,9 @@
   publish = "dist"
 
 [build.environment]
+  NODE_VERSION = "22"
   PNPM_FLAGS = "--no-frozen-lockfile"
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY,VITE_HEALTHWALLET_INBOUND_DOMAIN"
 
 [functions]
   directory = "netlify/functions"

@@ -1,0 +1,83 @@
+name: Concierge Sellable Product Contract
+
+on:
+  push:
+    branches:
+      - feature/concierge-digital-ai-v1
+  pull_request:
+    paths:
+      - 'SQL_CONCIERGE_DIGITAL_AI_V1.sql'
+      - 'SQL_CONCIERGE_OPERATIONS_V1.sql'
+      - 'netlify/functions/concierge-digital-ai.js'
+      - 'netlify/functions/concierge-legal-onboarding.js'
+      - 'netlify/functions/concierge-whatsapp-webhook.js'
+      - 'netlify/functions/concierge-channel-send.js'
+      - 'netlify/functions/concierge-ops-scheduler.mjs'
+      - 'src/pages/ConciergeDigital.tsx'
+      - 'src/pages/ConciergeActivation.tsx'
+      - '.github/workflows/concierge-sellable-product-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Sellable Concierge contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Product surface contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'concierge_entitlements' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'concierge_legal_authorizations' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'concierge_subscriber_readiness' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'concierge_channel_identities' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'concierge_document_intake' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'concierge_operational_cases' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'concierge_case_checklist_items' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'concierge_case_escalations' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'concierge_regulatory_guides' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'concierge_refresh_operational_alerts_system' SQL_CONCIERGE_OPERATIONS_V1.sql
+
+          grep -q 'X-Concierge-Internal-Key' netlify/functions/concierge-digital-ai.js
+          grep -q 'representation_authorized' netlify/functions/concierge-digital-ai.js
+          grep -q 'createdOperationalCase' netlify/functions/concierge-digital-ai.js
+          grep -q 'DOCWALLET_MYDATAMED_SERVICE_KEY' netlify/functions/concierge-legal-onboarding.js
+          grep -q 'verified_evidence' netlify/functions/concierge-legal-onboarding.js
+
+          grep -q 'x-hub-signature-256' netlify/functions/concierge-whatsapp-webhook.js
+          grep -q 'transcribeAudio' netlify/functions/concierge-whatsapp-webhook.js
+          grep -q 'extractHealthAdminDocument' netlify/functions/concierge-whatsapp-webhook.js
+          grep -q 'concierge-intake' netlify/functions/concierge-whatsapp-webhook.js
+
+          grep -q 'session_not_owned_by_actor' netlify/functions/concierge-channel-send.js
+          grep -q "schedule: '0 \* \* \* \*'" netlify/functions/concierge-ops-scheduler.mjs
+
+          grep -q 'Conectar meu WhatsApp' src/pages/ConciergeDigital.tsx
+          grep -q 'O Concierge está cuidando' src/pages/ConciergeDigital.tsx
+          grep -q 'Deixe o Concierge pronto para agir por você' src/pages/ConciergeActivation.tsx
+
+      - name: Security contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -R --line-number -E 'service_role.*VITE_|VITE_.*service_role' src netlify/functions
+          ! grep -R --line-number 'sk-' src netlify/functions
+          ! grep -R --line-number 'EAAG' src netlify/functions
+          grep -q 'ENABLE ROW LEVEL SECURITY' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'security_invoker = true' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'storage_bucket = .concierge-intake.' SQL_CONCIERGE_OPERATIONS_V1.sql
+
+      - name: Human boundary contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'Não dê parecer jurídico individualizado' netlify/functions/concierge-digital-ai.js
+          grep -q 'não diagnostica' netlify/functions/concierge-legal-onboarding.js
+          grep -q 'representação judicial' netlify/functions/concierge-legal-onboarding.js
+          grep -q 'Nunca alterar pedido/laudo médico' SQL_CONCIERGE_OPERATIONS_V1.sql
+          grep -q 'advogado parceiro' SQL_CONCIERGE_OPERATIONS_V1.sql

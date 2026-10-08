@@ -90,7 +90,7 @@ export default function ExamInbox() {
 
   async function approve(item: HealthDocumentInboxItem) {
     if (!user) return
-    if (!item.file_url) {
+    if (!item.file_url && !(item.storage_bucket && item.storage_path)) {
       toast.info('Este item parece ser uma mensagem de confirmação, não um exame com anexo.')
       return
     }
@@ -125,7 +125,10 @@ export default function ExamInbox() {
 
   const pendingItems = useMemo(() => items.filter((item) => item.status === 'pending_review'), [items])
   const confirmationItems = useMemo(() => pendingItems.filter(isForwardingConfirmation), [pendingItems])
-  const documentItems = useMemo(() => pendingItems.filter((item) => item.file_url), [pendingItems])
+  const documentItems = useMemo(
+    () => pendingItems.filter((item) => item.file_url || (item.storage_bucket && item.storage_path)),
+    [pendingItems],
+  )
   const completedItems = useMemo(() => items.filter((item) => item.status !== 'pending_review'), [items])
 
   if (loading) {

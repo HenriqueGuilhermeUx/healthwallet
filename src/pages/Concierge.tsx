@@ -254,6 +254,7 @@ export default function Concierge() {
       <section>
         <h2 className="mb-3 font-bold text-gray-900">Como podemos ajudar?</h2>
         <div className="grid grid-cols-2 gap-3">
+          <ActionCard icon={Sparkles} title="Falar com o Concierge" subtitle="Conversa por texto ou voz, com transbordo humano" href="/concierge/digital" />
           <ActionCard icon={MessageCircle} title="Solicitar ajuda" subtitle="Dúvida, exame, medicamento ou orientação" href="/concierge/request" />
           <ActionCard icon={HeartPulse} title="Orientação rápida" subtitle="Sintoma recente e próximo passo" href="/concierge/request?category=symptom" />
           <ActionCard icon={FileSearch} title="Segunda análise" subtitle="Revisar exames, laudos e contexto" href="/concierge/request?category=second_analysis" />

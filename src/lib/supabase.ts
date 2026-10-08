@@ -70,7 +70,9 @@ export interface Database {
         Row: {
           id: string
           user_id: string
-          file_url: string
+          file_url: string | null
+          storage_bucket?: string | null
+          storage_path?: string | null
           file_name: string
           exam_type: string
           exam_date?: string
@@ -82,7 +84,9 @@ export interface Database {
         }
         Insert: {
           user_id: string
-          file_url: string
+          file_url?: string | null
+          storage_bucket?: string | null
+          storage_path?: string | null
           file_name: string
           exam_type: string
           exam_date?: string
