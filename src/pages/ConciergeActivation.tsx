@@ -5,7 +5,6 @@ import {
   BadgeCheck,
   CheckCircle2,
   Circle,
-  FileSignature,
   Loader2,
   MessageCircle,
   RefreshCw,
@@ -24,10 +23,7 @@ export default function ConciergeActivation() {
   const [loading, setLoading] = useState(true)
   const [membership, setMembership] = useState<any>(null)
   const [readiness, setReadiness] = useState<any>(null)
-  const [authorization, setAuthorization] = useState<any>(null)
   const [whatsapp, setWhatsapp] = useState<any>(null)
-  const [busy, setBusy] = useState(false)
-  const [signUrl, setSignUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -38,18 +34,12 @@ export default function ConciergeActivation() {
     if (!user) return
     setLoading(true)
     try {
-      const [member, readinessRes, authRes, whatsappRes] = await Promise.all([
+      const [member, readinessRes, whatsappRes] = await Promise.all([
         getConciergeMembershipForPatient(user.id),
         supabase
           .from('concierge_subscriber_readiness')
           .select('*')
           .eq('patient_id', user.id)
-          .maybeSingle(),
-        supabase
-          .from('concierge_legal_authorizations')
-          .select('*')
-          .eq('patient_id', user.id)
-          .eq('authorization_type', 'combined_onboarding')
           .maybeSingle(),
         supabase
           .from('concierge_channel_identities')
@@ -64,7 +54,6 @@ export default function ConciergeActivation() {
 
       setMembership(member)
       setReadiness(readinessRes.data || null)
-      setAuthorization(authRes.data || null)
       setWhatsapp(whatsappRes.data || null)
       if (showToast) toast.success('Status atualizado.')
     } catch (error) {
@@ -74,59 +63,15 @@ export default function ConciergeActivation() {
     }
   }
 
-  async function legalAction(action: 'create' | 'sync') {
-    setBusy(true)
-    try {
-      const { data: authData } = await supabase.auth.getSession()
-      const token = authData.session?.access_token
-      if (!token) throw new Error('Sua sessão expirou. Entre novamente.')
-
-      const response = await fetch('/.netlify/functions/concierge-legal-onboarding', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action }),
-      })
-      const result = await response.json()
-      if (!response.ok) {
-        if (result?.error === 'concierge_consent_required') {
-          throw new Error('Aceite primeiro o consentimento do Concierge.')
-        }
-        if (result?.error === 'docwallet_not_configured') {
-          throw new Error('A assinatura DocWallet ainda não foi ativada neste ambiente.')
-        }
-        throw new Error('Não foi possível atualizar sua autorização.')
-      }
-
-      if (result.signUrl) {
-        setSignUrl(result.signUrl)
-        window.open(result.signUrl, '_blank', 'noopener,noreferrer')
-      }
-
-      await load()
-      if (result.signed) toast.success('Autorização concluída.')
-      else if (action === 'sync') toast.message('A assinatura ainda está pendente.')
-      else toast.success('Documento criado. Conclua a assinatura no DocWallet.')
-    } catch (error: any) {
-      toast.error(error?.message || 'Não foi possível concluir esta etapa.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const planActive = useMemo(() => {
     if (readiness) return ['active','trial','grace'].includes(readiness.entitlement_status)
     return !!membership && ['pilot','active'].includes(membership.status)
   }, [readiness, membership])
 
   const consentReady = membership?.consent_status === 'accepted'
-  const legalReady = readiness?.privacy_ready && readiness?.representation_ready
-    || authorization?.status === 'signed'
   const whatsappReady = Boolean(readiness?.whatsapp_ready || whatsapp)
 
-  const readyForOperations = planActive && consentReady && legalReady
+  const readyForOperations = planActive && consentReady
 
   if (loading) {
     return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>
@@ -139,8 +84,8 @@ export default function ConciergeActivation() {
           <ArrowLeft className="h-4 w-4" /> Concierge
         </button>
         <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-white/60"><Sparkles className="h-4 w-4" /> Ativação Concierge</div>
-        <h1 className="mt-2 text-2xl font-bold">Deixe o Concierge pronto para agir por você.</h1>
-        <p className="mt-2 text-sm leading-relaxed text-white/75">Você pode conversar com o Concierge Digital assim que o plano e o consentimento estiverem ativos. Para a equipe falar com operadoras e conduzir processos administrativos em seu nome, precisamos também da autorização assinada.</p>
+        <h1 className="mt-2 text-2xl font-bold">Ative seu Concierge e comece a usar.</h1>
+        <p className="mt-2 text-sm leading-relaxed text-white/75">Plano ativo e consentimento aceito: pronto. Você já pode conversar com o Concierge Digital e pedir ajuda à equipe humana. Se algum caso exigir uma autorização ou documento assinado, pediremos isso somente naquele momento.</p>
       </section>
 
       <section className="space-y-3">
@@ -167,33 +112,13 @@ export default function ConciergeActivation() {
         </StepCard>
 
         <StepCard
-          icon={FileSignature}
-          title="Termo + privacidade + representação administrativa"
-          description={legalReady
-            ? 'Documento assinado com identidade verificada.'
-            : authorization?.status === 'signature_pending'
-              ? 'Documento criado. Falta concluir a assinatura no DocWallet.'
-              : 'Uma assinatura eletrônica com OTP libera a equipe para atuar administrativamente em seu nome.'}
-          ready={legalReady}
+          icon={ShieldCheck}
+          title="Autorizações e documentos específicos"
+          description="Não bloqueiam sua entrada no Concierge. Se um caso exigir assinatura, autorização formal ou envio de documento ao plano/ANS, o Concierge solicita isso dentro daquele caso."
+          ready={false}
+          optional
         >
-          {planActive && consentReady && !legalReady && (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void legalAction(authorization?.docwallet_signature_request_id ? 'sync' : 'create')}
-                className="rounded-xl bg-indigo-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-              >
-                {busy ? 'Verificando...' : authorization?.docwallet_signature_request_id ? 'Já assinei · verificar' : 'Gerar e assinar'}
-              </button>
-              {signUrl && (
-                <button type="button" onClick={() => window.open(signUrl, '_blank', 'noopener,noreferrer')} className="rounded-xl border px-4 py-2.5 text-sm font-bold">
-                  Abrir DocWallet
-                </button>
-              )}
-            </div>
-          )}
-          <p className="mt-3 text-xs text-muted-foreground">A autorização não inclui senha pessoal, movimentação financeira, decisão médica nem representação judicial.</p>
+          <p className="mt-3 text-xs text-muted-foreground">Quando necessário, usamos o DocWallet para registrar assinatura e evidências do documento específico. Nenhuma autorização ampla é exigida para começar a usar o Concierge.</p>
         </StepCard>
 
         <StepCard
@@ -217,9 +142,9 @@ export default function ConciergeActivation() {
             ? <CheckCircle2 className="mt-0.5 h-6 w-6 text-emerald-700" />
             : <Circle className="mt-0.5 h-6 w-6 text-slate-400" />}
           <div className="flex-1">
-            <p className="font-bold">{readyForOperations ? 'Seu Concierge está pronto para operar.' : 'Conclua as etapas acima para liberar atuação completa.'}</p>
+            <p className="font-bold">{readyForOperations ? 'Seu Concierge está ativo.' : 'Falta concluir plano e consentimento.'}</p>
             <p className="mt-1 text-sm text-muted-foreground">{readyForOperations
-              ? 'Converse normalmente. Quando houver algo concreto para resolver, o Concierge transforma a conversa em acompanhamento e a equipe entra quando necessário.'
+              ? 'Converse normalmente. Quando houver algo concreto para resolver, o Concierge acompanha o caso e só pede assinatura ou autorização se aquela situação realmente exigir.'
               : 'Você continua com sua HealthWallet normalmente enquanto finaliza a ativação.'}</p>
           </div>
         </div>
