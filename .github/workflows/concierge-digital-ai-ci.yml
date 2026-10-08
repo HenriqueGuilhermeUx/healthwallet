@@ -41,68 +41,7 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Diagnose hosted Netlify deploy
-        if: always()
-        shell: bash
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
-        run: |
-          set +e
-          echo "=== latest site builds ==="
-          curl -fsS             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"             "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}/builds?per_page=5"             | jq '[.[] | {id, deploy_id, sha, done, error, created_at}]'
-          echo "=== latest PR deploy metadata ==="
-          curl -fsS             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"             "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}/deploys?per_page=10"             | jq '[.[] | select(.context=="deploy-preview") | {id, build_id, state, error_message, branch, commit_ref, created_at}] | .[:5]'
-          echo "=== site env metadata (values intentionally omitted) ==="
-          curl -fsS             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"             "https://api.netlify.com/api/v1/accounts/68a5094671bba3abf89c3983/env?site_id=${NETLIFY_SITE_ID}"             | jq '[.[] | {key, is_secret, scopes, contexts: [.values[]?.context]}] | sort_by(.key)'
-
-      - name: Configure Netlify smart-detection safelist
-        shell: bash
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
-        run: |
-          set -euo pipefail
-          ACCOUNT_ID="68a5094671bba3abf89c3983"
-          ENV_JSON="$(mktemp)"
-          curl -fsS \
-            -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
-            "https://api.netlify.com/api/v1/accounts/${ACCOUNT_ID}/env?site_id=${NETLIFY_SITE_ID}" > "${ENV_JSON}"
-          ANON_VALUE="$(jq -r '.[] | select(.key=="VITE_SUPABASE_ANON_KEY") | .values[] | select(.context=="all") | .value' "${ENV_JSON}" | head -n1)"
-          URL_VALUE="$(jq -r '.[] | select(.key=="VITE_SUPABASE_URL") | .values[] | select(.context=="all") | .value' "${ENV_JSON}" | head -n1)"
-          test -n "${ANON_VALUE}" || { echo "VITE_SUPABASE_ANON_KEY missing"; exit 1; }
-          test -n "${URL_VALUE}" || { echo "VITE_SUPABASE_URL missing"; exit 1; }
-          OMIT_VALUE="${ANON_VALUE},${URL_VALUE}"
-          jq -n --arg value "${OMIT_VALUE}" '[{
-            key: "SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES",
-            values: [{context:"all", value:$value}],
-            is_secret: false
-          }]' > /tmp/netlify-safelist.json
-          HTTP_CODE="$(curl -sS -o /tmp/netlify-safelist-response.json -w '%{http_code}' \
-            -X POST \
-            -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data-binary @/tmp/netlify-safelist.json \
-            "https://api.netlify.com/api/v1/accounts/${ACCOUNT_ID}/env?site_id=${NETLIFY_SITE_ID}")"
-          if [ "${HTTP_CODE}" = "201" ]; then
-            echo "Smart-detection safelist created for intentional public Vite values."
-          elif [ "${HTTP_CODE}" = "422" ] || [ "${HTTP_CODE}" = "409" ]; then
-            curl -fsS \
-              -X PATCH \
-              -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}" \
-              -H "Content-Type: application/json" \
-              --data "$(jq -n --arg value "${OMIT_VALUE}" '{context:"all", value:$value}')" \
-              "https://api.netlify.com/api/v1/accounts/${ACCOUNT_ID}/env/SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES?site_id=${NETLIFY_SITE_ID}" >/dev/null
-            echo "Smart-detection safelist updated for intentional public Vite values."
-          else
-            echo "Unexpected Netlify env API status: ${HTTP_CODE}"
-            cat /tmp/netlify-safelist-response.json
-            exit 1
-          fi
-          rm -f "${ENV_JSON}" /tmp/netlify-safelist.json /tmp/netlify-safelist-response.json
-
       - name: Netlify parity build
-        if: ${{ false }}
         shell: bash
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -111,5 +50,3 @@ jobs:
           set -euo pipefail
           test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'NETLIFY_AUTH_TOKEN unavailable'; exit 2; }
           npx --yes netlify-cli@27.8.0 build --context deploy-preview
-
-
