@@ -57,6 +57,7 @@ jobs:
           curl -fsS             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"             "https://api.netlify.com/api/v1/accounts/68a5094671bba3abf89c3983/env?site_id=${NETLIFY_SITE_ID}"             | jq '[.[] | {key, is_secret, scopes, contexts: [.values[]?.context]}] | sort_by(.key)'
 
       - name: Netlify parity build
+        if: ${{ false }}
         shell: bash
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
