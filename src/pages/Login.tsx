@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth'
 const SHOW_NEXA_LOGIN = import.meta.env.VITE_ENABLE_NEXA_LOGIN === 'true'
 
 export default function Login() {
-  const { user, loading: authLoading, signInWithEmail, signUpWithEmail } = useAuth()
+  const { user, loading: authLoading, nexaLinkRequired, signInWithEmail, signUpWithEmail } = useAuth()
   const [isSignUp, setIsSignUp] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -69,17 +69,34 @@ export default function Login() {
             <Heart className="w-12 h-12 text-white" />
           </div>
 
+          {nexaLinkRequired && (
+            <div className="mb-5 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-left">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="w-5 h-5 text-cyan-700 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-slate-900">Vincular ao seu Nexa ID</p>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Encontramos sua conta Health Wallet existente. Entre nela uma única vez.
+                    Depois, abrir pela Nexa não exigirá outra senha.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <h1 className="text-2xl font-bold text-foreground mb-2 text-center">
-            {isSignUp ? 'Criar sua conta' : 'Bem-vindo de volta!'}
+            {nexaLinkRequired ? 'Confirme sua conta Health Wallet' : isSignUp ? 'Criar sua conta' : 'Bem-vindo de volta!'}
           </h1>
           <p className="text-muted-foreground mb-6 text-center">
-            {isSignUp
-              ? 'Preencha seus dados para começar'
-              : 'Entre para acessar sua carteira de saúde digital'
+            {nexaLinkRequired
+              ? 'Use seu login atual uma única vez para concluir a conexão segura com a Nexa.'
+              : isSignUp
+                ? 'Preencha seus dados para começar'
+                : 'Entre para acessar sua carteira de saúde digital'
             }
           </p>
 
-          {SHOW_NEXA_LOGIN && (
+          {SHOW_NEXA_LOGIN && !nexaLinkRequired && (
             <>
               <button
                 type="button"
@@ -167,6 +184,7 @@ export default function Login() {
             </button>
           </form>
 
+          {!nexaLinkRequired && (
           <p className="text-center text-sm text-muted-foreground mt-6">
             {isSignUp ? 'Já tem conta?' : 'Não tem conta?'}{' '}
             <button
@@ -180,6 +198,7 @@ export default function Login() {
               {isSignUp ? 'Faça login' : 'Crie uma agora'}
             </button>
           </p>
+          )}
 
           <p className="text-xs text-muted-foreground mt-6 text-center">
             Ao continuar, você concorda com nossos{' '}

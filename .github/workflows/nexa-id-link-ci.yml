@@ -1,0 +1,43 @@
+name: Nexa ID Account Link CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'netlify/functions/nexa-session.mjs'
+      - 'src/hooks/useAuth.tsx'
+      - 'src/pages/Login.tsx'
+      - '.github/workflows/nexa-id-link-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Validate Nexa ID link boundary
+        run: |
+          set -euo pipefail
+          grep -q "account_link_required" netlify/functions/nexa-session.mjs
+          grep -q "validateCurrentHealthSession" netlify/functions/nexa-session.mjs
+          grep -q "healthwallet_pending_nexa_token" src/hooks/useAuth.tsx
+          grep -q "Vincular ao seu Nexa ID" src/pages/Login.tsx
+          ! grep -q "SUPABASE_SECRET_KEY.*Bearer" netlify/functions/nexa-session.mjs

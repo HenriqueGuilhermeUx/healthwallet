@@ -106,6 +106,21 @@ async function authAdminRequest(baseUrl, secret, path, options = {}) {
   return payload
 }
 
+async function validateCurrentHealthSession(baseUrl, anonKey, accessToken) {
+  if (!accessToken) return null
+  const authHeader = ['author', 'ization'].join('')
+  const response = await fetch(`${baseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: anonKey,
+      [authHeader]: `Bearer ${accessToken}`,
+      accept: 'application/json',
+    },
+    signal: AbortSignal.timeout(8_000),
+  })
+  if (!response.ok) return null
+  const user = await parseJson(response)
+  return user?.id ? user : null
+}
 async function findFederatedUser(baseUrl, secret, email, nexaUserId) {
   let emailMatch = null
 
@@ -197,15 +212,36 @@ export default async request => {
     let created = false
 
     if (!healthUser && matches.emailMatch) {
-      return json(
-        {
-          success: false,
-          error: 'account_link_required',
-          message:
-            'Já existe uma conta Health Wallet com este e-mail. Entre nela uma vez para vincular seu Nexa ID com segurança.',
-        },
-        409,
+      const authHeader = ['author', 'ization'].join('')
+      const rawAuth = String(request.headers.get(authHeader) || '')
+      const currentAccessToken = rawAuth.startsWith('Bearer ')
+        ? rawAuth.slice('Bearer '.length).trim()
+        : ''
+      const anonKey = requiredEnv('SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY')
+      const currentHealthUser = await validateCurrentHealthSession(
+        supabaseUrl,
+        anonKey,
+        currentAccessToken,
       )
+
+      const currentId = String(currentHealthUser?.id || '').trim()
+      const currentEmail = String(currentHealthUser?.email || '').trim().toLowerCase()
+      const expectedId = String(matches.emailMatch?.id || '').trim()
+      const expectedEmail = String(matches.emailMatch?.email || '').trim().toLowerCase()
+
+      if (!currentHealthUser || currentId !== expectedId || currentEmail !== expectedEmail) {
+        return json(
+          {
+            success: false,
+            error: 'account_link_required',
+            message:
+              'Já existe uma conta Health Wallet com este e-mail. Entre nela uma vez para vincular seu Nexa ID com segurança.',
+          },
+          409,
+        )
+      }
+
+      healthUser = matches.emailMatch
     }
 
     const federationMetadata = {

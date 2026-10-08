@@ -1,0 +1,79 @@
+name: Nexa ID Link Health Staging
+
+on:
+  push:
+    branches:
+      - feature/nexa-id-account-link-v1
+    paths:
+      - '.github/build-triggers/nexa-id-link-staging.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexa-id-link-health-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_TOKEN || secrets.NETLIFY_ACCESS_TOKEN || secrets.NETLIFY_API_TOKEN }}
+      NEXA_API_URL: https://nexa-backend-wallet-v15-staging.onrender.com/api/v1
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY || secrets.HEALTHWALLETNEXASTAGING || secrets.healthwalletnexastaging }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Require staging credentials
+        run: |
+          set -euo pipefail
+          test -n "${NETLIFY_AUTH_TOKEN:-}"
+          test -n "${VITE_SUPABASE_URL:-}"
+          test -n "${VITE_SUPABASE_ANON_KEY:-}"
+          test -n "${SUPABASE_SECRET_KEY:-}"
+
+      - name: Seed isolated staging environment
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$VITE_SUPABASE_ANON_KEY"
+          echo "::add-mask::$SUPABASE_SECRET_KEY"
+          npx -y netlify-cli@latest env:set VITE_SUPABASE_URL "$VITE_SUPABASE_URL" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set VITE_SUPABASE_ANON_KEY "$VITE_SUPABASE_ANON_KEY" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set SUPABASE_URL "$VITE_SUPABASE_URL" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set SUPABASE_SECRET_KEY "$SUPABASE_SECRET_KEY" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set NEXA_ID_SSO_ENABLED true --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set NEXA_API_URL "$NEXA_API_URL" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set VITE_ENABLE_NEXA_LOGIN true --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+
+      - name: Build
+        run: pnpm build
+
+      - name: Deploy isolated staging alias
+        run: |
+          set -euo pipefail
+          npx -y netlify-cli@latest deploy --no-build --dir dist --functions netlify/functions --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --alias nexa-ecosystem-staging --message "Nexa ID link staging ${GITHUB_SHA}"
+
+      - name: Smoke staging
+        run: |
+          set -euo pipefail
+          BASE='https://nexa-ecosystem-staging--healthwallet1.netlify.app'
+          curl --fail --silent --show-error --location "$BASE/healthwallet" > /tmp/healthwallet.html
+          grep -qi '<div id="root"' /tmp/healthwallet.html
+          STATUS="$(curl --silent --output /tmp/nexa-session.json --write-out '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$BASE/api/nexa/session")"
+          test "$STATUS" = '400'
