@@ -259,16 +259,24 @@ export default function ConciergeDigital() {
 
       const result = await res.json()
       if (!res.ok) {
-        if (result?.error === 'concierge_subscription_required') {
-          throw new Error('O Concierge Digital exige uma assinatura ativa.')
-        }
-
         const isPreview = window.location.hostname.startsWith('deploy-preview-')
         const stage = result?.diagnostic?.stage ? String(result.diagnostic.stage) : null
         const code = result?.diagnostic?.code ? String(result.diagnostic.code) : null
         const suffix = isPreview && (stage || code)
           ? ` [${stage || 'runtime'}${code ? `:${code}` : ''}]`
           : ''
+
+        if (result?.error === 'concierge_subscription_required') {
+          throw new Error(`O Concierge ainda não está liberado para esta conta.${suffix}`)
+        }
+
+        if (result?.error === 'invalid_session' || result?.error === 'authentication_required') {
+          throw new Error(`Sua sessão precisa ser renovada. Saia e entre novamente.${suffix}`)
+        }
+
+        if (result?.error === 'concierge_server_not_configured') {
+          throw new Error(`O Concierge está com configuração incompleta.${suffix}`)
+        }
 
         throw new Error(`Não foi possível falar com o Concierge agora.${suffix}`)
       }
