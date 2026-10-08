@@ -53,6 +53,8 @@ jobs:
           curl -fsS             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"             "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}/builds?per_page=5"             | jq '[.[] | {id, deploy_id, sha, done, error, created_at}]'
           echo "=== latest PR deploy metadata ==="
           curl -fsS             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"             "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}/deploys?per_page=10"             | jq '[.[] | select(.context=="deploy-preview") | {id, build_id, state, error_message, branch, commit_ref, created_at}] | .[:5]'
+          echo "=== site env metadata (values intentionally omitted) ==="
+          curl -fsS             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"             "https://api.netlify.com/api/v1/accounts/68a5094671bba3abf89c3983/env?site_id=${NETLIFY_SITE_ID}"             | jq '[.[] | {key, is_secret, scopes, contexts: [.values[]?.context]}] | sort_by(.key)'
 
       - name: Netlify parity build
         shell: bash
