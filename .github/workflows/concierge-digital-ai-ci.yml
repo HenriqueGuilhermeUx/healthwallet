@@ -50,3 +50,12 @@ jobs:
           set -euo pipefail
           test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'NETLIFY_AUTH_TOKEN unavailable'; exit 2; }
           npx --yes netlify-cli@27.8.0 build --context deploy-preview
+
+      - name: Diagnose hosted Netlify deploy
+        if: always()
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: |
+          npx --yes netlify-cli@27.8.0 logs --source deploy --url https://deploy-preview-8--healthwallet1.netlify.app --since 30m || true
