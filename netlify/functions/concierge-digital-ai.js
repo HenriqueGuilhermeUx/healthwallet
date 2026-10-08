@@ -78,6 +78,9 @@ LIMITES JURÍDICOS:
 `
 
 export async function handler(event) {
+  let failureStage = 'bootstrap'
+  let providerDiagnostic = null
+
   if (event.httpMethod === 'OPTIONS') {
     return response(204, null)
   }
@@ -87,6 +90,7 @@ export async function handler(event) {
   }
 
   try {
+    failureStage = 'request_validation'
     const rawBody = JSON.parse(event.body || '{}')
     const internalKey = String(event.headers?.['x-concierge-internal-key'] || event.headers?.['X-Concierge-Internal-Key'] || '')
     const configuredInternalKey = String(process.env.CONCIERGE_INTERNAL_SERVICE_KEY || '')
@@ -137,6 +141,7 @@ export async function handler(event) {
 
     if (!message) return response(400, { error: 'message_required' })
 
+    failureStage = 'subscription_lookup'
     const [{ data: membership }, { data: entitlement }, { data: representationAuth }] = await Promise.all([
       admin
         .from('concierge_memberships')
@@ -185,6 +190,7 @@ export async function handler(event) {
 
     let session = null
 
+    failureStage = 'session_lookup'
     if (sessionId) {
       const { data } = await admin
         .from('concierge_chat_sessions')
@@ -196,6 +202,7 @@ export async function handler(event) {
     }
 
     if (!session) {
+      failureStage = 'session_create'
       const { data, error } = await admin
         .from('concierge_chat_sessions')
         .insert({
@@ -218,6 +225,7 @@ export async function handler(event) {
       sessionId = data.id
     }
 
+    failureStage = 'message_persist'
     await admin.from('concierge_chat_messages').insert({
       session_id: sessionId,
       patient_id: user.id,
@@ -346,6 +354,7 @@ export async function handler(event) {
       },
     }
 
+    failureStage = 'ai_provider'
     const aiRes = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -370,14 +379,25 @@ export async function handler(event) {
       }),
     })
 
-    const aiJson = await aiRes.json()
-    if (!aiRes.ok) {
-      throw new Error(aiJson?.error?.message || 'AI request failed')
-    }
+    const aiJson = await aiRes.json().catch(() => ({}))
+    let parsed
+    let aiMode = 'primary'
 
-    const parsed = parseAI(aiJson.output_text)
+    if (!aiRes.ok) {
+      const providerCode = String(aiJson?.error?.code || aiJson?.error?.type || 'provider_error').slice(0, 80)
+      providerDiagnostic = {
+        status: aiRes.status,
+        code: providerCode,
+      }
+      console.error('Concierge AI provider unavailable:', providerDiagnostic)
+      parsed = deterministicFallback(message)
+      aiMode = 'fallback'
+    } else {
+      parsed = parseAI(extractResponseText(aiJson))
+    }
     const reply = String(parsed.reply || 'Entendi. Vou acompanhar isso com você.').slice(0, 6000)
 
+    failureStage = 'operational_processing'
     let createdRequest = null
     let createdOperationalCase = null
     if (parsed.intent === 'create_request' && parsed.request) {
@@ -538,6 +558,7 @@ export async function handler(event) {
         created_request_id: createdRequest?.id || null,
         created_operational_case_id: createdOperationalCase?.id || null,
         model: process.env.CONCIERGE_AI_MODEL || 'gpt-6-luna',
+        ai_mode: aiMode,
       },
     })
 
@@ -549,11 +570,95 @@ export async function handler(event) {
       attentionLevel,
       createdRequest,
       createdOperationalCase,
+      aiMode,
+      diagnostic: process.env.CONTEXT === 'deploy-preview' ? providerDiagnostic : undefined,
     })
   } catch (error) {
-    console.error('Concierge Digital AI error:', error)
-    return response(500, { error: 'concierge_ai_failed' })
+    console.error('Concierge Digital AI error:', { stage: failureStage, message: error?.message || String(error) })
+    return response(500, {
+      error: 'concierge_ai_failed',
+      diagnostic: process.env.CONTEXT === 'deploy-preview'
+        ? { stage: failureStage, code: safeErrorCode(error) }
+        : undefined,
+    })
   }
+}
+
+function extractResponseText(payload) {
+  if (payload?.output_text) return String(payload.output_text)
+
+  const parts = []
+  for (const item of payload?.output || []) {
+    for (const content of item?.content || []) {
+      if (content?.type === 'output_text' && content?.text) parts.push(content.text)
+    }
+  }
+  return parts.join('\n').trim()
+}
+
+function deterministicFallback(message) {
+  const text = String(message || '')
+  const wantsHuman = /falar com (uma )?pessoa|atendimento humano|concierge humano|enfermeir[ao]/i.test(text)
+
+  if (/negou|negada|negado|autoriza[cç][aã]o|glosa/i.test(text)) {
+    return {
+      reply: 'Entendi. Vou organizar essa negativa como um caso do Concierge para acompanharmos protocolo, documentação e próximo passo com o plano. Se for necessário falar formalmente em seu nome, pediremos a autorização específica dentro desse caso.',
+      intent: 'create_request',
+      needs_human: wantsHuman,
+      attention_level: 'watch',
+      attention_reason: 'Negativa ou autorização de plano relatada pelo paciente.',
+      request: {
+        category: 'navigation',
+        title: 'Negativa ou autorização do plano de saúde',
+        description: text.slice(0, 5000),
+        urgency: 'routine',
+        operational_type: 'insurance_authorization',
+        insurer_name: null,
+        plan_name: null,
+        protocol_number: null,
+        amount_requested: null,
+        legal_guide_code: null,
+      },
+    }
+  }
+
+  if (/reembolso/i.test(text)) {
+    return {
+      reply: 'Entendi. Vou organizar o reembolso como um caso acompanhado pelo Concierge e identificar o que falta de documento, protocolo e prazo.',
+      intent: 'create_request',
+      needs_human: wantsHuman,
+      attention_level: 'watch',
+      attention_reason: 'Demanda de reembolso.',
+      request: {
+        category: 'navigation',
+        title: 'Reembolso do plano de saúde',
+        description: text.slice(0, 5000),
+        urgency: 'routine',
+        operational_type: 'reimbursement',
+        insurer_name: null,
+        plan_name: null,
+        protocol_number: null,
+        amount_requested: null,
+        legal_guide_code: null,
+      },
+    }
+  }
+
+  return {
+    reply: wantsHuman
+      ? 'Certo. Vou avisar a equipe Concierge para entrar na conversa.'
+      : 'Recebi sua mensagem. Posso organizar os próximos passos e, quando necessário, envolver a equipe humana.',
+    intent: wantsHuman ? 'human_handoff' : 'conversation',
+    needs_human: wantsHuman,
+    attention_level: 'none',
+    attention_reason: null,
+    request: null,
+  }
+}
+
+function safeErrorCode(error) {
+  const raw = String(error?.code || error?.name || 'runtime_error')
+  return raw.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 80)
 }
 
 function parseAI(raw) {
