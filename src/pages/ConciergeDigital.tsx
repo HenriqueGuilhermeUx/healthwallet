@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Bot, Headphones, Loader2, Mic, MicOff, Send, Sparkles, UserRound, Volume2, VolumeX } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Bot, ExternalLink, FileSignature, Headphones, Loader2, Mic, MicOff, Send, Sparkles, UserRound, Volume2, VolumeX } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Capacitor } from '@capacitor/core'
@@ -40,6 +40,7 @@ export default function ConciergeDigital() {
   const [subjectFamilyMemberId, setSubjectFamilyMemberId] = useState<string>('')
   const [operationalCases, setOperationalCases] = useState<any[]>([])
   const [caseEvents, setCaseEvents] = useState<Record<string, any[]>>({})
+  const [caseAuthorizations, setCaseAuthorizations] = useState<Record<string, any>>({})
   const [whatsappIdentity, setWhatsappIdentity] = useState<any>(null)
   const [whatsappLinkCode, setWhatsappLinkCode] = useState('')
   const [whatsappLinkExpiresAt, setWhatsappLinkExpiresAt] = useState<string | null>(null)
@@ -148,6 +149,7 @@ export default function ConciergeDigital() {
       const initialCases = casesRes.data || []
       setOperationalCases(initialCases)
       void refreshCaseEvents(initialCases)
+      void refreshCaseAuthorizations(initialCases)
       setWhatsappIdentity(whatsappRes.data || null)
 
       const entitlementAllowed = entitlementRes.data
@@ -207,6 +209,35 @@ export default function ConciergeDigital() {
     }
   }
 
+  async function refreshCaseAuthorizations(cases: any[]) {
+    if (!user || !cases.length) {
+      setCaseAuthorizations({})
+      return
+    }
+
+    const ids = cases.map((item) => item.id)
+    const { data, error } = await supabase
+      .from('concierge_legal_authorizations')
+      .select('id,case_id,authorization_type,status,purpose,recipient,authorization_scope,signed_at,metadata,updated_at')
+      .eq('patient_id', user.id)
+      .eq('authorization_type', 'representation_authorization')
+      .in('case_id', ids)
+      .order('updated_at', { ascending: false })
+
+    if (error) {
+      console.warn('Case authorization lookup failed:', error)
+      return
+    }
+
+    const mapped: Record<string, any> = {}
+    for (const authorization of data || []) {
+      if (authorization.case_id && !mapped[authorization.case_id]) {
+        mapped[authorization.case_id] = authorization
+      }
+    }
+    setCaseAuthorizations(mapped)
+  }
+
   async function refreshCaseEvents(cases: any[]) {
     if (!user || !cases.length) {
       setCaseEvents({})
@@ -243,7 +274,10 @@ export default function ConciergeDigital() {
 
     const rows = data || []
     setOperationalCases(rows)
-    await refreshCaseEvents(rows)
+    await Promise.all([
+      refreshCaseEvents(rows),
+      refreshCaseAuthorizations(rows),
+    ])
   }
 
   async function refreshConversation(sessionId: string) {
@@ -593,6 +627,10 @@ export default function ConciergeDigital() {
                 || item.metadata?.representation_required === 'true'
               const representationReady = item.metadata?.representation_ready === true
                 || item.metadata?.representation_ready === 'true'
+              const authorization = caseAuthorizations[item.id] || null
+              const authorizationSigned = representationReady || authorization?.status === 'signed'
+              const authorizationPending = ['pending', 'signature_pending'].includes(authorization?.status)
+              const patientSignUrl = String(authorization?.metadata?.patient_sign_url || '')
               const timeline = caseEvents[item.id] || []
 
               return (
@@ -622,17 +660,64 @@ export default function ConciergeDigital() {
                   )}
 
                   {representationRequired && (
-                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                      <p className="text-xs font-bold text-amber-900">
-                        {representationReady
-                          ? 'Autorização específica confirmada'
-                          : 'Seu Concierge continua ativo normalmente'}
-                      </p>
-                      <p className="mt-1 text-xs leading-relaxed text-amber-800">
-                        {representationReady
-                          ? 'A equipe já pode executar as ações formais autorizadas para este caso.'
-                          : 'Vamos organizar documentos, protocolo e estratégia. Se precisarmos agir formalmente em seu nome, pediremos uma autorização vinculada somente a este caso.'}
-                      </p>
+                    <div className={`mt-3 rounded-xl border p-3 ${
+                      authorizationSigned
+                        ? 'border-emerald-200 bg-emerald-50'
+                        : authorizationPending
+                          ? 'border-indigo-200 bg-indigo-50'
+                          : 'border-amber-200 bg-amber-50'
+                    }`}>
+                      <div className="flex items-start gap-2">
+                        {authorizationSigned
+                          ? <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                          : <FileSignature className="mt-0.5 h-4 w-4 shrink-0 text-indigo-700" />}
+                        <div className="min-w-0 flex-1">
+                          <p className={`text-xs font-bold ${
+                            authorizationSigned
+                              ? 'text-emerald-900'
+                              : authorizationPending
+                                ? 'text-indigo-950'
+                                : 'text-amber-900'
+                          }`}>
+                            {authorizationSigned
+                              ? 'Autorização específica assinada'
+                              : authorizationPending
+                                ? 'Precisamos da sua autorização para este caso'
+                                : 'Seu Concierge continua ativo normalmente'}
+                          </p>
+
+                          <p className={`mt-1 text-xs leading-relaxed ${
+                            authorizationSigned
+                              ? 'text-emerald-800'
+                              : authorizationPending
+                                ? 'text-indigo-900/80'
+                                : 'text-amber-800'
+                          }`}>
+                            {authorizationSigned
+                              ? 'A equipe já pode executar as ações formais previstas no escopo autorizado para este caso.'
+                              : authorizationPending
+                                ? 'Esta autorização vale somente para este caso e permite que a equipe execute os atos administrativos descritos no documento.'
+                                : 'Vamos organizar documentos, protocolo e estratégia. Se precisarmos agir formalmente em seu nome, pediremos uma autorização vinculada somente a este caso.'}
+                          </p>
+
+                          {authorizationPending && patientSignUrl && (
+                            <button
+                              type="button"
+                              onClick={() => window.open(patientSignUrl, '_blank', 'noopener,noreferrer')}
+                              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-700 px-3 py-2.5 text-xs font-bold text-white"
+                            >
+                              Revisar e assinar autorização
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+
+                          {authorizationPending && !patientSignUrl && (
+                            <p className="mt-2 rounded-lg bg-white/70 p-2 text-[11px] font-semibold text-indigo-700">
+                              A autorização foi preparada. O link de assinatura está sendo disponibilizado pela equipe.
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
 
