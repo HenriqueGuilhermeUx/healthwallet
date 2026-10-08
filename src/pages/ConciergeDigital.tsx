@@ -257,13 +257,26 @@ export default function ConciergeDigital() {
         }),
       })
 
-      const result = await res.json()
+      const rawResponse = await res.text()
+      let result: any = {}
+      try {
+        result = rawResponse ? JSON.parse(rawResponse) : {}
+      } catch {
+        result = {}
+      }
+
       if (!res.ok) {
         const isPreview = window.location.hostname.startsWith('deploy-preview-')
         const stage = result?.diagnostic?.stage ? String(result.diagnostic.stage) : null
         const code = result?.diagnostic?.code ? String(result.diagnostic.code) : null
-        const suffix = isPreview && (stage || code)
-          ? ` [${stage || 'runtime'}${code ? `:${code}` : ''}]`
+        const fallbackCode = !rawResponse
+          ? 'empty_response'
+          : rawResponse.trim().startsWith('<')
+            ? 'html_response'
+            : 'non_json_response'
+        const diagnosticCode = code || (isPreview ? fallbackCode : null)
+        const suffix = isPreview
+          ? ` [http_${res.status}${stage ? `:${stage}` : ''}${diagnosticCode ? `:${diagnosticCode}` : ''}]`
           : ''
 
         if (result?.error === 'concierge_subscription_required') {
@@ -276,6 +289,10 @@ export default function ConciergeDigital() {
 
         if (result?.error === 'concierge_server_not_configured') {
           throw new Error(`O Concierge está com configuração incompleta.${suffix}`)
+        }
+
+        if (result?.error === 'concierge_subscription_lookup_failed') {
+          throw new Error(`Não consegui validar sua assinatura do Concierge.${suffix}`)
         }
 
         throw new Error(`Não foi possível falar com o Concierge agora.${suffix}`)
@@ -308,7 +325,12 @@ export default function ConciergeDigital() {
       if (result.urgent) toast.error('Procure atendimento de urgência imediatamente.')
       if (result.needsHuman) toast.success('Sua equipe Concierge foi avisada.')
     } catch (error: any) {
-      toast.error(error?.message || 'Não foi possível enviar sua mensagem.')
+      const isPreview = window.location.hostname.startsWith('deploy-preview-')
+      const message = error?.message || 'Não foi possível enviar sua mensagem.'
+      const fallback = isPreview && message === 'Failed to fetch'
+        ? 'Falha de rede ao chamar a function. [network:failed_to_fetch]'
+        : message
+      toast.error(fallback)
       setInput(body)
     } finally {
       setSending(false)
