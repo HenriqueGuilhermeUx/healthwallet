@@ -28,6 +28,7 @@ jobs:
           node-version: '22'
       - run: corepack enable
       - run: pnpm install --no-frozen-lockfile
+
       - name: Contract checks
         shell: bash
         run: |
@@ -38,8 +39,49 @@ jobs:
           grep -q 'SUPABASE_SERVICE_ROLE_KEY' netlify/functions/concierge-digital-ai.js
           grep -q 'gpt-6-luna' netlify/functions/concierge-digital-ai.js
           grep -q 'Falar com uma pessoa' src/pages/ConciergeDigital.tsx
+
       - name: Build
         run: pnpm build
+
+      - name: Netlify hosted build config diagnostics
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: |
+          set -euo pipefail
+          test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'NETLIFY_AUTH_TOKEN unavailable'; exit 2; }
+
+          node <<'NODE'
+          const token = process.env.NETLIFY_AUTH_TOKEN
+          const siteId = process.env.NETLIFY_SITE_ID
+          const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (!response.ok) throw new Error(`Netlify site API failed: ${response.status}`)
+          const site = await response.json()
+          const build = site.build_settings || {}
+          const safe = {
+            site_name: site.name,
+            repo_branch: build.repo_branch || null,
+            build_command: build.cmd || null,
+            base: build.base || null,
+            publish: build.dir || null,
+            functions_dir: build.functions_dir || null,
+            provider: build.provider || null,
+            stop_builds: build.stop_builds ?? null,
+            framework: build.framework || null,
+          }
+          console.log('NETLIFY_SAFE_SITE_CONFIG=' + JSON.stringify(safe))
+          NODE
+
+          for key in PNPM_FLAGS NODE_VERSION NPM_FLAGS NPM_VERSION YARN_FLAGS; do
+            printf '%s(deploy-preview,builds)=' "$key"
+            npx --yes netlify-cli@27.8.0 env:get "$key" --context deploy-preview --scope builds 2>/dev/null || true
+          done
+
+          echo '--- effective deploy-preview build stages ---'
+          npx --yes netlify-cli@27.8.0 build --dry --context deploy-preview
 
       - name: Netlify parity build
         shell: bash
