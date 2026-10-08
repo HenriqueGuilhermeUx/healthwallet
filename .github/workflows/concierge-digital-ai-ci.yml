@@ -50,3 +50,22 @@ jobs:
           set -euo pipefail
           test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'NETLIFY_AUTH_TOKEN unavailable'; exit 2; }
           npx --yes netlify-cli@27.8.0 build --context deploy-preview
+
+      - name: Netlify hosted build settings diagnostic
+        shell: bash
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: |
+          set -euo pipefail
+          test -n "${NETLIFY_AUTH_TOKEN:-}" || { echo 'NETLIFY_AUTH_TOKEN unavailable'; exit 2; }
+          npx --yes netlify-cli@27.8.0 api getSite --data '{"site_id":"6385fa98-ad7a-4fd2-8cfa-5d903f437502"}'             | jq '{
+                name,
+                repo: (.build_settings.repo_path // .build_settings.repo_url // null),
+                repo_branch: (.build_settings.repo_branch // null),
+                base: (.build_settings.base // null),
+                dir: (.build_settings.dir // null),
+                cmd: (.build_settings.cmd // null),
+                functions_dir: (.build_settings.functions_dir // null),
+                framework: (.build_settings.framework // null)
+              }'
