@@ -243,7 +243,7 @@ export default function ConciergeDigital() {
       const token = authData.session?.access_token
       if (!token) throw new Error('Sessão expirada. Entre novamente.')
 
-      const res = await fetch('/.netlify/functions/concierge-digital-ai', {
+      const res = await fetch('/.netlify/functions/concierge-digital-ai-v2', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
