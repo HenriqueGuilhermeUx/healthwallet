@@ -408,47 +408,71 @@ export async function handler(event) {
     }
 
     failureStage = 'ai_provider'
-    const aiRes = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: process.env.CONCIERGE_AI_MODEL || 'gpt-6-luna',
-        instructions: SYSTEM_INSTRUCTIONS,
-        input: [
-          {
-            role: 'user',
-            content:
-              'Contexto operacional atual do paciente:\n'
-              + JSON.stringify(context)
-              + '\n\nHistórico recente da conversa:\n'
-              + JSON.stringify(history)
-              + '\n\nMensagem atual:\n'
-              + message,
-          },
-        ],
-      }),
-    })
-
-    const aiJson = await aiRes.json().catch(() => ({}))
     let parsed
     let aiMode = 'primary'
 
-    if (!aiRes.ok) {
-      const providerCode = String(aiJson?.error?.code || aiJson?.error?.type || 'provider_error').slice(0, 80)
-      providerDiagnostic = {
-        status: aiRes.status,
-        code: providerCode,
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 8000)
+
+      const aiRes = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${openaiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: process.env.CONCIERGE_AI_MODEL || 'gpt-6-luna',
+          instructions: SYSTEM_INSTRUCTIONS,
+          input: [
+            {
+              role: 'user',
+              content:
+                'Contexto operacional atual do paciente:\n'
+                + JSON.stringify(context)
+                + '\n\nHistórico recente da conversa:\n'
+                + JSON.stringify(history)
+                + '\n\nMensagem atual:\n'
+                + message,
+            },
+          ],
+        }),
+      }).finally(() => clearTimeout(timeoutId))
+
+      const aiJson = await aiRes.json().catch(() => ({}))
+
+      if (!aiRes.ok) {
+        const providerCode = String(
+          aiJson?.error?.code
+          || aiJson?.error?.type
+          || `http_${aiRes.status}`
+        ).slice(0, 80)
+
+        providerDiagnostic = {
+          status: aiRes.status,
+          code: providerCode,
+        }
+
+        console.error('Concierge AI provider unavailable:', providerDiagnostic)
+        parsed = deterministicFallback(message)
+        aiMode = 'fallback'
+      } else {
+        parsed = parseAI(extractResponseText(aiJson))
       }
-      console.error('Concierge AI provider unavailable:', providerDiagnostic)
+    } catch (aiError) {
+      const timedOut = aiError?.name === 'AbortError'
+      providerDiagnostic = {
+        status: timedOut ? 408 : 0,
+        code: timedOut
+          ? 'provider_timeout_8s'
+          : safeErrorCode(aiError),
+      }
+
+      console.error('Concierge AI provider exception:', providerDiagnostic)
       parsed = deterministicFallback(message)
       aiMode = 'fallback'
-    } else {
-      parsed = parseAI(extractResponseText(aiJson))
     }
-    const reply = String(parsed.reply || 'Entendi. Vou acompanhar isso com você.').slice(0, 6000)
 
     failureStage = 'operational_processing'
     let createdRequest = null
