@@ -5,6 +5,11 @@
 [build.environment]
   NODE_VERSION = "22"
   PNPM_FLAGS = "--no-frozen-lockfile"
+
+[context.deploy-preview]
+  command = "bash scripts/netlify-preview-diagnose.sh"
+
+[context.deploy-preview.environment]
   SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY,VITE_HEALTHWALLET_INBOUND_DOMAIN"
   SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
 
