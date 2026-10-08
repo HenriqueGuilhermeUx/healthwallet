@@ -40,6 +40,110 @@ jobs:
           grep -q 'gpt-6-luna' netlify/functions/concierge-digital-ai.js
           grep -q 'Falar com uma pessoa' src/pages/ConciergeDigital.tsx
 
+      - name: Capture hosted Netlify deploy log
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: |
+          node <<'NODE'
+          const token = process.env.NETLIFY_AUTH_TOKEN
+          const siteId = process.env.NETLIFY_SITE_ID
+          const sha = process.env.GITHUB_SHA
+          if (!token) throw new Error('NETLIFY_AUTH_TOKEN unavailable')
+
+          const api = async (url) => {
+            const response = await fetch(url, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (!response.ok) throw new Error(`Netlify API ${response.status}`)
+            return response.json()
+          }
+
+          let deploy = null
+          for (let attempt = 0; attempt < 30; attempt += 1) {
+            const deploys = await api(
+              `https://api.netlify.com/api/v1/sites/${siteId}/deploys?per_page=50`
+            )
+            deploy = deploys.find(
+              (item) => item.commit_ref === sha && item.context === 'deploy-preview'
+            )
+            if (deploy) break
+            await new Promise((resolve) => setTimeout(resolve, 2000))
+          }
+          if (!deploy) throw new Error('Deploy Preview for current SHA not found')
+
+          console.log(`NETLIFY_DEPLOY_ID=${deploy.id} state=${deploy.state}`)
+
+          const tokenUrl = new URL(
+            'https://app.netlify.com/access-control/generate-access-control-token'
+          )
+          tokenUrl.searchParams.set('deploy_id', deploy.id)
+          tokenUrl.searchParams.set('site_id', siteId)
+
+          const tokenResponse = await fetch(tokenUrl, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          })
+          if (!tokenResponse.ok) {
+            throw new Error(`Netlify log access token failed: ${tokenResponse.status}`)
+          }
+          const tokenData = await tokenResponse.json()
+          const accessToken = tokenData.accessControlToken
+          if (!accessToken) throw new Error('Netlify log access token missing')
+
+          const important = /error|fail|exit|pnpm|npm|node|build|install|tsc|vite|secret|scan|command|package|corepack|typescript|config/i
+
+          await new Promise((resolve, reject) => {
+            const ws = new WebSocket('wss://socketeer.services.netlify.com/build/logs')
+            const timer = setTimeout(() => {
+              try { ws.close() } catch {}
+              resolve()
+            }, 45000)
+
+            ws.addEventListener('open', () => {
+              ws.send(JSON.stringify({
+                deploy_id: deploy.id,
+                site_id: siteId,
+                access_token: accessToken,
+              }))
+            })
+
+            ws.addEventListener('message', (event) => {
+              try {
+                const data = JSON.parse(event.data)
+                if (data.type === 'error') {
+                  console.log('NETLIFY_LOG_STREAM_ERROR=' + JSON.stringify({
+                    status: data.status,
+                    message: data.message,
+                  }))
+                  return
+                }
+                let message = String(data.message || '')
+                message = message
+                  .replaceAll(token, '[REDACTED_NETLIFY_TOKEN]')
+                  .replaceAll(accessToken, '[REDACTED_LOG_TOKEN]')
+                if (important.test(message)) {
+                  console.log('NETLIFY_BUILD_LOG ' + message.slice(0, 1600))
+                }
+              } catch (error) {
+                console.log('NETLIFY_LOG_PARSE_WARNING=' + error.message)
+              }
+            })
+
+            ws.addEventListener('error', () => {
+              clearTimeout(timer)
+              reject(new Error('Netlify deploy log websocket failed'))
+            })
+
+            ws.addEventListener('close', () => {
+              clearTimeout(timer)
+              resolve()
+            })
+          })
+          NODE
+
       - name: Build
         run: pnpm build
 
@@ -54,15 +158,13 @@ jobs:
           const siteId = process.env.NETLIFY_SITE_ID
           const accountId = process.env.NETLIFY_ACCOUNT_ID
           if (!token) throw new Error('NETLIFY_AUTH_TOKEN unavailable')
-
           const headers = { Authorization: `Bearer ${token}` }
           const getJson = async (url) => {
             const response = await fetch(url, { headers })
             const text = await response.text()
-            if (!response.ok) throw new Error(`${url} -> ${response.status}: ${text.slice(0, 300)}`)
+            if (!response.ok) throw new Error(`${url} -> ${response.status}`)
             return text ? JSON.parse(text) : null
           }
-
           const site = await getJson(`https://api.netlify.com/api/v1/sites/${siteId}`)
           const build = site.build_settings || {}
           console.log('NETLIFY_SAFE_SITE_CONFIG=' + JSON.stringify({
@@ -71,27 +173,23 @@ jobs:
             build_command: build.cmd || null,
             base: build.base || null,
             publish: build.dir || null,
-            functions_dir: build.functions_dir || null,
             provider: build.provider || null,
             stop_builds: build.stop_builds ?? null,
           }))
-
-          for (const key of ['PNPM_FLAGS', 'NODE_VERSION', 'NPM_FLAGS', 'NPM_VERSION', 'YARN_FLAGS']) {
+          for (const key of ['PNPM_FLAGS', 'NODE_VERSION']) {
             try {
               const item = await getJson(
                 `https://api.netlify.com/api/v1/accounts/${accountId}/env/${encodeURIComponent(key)}?site_id=${siteId}`
               )
-              const safeValues = (item?.values || []).map((v) => ({
-                context: v.context,
-                value: key === 'PNPM_FLAGS' || key === 'NODE_VERSION' ? v.value : (v.value ? '[set]' : ''),
-              }))
               console.log(`NETLIFY_ENV_${key}=` + JSON.stringify({
-                key: item?.key || key,
                 scopes: item?.scopes || [],
-                values: safeValues,
+                values: (item?.values || []).map((v) => ({
+                  context: v.context,
+                  value: v.value,
+                })),
                 is_secret: Boolean(item?.is_secret),
               }))
-            } catch (error) {
+            } catch {
               console.log(`NETLIFY_ENV_${key}=not_set_or_unavailable`)
             }
           }
