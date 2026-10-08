@@ -6,6 +6,7 @@ interface AuthContextType {
   user: User | any | null
   session: Session | null
   loading: boolean
+  nexaLinkRequired: boolean
   signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>
   signUpWithEmail: (email: string, password: string, name: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
@@ -15,16 +16,84 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
   loading: true,
+  nexaLinkRequired: false,
   signInWithEmail: async () => ({ error: null }),
   signUpWithEmail: async () => ({ error: null }),
   signOut: async () => {},
 })
 
-async function exchangeNexaHandoff() {
+const PENDING_NEXA_TOKEN_KEY = 'healthwallet_pending_nexa_token'
+
+function readPendingNexaToken() {
+  try {
+    return String(window.sessionStorage.getItem(PENDING_NEXA_TOKEN_KEY) || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+function savePendingNexaToken(token: string) {
+  try {
+    window.sessionStorage.setItem(PENDING_NEXA_TOKEN_KEY, token)
+  } catch {
+    // The token remains in the current handoff only when storage is unavailable.
+  }
+}
+
+function clearPendingNexaToken() {
+  try {
+    window.sessionStorage.removeItem(PENDING_NEXA_TOKEN_KEY)
+  } catch {
+    // Ignore browsers where sessionStorage is unavailable.
+  }
+}
+
+type NexaHandoffError = Error & { code?: string; status?: number }
+
+async function exchangeNexaToken(token: string, currentSession: Session | null = null) {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (currentSession?.access_token) {
+    headers.Authorization = `Bearer ${currentSession.access_token}`
+  }
+
+  const response = await fetch('/api/nexa/session', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ token }),
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || payload?.success !== true || !payload?.tokenHash) {
+    const error = new Error(
+      payload?.message || 'Nexa ID handoff unavailable',
+    ) as NexaHandoffError
+    error.code = String(payload?.error || 'nexa_handoff_unavailable')
+    error.status = response.status
+    throw error
+  }
+
+  clearPendingNexaToken()
+  const { data, error } = await supabase.auth.verifyOtp({
+    token_hash: String(payload.tokenHash),
+    type: 'magiclink',
+  })
+
+  if (error || !data?.session?.user) {
+    savePendingNexaToken(token)
+    throw error || new Error('Health Wallet session exchange failed')
+  }
+
+  localStorage.removeItem('healthwallet_nexa_user')
+  localStorage.removeItem('healthwallet_nexa_token')
+  return data.session
+}
+
+async function exchangeNexaHandoff(currentSession: Session | null = null) {
   const params = new URLSearchParams(window.location.search)
   const token = String(params.get('nexaToken') || '').trim()
   if (!token) return null
 
+  savePendingNexaToken(token)
   params.delete('nexaToken')
   params.delete('source')
   const nextQuery = params.toString()
@@ -34,29 +103,13 @@ async function exchangeNexaHandoff() {
     `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`,
   )
 
-  const response = await fetch('/api/nexa/session', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ token }),
-  })
+  return exchangeNexaToken(token, currentSession)
+}
 
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok || payload?.success !== true || !payload?.tokenHash) {
-    throw new Error('Nexa ID handoff unavailable')
-  }
-
-  const { data, error } = await supabase.auth.verifyOtp({
-    token_hash: String(payload.tokenHash),
-    type: 'magiclink',
-  })
-
-  if (error || !data?.session?.user) {
-    throw error || new Error('Health Wallet session exchange failed')
-  }
-
-  localStorage.removeItem('healthwallet_nexa_user')
-  localStorage.removeItem('healthwallet_nexa_token')
-  return data.session
+async function exchangePendingNexaHandoff(currentSession: Session) {
+  const token = readPendingNexaToken()
+  if (!token) return null
+  return exchangeNexaToken(token, currentSession)
 }
 
 async function ensureUserProfile(user: User | any | null) {
@@ -81,20 +134,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | any | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [nexaLinkRequired, setNexaLinkRequired] = useState(Boolean(readPendingNexaToken()))
 
   useEffect(() => {
     const loadAuth = async () => {
+      const { data: { session: existingSession } } = await supabase.auth.getSession()
+
       try {
-        const federatedSession = await exchangeNexaHandoff()
+        const federatedSession = await exchangeNexaHandoff(existingSession)
         if (federatedSession) {
           setSession(federatedSession)
           setUser(federatedSession.user)
+          setNexaLinkRequired(false)
           setLoading(false)
           void ensureUserProfile(federatedSession.user)
           return
         }
       } catch (error) {
-        console.warn('Nexa ID handoff failed:', error)
+        const handoffError = error as NexaHandoffError
+        console.warn('Nexa ID handoff failed:', handoffError)
+        setNexaLinkRequired(handoffError?.code === 'account_link_required')
       }
 
       // Remove the legacy local-only Nexa identity. A Nexa login is valid only
@@ -102,13 +161,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('healthwallet_nexa_user')
       localStorage.removeItem('healthwallet_nexa_token')
 
-      const { data: { session } } = await supabase.auth.getSession()
-
-      setSession(session)
-      setUser(session?.user ?? null)
+      setSession(existingSession)
+      setUser(existingSession?.user ?? null)
       setLoading(false)
 
-      if (session?.user) void ensureUserProfile(session.user)
+      if (existingSession?.user) void ensureUserProfile(existingSession.user)
     }
 
     loadAuth()
@@ -133,9 +190,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
     })
 
+    if (error) return { error: error as Error | null }
+
     if (data.user) await ensureUserProfile(data.user)
 
-    return { error: error as Error | null }
+    if (data.session && readPendingNexaToken()) {
+      try {
+        const federatedSession = await exchangePendingNexaHandoff(data.session)
+        if (federatedSession) {
+          setSession(federatedSession)
+          setUser(federatedSession.user)
+          setNexaLinkRequired(false)
+          void ensureUserProfile(federatedSession.user)
+        }
+      } catch (linkError) {
+        setNexaLinkRequired(true)
+        return {
+          error: linkError instanceof Error
+            ? linkError
+            : new Error('Não foi possível vincular seu Nexa ID agora.'),
+        }
+      }
+    }
+
+    return { error: null }
   }
 
   const signUpWithEmail = async (email: string, password: string, name: string) => {
@@ -161,6 +239,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     localStorage.removeItem('healthwallet_nexa_user')
     localStorage.removeItem('healthwallet_nexa_token')
+    clearPendingNexaToken()
+    setNexaLinkRequired(false)
 
     const { error } = await supabase.auth.signOut()
     if (error) console.error('Error signing out:', error)
@@ -170,7 +250,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signInWithEmail, signUpWithEmail, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, nexaLinkRequired, signInWithEmail, signUpWithEmail, signOut }}>
       {children}
     </AuthContext.Provider>
   )
