@@ -40,44 +40,22 @@ jobs:
           grep -q 'gpt-6-luna' netlify/functions/concierge-digital-ai.js
           grep -q 'Falar com uma pessoa' src/pages/ConciergeDigital.tsx
 
-      - name: Capture hosted Netlify deploy log
+      - name: Read failed hosted Netlify deploy log
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+          NETLIFY_DEPLOY_ID: 6ac6e7ad4b90cc0008f7f356
         run: |
           node <<'NODE'
           const token = process.env.NETLIFY_AUTH_TOKEN
           const siteId = process.env.NETLIFY_SITE_ID
-          const sha = process.env.GITHUB_SHA
+          const deployId = process.env.NETLIFY_DEPLOY_ID
           if (!token) throw new Error('NETLIFY_AUTH_TOKEN unavailable')
-
-          const api = async (url) => {
-            const response = await fetch(url, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-            if (!response.ok) throw new Error(`Netlify API ${response.status}`)
-            return response.json()
-          }
-
-          let deploy = null
-          for (let attempt = 0; attempt < 30; attempt += 1) {
-            const deploys = await api(
-              `https://api.netlify.com/api/v1/sites/${siteId}/deploys?per_page=50`
-            )
-            deploy = deploys.find(
-              (item) => item.commit_ref === sha && item.context === 'deploy-preview'
-            )
-            if (deploy) break
-            await new Promise((resolve) => setTimeout(resolve, 2000))
-          }
-          if (!deploy) throw new Error('Deploy Preview for current SHA not found')
-
-          console.log(`NETLIFY_DEPLOY_ID=${deploy.id} state=${deploy.state}`)
 
           const tokenUrl = new URL(
             'https://app.netlify.com/access-control/generate-access-control-token'
           )
-          tokenUrl.searchParams.set('deploy_id', deploy.id)
+          tokenUrl.searchParams.set('deploy_id', deployId)
           tokenUrl.searchParams.set('site_id', siteId)
 
           const tokenResponse = await fetch(tokenUrl, {
@@ -86,25 +64,31 @@ jobs:
               'Content-Type': 'application/json',
             },
           })
-          if (!tokenResponse.ok) {
-            throw new Error(`Netlify log access token failed: ${tokenResponse.status}`)
-          }
+          console.log('NETLIFY_LOG_TOKEN_STATUS=' + tokenResponse.status)
+          if (!tokenResponse.ok) process.exit(0)
+
           const tokenData = await tokenResponse.json()
           const accessToken = tokenData.accessControlToken
-          if (!accessToken) throw new Error('Netlify log access token missing')
+          if (!accessToken) {
+            console.log('NETLIFY_LOG_TOKEN_MISSING')
+            process.exit(0)
+          }
 
-          const important = /error|fail|exit|pnpm|npm|node|build|install|tsc|vite|secret|scan|command|package|corepack|typescript|config/i
+          const important = /error|fail|exit|pnpm|npm|node|build|install|tsc|vite|secret|scan|command|package|corepack|typescript|config|dependency/i
 
-          await new Promise((resolve, reject) => {
+          await new Promise((resolve) => {
             const ws = new WebSocket('wss://socketeer.services.netlify.com/build/logs')
-            const timer = setTimeout(() => {
+            let seen = 0
+            const finish = () => {
               try { ws.close() } catch {}
               resolve()
-            }, 45000)
+            }
+            const timer = setTimeout(finish, 20000)
 
             ws.addEventListener('open', () => {
+              console.log('NETLIFY_LOG_SOCKET_OPEN')
               ws.send(JSON.stringify({
-                deploy_id: deploy.id,
+                deploy_id: deployId,
                 site_id: siteId,
                 access_token: accessToken,
               }))
@@ -125,19 +109,20 @@ jobs:
                   .replaceAll(token, '[REDACTED_NETLIFY_TOKEN]')
                   .replaceAll(accessToken, '[REDACTED_LOG_TOKEN]')
                 if (important.test(message)) {
-                  console.log('NETLIFY_BUILD_LOG ' + message.slice(0, 1600))
+                  seen += 1
+                  console.log('NETLIFY_BUILD_LOG ' + message.slice(0, 1800))
                 }
-              } catch (error) {
-                console.log('NETLIFY_LOG_PARSE_WARNING=' + error.message)
-              }
+              } catch {}
             })
 
             ws.addEventListener('error', () => {
+              console.log('NETLIFY_LOG_SOCKET_ERROR')
               clearTimeout(timer)
-              reject(new Error('Netlify deploy log websocket failed'))
+              resolve()
             })
 
             ws.addEventListener('close', () => {
+              console.log('NETLIFY_LOG_SOCKET_CLOSED seen=' + seen)
               clearTimeout(timer)
               resolve()
             })
@@ -161,20 +146,17 @@ jobs:
           const headers = { Authorization: `Bearer ${token}` }
           const getJson = async (url) => {
             const response = await fetch(url, { headers })
-            const text = await response.text()
-            if (!response.ok) throw new Error(`${url} -> ${response.status}`)
-            return text ? JSON.parse(text) : null
+            if (!response.ok) throw new Error(`Netlify API ${response.status}`)
+            return response.json()
           }
           const site = await getJson(`https://api.netlify.com/api/v1/sites/${siteId}`)
           const build = site.build_settings || {}
           console.log('NETLIFY_SAFE_SITE_CONFIG=' + JSON.stringify({
-            site_name: site.name,
             repo_branch: build.repo_branch || null,
             build_command: build.cmd || null,
             base: build.base || null,
             publish: build.dir || null,
             provider: build.provider || null,
-            stop_builds: build.stop_builds ?? null,
           }))
           for (const key of ['PNPM_FLAGS', 'NODE_VERSION']) {
             try {
