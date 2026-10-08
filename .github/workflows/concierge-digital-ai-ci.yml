@@ -58,4 +58,9 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
         run: |
-          npx --yes netlify-cli@27.8.0 logs --source deploy --url https://deploy-preview-8--healthwallet1.netlify.app --since 30m || true
+          set +e
+          echo "=== latest site builds ==="
+          curl -fsS             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"             "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}/builds?per_page=5"             | jq '[.[] | {id, deploy_id, sha, done, error, created_at}]'
+          echo "=== latest PR deploy metadata ==="
+          curl -fsS             -H "Authorization: Bearer ${NETLIFY_AUTH_TOKEN}"             "https://api.netlify.com/api/v1/sites/${NETLIFY_SITE_ID}/deploys?per_page=10"             | jq '[.[] | select(.context=="deploy-preview") | {id, build_id, state, error_message, branch, commit_ref, created_at}] | .[:5]'
+
