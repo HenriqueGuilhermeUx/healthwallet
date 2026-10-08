@@ -28,3 +28,7 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+
+[context.deploy-preview]
+  command = "bash scripts/netlify-preview-diagnostic.sh"
