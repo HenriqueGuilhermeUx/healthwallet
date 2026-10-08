@@ -39,6 +39,7 @@ export default function ConciergeDigital() {
   const [familyMembers, setFamilyMembers] = useState<any[]>([])
   const [subjectFamilyMemberId, setSubjectFamilyMemberId] = useState<string>('')
   const [operationalCases, setOperationalCases] = useState<any[]>([])
+  const [caseEvents, setCaseEvents] = useState<Record<string, any[]>>({})
   const [whatsappIdentity, setWhatsappIdentity] = useState<any>(null)
   const [whatsappLinkCode, setWhatsappLinkCode] = useState('')
   const [whatsappLinkExpiresAt, setWhatsappLinkExpiresAt] = useState<string | null>(null)
@@ -126,7 +127,7 @@ export default function ConciergeDigital() {
           .order('created_at', { ascending: false }),
         supabase
           .from('concierge_operational_cases')
-          .select('id,case_type,title,status,insurer_name,protocol_number,regulatory_deadline_at,deadline_confirmed,next_followup_at,amount_requested,amount_reimbursed,updated_at')
+          .select('id,case_type,title,status,insurer_name,protocol_number,regulatory_deadline_at,deadline_confirmed,next_followup_at,amount_requested,amount_reimbursed,assigned_to,metadata,created_at,updated_at')
           .eq('patient_id', user.id)
           .not('status', 'in', '(closed,cancelled)')
           .order('updated_at', { ascending: false })
@@ -144,7 +145,9 @@ export default function ConciergeDigital() {
       setMembership(member)
       setEntitlement(entitlementRes.data || null)
       setFamilyMembers(familyRes.data || [])
-      setOperationalCases(casesRes.data || [])
+      const initialCases = casesRes.data || []
+      setOperationalCases(initialCases)
+      void refreshCaseEvents(initialCases)
       setWhatsappIdentity(whatsappRes.data || null)
 
       const entitlementAllowed = entitlementRes.data
@@ -204,16 +207,43 @@ export default function ConciergeDigital() {
     }
   }
 
+  async function refreshCaseEvents(cases: any[]) {
+    if (!user || !cases.length) {
+      setCaseEvents({})
+      return
+    }
+
+    const ids = cases.map((item) => item.id)
+    const { data } = await supabase
+      .from('concierge_case_events')
+      .select('id,case_id,event_type,message,payload,created_at')
+      .eq('patient_id', user.id)
+      .in('case_id', ids)
+      .eq('visibility', 'patient')
+      .order('created_at', { ascending: false })
+      .limit(60)
+
+    const grouped: Record<string, any[]> = {}
+    for (const event of data || []) {
+      if (!grouped[event.case_id]) grouped[event.case_id] = []
+      grouped[event.case_id].push(event)
+    }
+    setCaseEvents(grouped)
+  }
+
   async function refreshOperationalCases() {
     if (!user) return
     const { data } = await supabase
       .from('concierge_operational_cases')
-      .select('id,case_type,title,status,insurer_name,protocol_number,regulatory_deadline_at,deadline_confirmed,next_followup_at,amount_requested,amount_reimbursed,updated_at')
+      .select('id,case_type,title,status,insurer_name,protocol_number,regulatory_deadline_at,deadline_confirmed,next_followup_at,amount_requested,amount_reimbursed,assigned_to,metadata,created_at,updated_at')
       .eq('patient_id', user.id)
       .not('status', 'in', '(closed,cancelled)')
       .order('updated_at', { ascending: false })
       .limit(12)
-    setOperationalCases(data || [])
+
+    const rows = data || []
+    setOperationalCases(rows)
+    await refreshCaseEvents(rows)
   }
 
   async function refreshConversation(sessionId: string) {
@@ -558,30 +588,95 @@ export default function ConciergeDigital() {
             <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">{operationalCases.length} ativo{operationalCases.length === 1 ? '' : 's'}</span>
           </div>
           <div className="mt-3 space-y-2">
-            {operationalCases.slice(0, 5).map((item: any) => (
-              <div key={item.id} className="rounded-xl border bg-slate-50 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-bold text-gray-900">{item.title}</p>
-                  <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-700">{{
-                    new: 'Novo',
-                    collecting_docs: 'Coletando documentos',
-                    ready_to_contact: 'Pronto para contato',
-                    contacting_operator: 'Falando com operadora',
-                    waiting_operator: 'Aguardando operadora',
-                    action_required_patient: 'Precisamos de você',
-                    escalated_ans: 'Escalado para ANS',
-                    waiting_ans: 'Aguardando ANS',
-                    scheduled: 'Agendado',
-                    authorized: 'Autorizado',
-                    reimbursed: 'Reembolsado',
-                    resolved: 'Resolvido',
-                  }[item.status] || item.status}</span>
+            {operationalCases.slice(0, 5).map((item: any) => {
+              const representationRequired = item.metadata?.representation_required === true
+                || item.metadata?.representation_required === 'true'
+              const representationReady = item.metadata?.representation_ready === true
+                || item.metadata?.representation_ready === 'true'
+              const timeline = caseEvents[item.id] || []
+
+              return (
+                <div key={item.id} className="rounded-xl border bg-slate-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-gray-900">{item.title}</p>
+                    <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-700">{{
+                      new: 'Novo',
+                      collecting_docs: 'Coletando documentos',
+                      ready_to_contact: 'Pronto para contato',
+                      contacting_operator: 'Falando com operadora',
+                      waiting_operator: 'Aguardando operadora',
+                      action_required_patient: 'Precisamos de você',
+                      escalated_ans: 'Escalado para ANS',
+                      waiting_ans: 'Aguardando ANS',
+                      scheduled: 'Agendado',
+                      authorized: 'Autorizado',
+                      reimbursed: 'Reembolsado',
+                      resolved: 'Resolvido',
+                    }[item.status] || item.status}</span>
+                  </div>
+
+                  {item.insurer_name && (
+                    <p className="mt-1 text-xs text-gray-600">
+                      {item.insurer_name}{item.protocol_number ? ` · protocolo ${item.protocol_number}` : ''}
+                    </p>
+                  )}
+
+                  {representationRequired && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-xs font-bold text-amber-900">
+                        {representationReady
+                          ? 'Autorização específica confirmada'
+                          : 'Seu Concierge continua ativo normalmente'}
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-amber-800">
+                        {representationReady
+                          ? 'A equipe já pode executar as ações formais autorizadas para este caso.'
+                          : 'Vamos organizar documentos, protocolo e estratégia. Se precisarmos agir formalmente em seu nome, pediremos uma autorização vinculada somente a este caso.'}
+                      </p>
+                    </div>
+                  )}
+
+                  {item.regulatory_deadline_at && (
+                    <p className="mt-2 text-xs font-semibold text-amber-700">
+                      Prazo acompanhado: {new Date(item.regulatory_deadline_at).toLocaleDateString('pt-BR')} {item.deadline_confirmed ? '✓' : '(estimado)'}
+                    </p>
+                  )}
+
+                  {item.next_followup_at && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Próxima cobrança: {new Date(item.next_followup_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                    </p>
+                  )}
+
+                  {timeline.length > 0 && (
+                    <div className="mt-3 border-t pt-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Últimas atualizações</p>
+                      <div className="mt-2 space-y-2">
+                        {timeline.slice(0, 3).map((event: any) => (
+                          <div key={event.id} className="flex gap-2 text-xs text-slate-700">
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-600" />
+                            <div>
+                              <p>{event.message || event.event_type}</p>
+                              <p className="mt-0.5 text-[10px] text-slate-400">
+                                {new Date(event.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={requestHuman}
+                    className="mt-3 w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800"
+                  >
+                    Falar com a equipe sobre este caso
+                  </button>
                 </div>
-                {item.insurer_name && <p className="mt-1 text-xs text-gray-600">{item.insurer_name}{item.protocol_number ? ` · protocolo ${item.protocol_number}` : ''}</p>}
-                {item.regulatory_deadline_at && <p className="mt-2 text-xs font-semibold text-amber-700">Prazo acompanhado: {new Date(item.regulatory_deadline_at).toLocaleDateString('pt-BR')} {item.deadline_confirmed ? '✓' : '(estimado)'}</p>}
-                {item.next_followup_at && <p className="mt-1 text-xs text-gray-500">Próxima cobrança: {new Date(item.next_followup_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
