@@ -262,7 +262,15 @@ export default function ConciergeDigital() {
         if (result?.error === 'concierge_subscription_required') {
           throw new Error('O Concierge Digital exige uma assinatura ativa.')
         }
-        throw new Error('Não foi possível falar com o Concierge agora.')
+
+        const isPreview = window.location.hostname.startsWith('deploy-preview-')
+        const stage = result?.diagnostic?.stage ? String(result.diagnostic.stage) : null
+        const code = result?.diagnostic?.code ? String(result.diagnostic.code) : null
+        const suffix = isPreview && (stage || code)
+          ? ` [${stage || 'runtime'}${code ? `:${code}` : ''}]`
+          : ''
+
+        throw new Error(`Não foi possível falar com o Concierge agora.${suffix}`)
       }
 
       const nextSessionId = result.sessionId || session?.id
@@ -282,6 +290,11 @@ export default function ConciergeDigital() {
 
       if (result.reply && voiceReplies && source === 'voice') {
         speak(result.reply)
+      }
+
+      if (window.location.hostname.startsWith('deploy-preview-') && result.aiMode === 'fallback') {
+        const code = result?.diagnostic?.code ? ` (${result.diagnostic.code})` : ''
+        toast.message(`Fallback operacional ativo${code}`)
       }
 
       if (result.urgent) toast.error('Procure atendimento de urgência imediatamente.')
