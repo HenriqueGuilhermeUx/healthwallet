@@ -48,8 +48,14 @@ jobs:
           echo 'PASS: HealthWallet PWA bundle generated.'
 
       - name: Reproduce Netlify deploy-preview
-        if: ${{ secrets.NETLIFY_AUTH_TOKEN != '' }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
-        run: npx --yes netlify-cli@27.8.0 build --context deploy-preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
+            echo "NETLIFY_AUTH_TOKEN unavailable; skipping Netlify parity build."
+            exit 0
+          fi
+          npx --yes netlify-cli@27.8.0 build --context deploy-preview
