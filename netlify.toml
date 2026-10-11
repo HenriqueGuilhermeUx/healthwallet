@@ -26,3 +26,12 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+
+[context.deploy-preview]
+  command = "pnpm exec vite build"
+  publish = "dist"
+
+[context.deploy-preview.environment]
+  NODE_VERSION = "22"
+  BUILD_MODE = "prod"
