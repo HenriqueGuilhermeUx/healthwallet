@@ -1,4 +1,4 @@
-const CACHE_NAME = 'healthwallet-pwa-v2'
+const CACHE_NAME = 'healthwallet-pwa-v3'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
