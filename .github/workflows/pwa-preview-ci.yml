@@ -1,0 +1,55 @@
+name: HealthWallet PWA Preview CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'public/**'
+      - 'netlify.toml'
+      - '.github/workflows/pwa-preview-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build PWA with Vite
+        env:
+          BUILD_MODE: prod
+        run: pnpm exec vite build
+
+      - name: Verify PWA output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f dist/index.html
+          test -f dist/manifest.json
+          test -f dist/service-worker.js
+          test -f dist/icons/icon-192.png
+          test -f dist/icons/icon-512.png
+          grep -q 'HealthWallet' dist/manifest.json
+          echo 'PASS: HealthWallet PWA bundle generated.'
+
+      - name: Reproduce Netlify deploy-preview
+        if: ${{ secrets.NETLIFY_AUTH_TOKEN != '' }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: npx --yes netlify-cli@27.8.0 build --context deploy-preview
