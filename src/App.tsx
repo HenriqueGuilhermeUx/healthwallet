@@ -62,6 +62,7 @@ import AppHeader from '@/components/AppHeader'
 import AppErrorBoundary from '@/components/AppErrorBoundary'
 import ConciergeAccessGate from '@/components/ConciergeAccessGate'
 import ConciergeProfessionalHeader from '@/components/ConciergeProfessionalHeader'
+import PwaInstallHint from '@/components/PwaInstallHint'
 
 function HealthWalletEntry() {
   const location = useLocation()
@@ -285,6 +286,7 @@ export default function App() {
           </Routes>
 
           <Toaster position="top-center" richColors />
+          <PwaInstallHint />
         </AuthProvider>
       </BrowserRouter>
     </AppErrorBoundary>
