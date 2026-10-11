@@ -44,3 +44,12 @@ jobs:
           grep -q "healthwallet_pending_nexa_token" src/hooks/useAuth.tsx
           grep -q "Vincular ao seu Nexa ID" src/pages/Login.tsx
           ! grep -q "SUPABASE_SECRET_KEY.*Bearer" netlify/functions/nexa-session.mjs
+
+      - name: Deploy prebuilt PWA preview
+        if: ${{ startsWith(github.head_ref, 'pwa-rollout-') && secrets.NETLIFY_AUTH_TOKEN != '' }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
+        run: |
+          set -euo pipefail
+          npx --yes netlify-cli@27.8.0 deploy             --dir dist             --functions netlify/functions             --alias healthwallet-pwa-pr10             --site "$NETLIFY_SITE_ID"             --auth "$NETLIFY_AUTH_TOKEN"             --message "HealthWallet PWA preview ${GITHUB_SHA}"
