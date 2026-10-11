@@ -35,3 +35,4 @@
 [context.deploy-preview.environment]
   NODE_VERSION = "22"
   BUILD_MODE = "prod"
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_ANON_KEY"
