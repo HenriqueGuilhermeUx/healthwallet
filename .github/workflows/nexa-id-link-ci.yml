@@ -8,6 +8,9 @@ on:
       - 'src/hooks/useAuth.tsx'
       - 'src/pages/Login.tsx'
       - '.github/workflows/nexa-id-link-ci.yml'
+      - 'netlify.toml'
+      - 'index.html'
+      - 'public/**'
   workflow_dispatch:
 
 permissions:
