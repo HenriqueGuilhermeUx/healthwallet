@@ -1,9 +1,12 @@
 [build]
-  command = "pnpm build"
+  command = "pnpm exec vite build"
   publish = "dist"
 
 [build.environment]
+  NODE_VERSION = "22"
+  BUILD_MODE = "prod"
   PNPM_FLAGS = "--no-frozen-lockfile"
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_ANON_KEY"
 
 [functions]
   directory = "netlify/functions"
@@ -26,3 +29,13 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+
+[context.deploy-preview]
+  command = "pnpm exec vite build"
+  publish = "dist"
+
+[context.deploy-preview.environment]
+  NODE_VERSION = "22"
+  BUILD_MODE = "prod"
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_ANON_KEY"

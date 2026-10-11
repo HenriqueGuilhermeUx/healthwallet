@@ -1,4 +1,4 @@
-const CACHE_NAME = 'healthwallet-v1'
+const CACHE_NAME = 'healthwallet-pwa-v3'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -6,7 +6,9 @@ self.addEventListener('install', (event) => {
       cache.addAll([
         '/',
         '/dashboard',
-        '/manifest.json'
+        '/manifest.json',
+        '/icons/icon-192.png',
+        '/icons/icon-512.png'
       ])
     )
   )
