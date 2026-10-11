@@ -46,7 +46,7 @@ jobs:
           ! grep -q "SUPABASE_SECRET_KEY.*Bearer" netlify/functions/nexa-session.mjs
 
       - name: Deploy prebuilt PWA preview
-        if: ${{ startsWith(github.head_ref, 'pwa-rollout-') && secrets.NETLIFY_AUTH_TOKEN != '' }}
+        if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'pwa-rollout-') }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: 6385fa98-ad7a-4fd2-8cfa-5d903f437502
