@@ -14,7 +14,6 @@ on:
   push:
     branches:
       - main
-      - fix/android-r8-dex-optimization
     paths:
       - 'src/**'
       - 'public/**'
