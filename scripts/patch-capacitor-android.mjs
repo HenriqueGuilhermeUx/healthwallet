@@ -160,6 +160,11 @@ replaceIfExists(buildGradlePath, (content) => {
   next = next
     .replace(/versionCode\s+\d+/g, `versionCode ${androidVersionCode}`)
     .replace(/versionName\s+['"][^'"]+['"]/g, `versionName "${androidVersionName}"`)
+    .replace(/minifyEnabled\s+false/g, 'minifyEnabled true')
+    .replace(
+      /getDefaultProguardFile\(['"]proguard-android\.txt['"]\)/g,
+      "getDefaultProguardFile('proguard-android-optimize.txt')"
+    )
 
   if (hasSigningSecrets && !next.includes('healthwalletRelease')) {
     next = next.replace(
@@ -176,4 +181,4 @@ replaceIfExists(buildGradlePath, (content) => {
   return next
 })
 
-console.log(`Android project patched for HealthWallet release build. versionCode=${androidVersionCode}, versionName=${androidVersionName}, compileSdk=${ANDROID_COMPILE_SDK}, targetSdk=${ANDROID_TARGET_SDK}, minSdk=${MIN_SDK_FOR_HEALTH_CONNECT}, launcherIcon=healthwallet-v2`)
+console.log(`Android project patched for HealthWallet release build. versionCode=${androidVersionCode}, versionName=${androidVersionName}, compileSdk=${ANDROID_COMPILE_SDK}, targetSdk=${ANDROID_TARGET_SDK}, minSdk=${MIN_SDK_FOR_HEALTH_CONNECT}, launcherIcon=healthwallet-v2, r8=minify+optimize`)

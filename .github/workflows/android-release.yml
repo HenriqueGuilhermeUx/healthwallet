@@ -6,11 +6,11 @@ on:
       version_code:
         description: 'Android versionCode, must be higher than every version already uploaded to Google Play'
         required: true
-        default: '10020'
+        default: '10021'
       version_name:
         description: 'Android versionName shown in release metadata'
         required: true
-        default: '1.0.19'
+        default: '1.0.20'
   push:
     branches:
       - main
@@ -32,8 +32,8 @@ jobs:
     name: Build HealthWallet Android bundle
     runs-on: ubuntu-latest
     env:
-      ANDROID_VERSION_CODE: ${{ github.event.inputs.version_code || '10020' }}
-      ANDROID_VERSION_NAME: ${{ github.event.inputs.version_name || '1.0.19' }}
+      ANDROID_VERSION_CODE: ${{ github.event.inputs.version_code || '10021' }}
+      ANDROID_VERSION_NAME: ${{ github.event.inputs.version_name || '1.0.20' }}
 
     steps:
       - name: Checkout
@@ -120,12 +120,27 @@ jobs:
           ANDROID_VERSION_CODE: ${{ env.ANDROID_VERSION_CODE }}
           ANDROID_VERSION_NAME: ${{ env.ANDROID_VERSION_NAME }}
 
+      - name: Assert R8 release configuration
+        run: |
+          grep -q "minifyEnabled true" android/app/build.gradle
+          grep -q "proguard-android-optimize.txt" android/app/build.gradle
+          ! grep -q "minifyEnabled false" android/app/build.gradle
+
       - name: Build release AAB
         run: cd android && ./gradlew bundleRelease --stacktrace
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Verify R8 output
+        run: |
+          test -s android/app/build/outputs/mapping/release/mapping.txt
+          grep -q " -> " android/app/build/outputs/mapping/release/mapping.txt
+          AAB="$(find android/app/build/outputs/bundle/release -name '*.aab' -type f | head -n 1)"
+          test -n "$AAB"
+          unzip -l "$AAB" | grep -q "BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map"
+          echo "R8 mapping present and bundled for Play Console deobfuscation."
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
