@@ -89,6 +89,8 @@ jobs:
           ! grep -q "medications" netlify/functions/staff-capabilities.mjs
           ! grep -q "health_scores" netlify/functions/staff-capabilities.mjs
           grep -q "Não vou enviar seus exames, medicamentos, HealthScore, diagnóstico, prontuário ou histórico clínico" src/pages/Chat.tsx
+          grep -q "Capacitor.isNativePlatform" src/pages/Chat.tsx
+          grep -q "https://mydatamed.com/api/staff/capabilities" src/pages/Chat.tsx
 
       - name: Enable Corepack
         run: corepack enable
