@@ -9,6 +9,9 @@ on:
       - '.github/workflows/nexa-production-deploy.yml'
       - 'netlify/functions/nexa-attention.mjs'
       - 'netlify/functions/nexa-session.mjs'
+      - 'netlify/functions/staff-session.mjs'
+      - 'netlify/functions/staff-capabilities.mjs'
+      - 'src/pages/Chat.tsx'
       - 'src/App.tsx'
       - 'src/hooks/useAuth.tsx'
       - 'src/pages/Login.tsx'
@@ -30,6 +33,7 @@ jobs:
       NETLIFY_SITE_ID: abcd98db-ad87-4d7a-80fb-627b72d00c82
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN || secrets.NETLIFY_TOKEN || secrets.NETLIFY_ACCESS_TOKEN || secrets.NETLIFY_API_TOKEN }}
       NEXA_API_URL: https://nexa-backend-p2u0.onrender.com/api/v1
+      STAFF_CAPABILITIES_URL: https://app.smartbots.club/.netlify/functions/staff-capabilities
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY || secrets.HEALTHWALLETNEXASTAGING || secrets.healthwalletnexastaging }}
@@ -68,6 +72,7 @@ jobs:
           npx -y netlify-cli@latest env:set SUPABASE_URL "$VITE_SUPABASE_URL" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
           npx -y netlify-cli@latest env:set SUPABASE_SECRET_KEY "$SUPABASE_SECRET_KEY" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
           npx -y netlify-cli@latest env:set NEXA_API_URL "$NEXA_API_URL" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+          npx -y netlify-cli@latest env:set STAFF_CAPABILITIES_URL "$STAFF_CAPABILITIES_URL" --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
           npx -y netlify-cli@latest env:set NEXA_ID_SSO_ENABLED true --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
           npx -y netlify-cli@latest env:set NEXA_ECOSYSTEM_ATTENTION_ENABLED true --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
           npx -y netlify-cli@latest env:set VITE_ENABLE_NEXA_LOGIN true --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
@@ -88,4 +93,11 @@ jobs:
 
           STATUS="$(curl --silent --output /tmp/attention.json --write-out '%{http_code}'             -H 'X-Nexa-User-ID: production-smoke'             https://mydatamed.com/api/nexa/attention)"
           test "$STATUS" = '401'
-          echo "PASS: Health Wallet production is live with protected Nexa endpoints."
+
+          SESSION_STATUS="$(curl --silent --output /tmp/staff-session.json --write-out '%{http_code}' https://mydatamed.com/api/staff/session)"
+          test "$SESSION_STATUS" = '401'
+
+          CAPABILITY_STATUS="$(curl --silent --output /tmp/staff-capability.json --write-out '%{http_code}' -X POST -H 'content-type: application/json' -d '{"capability":"web.appointment.search","message":"teste","consent":true}' https://mydatamed.com/api/staff/capabilities)"
+          test "$CAPABILITY_STATUS" = '401'
+
+          echo "PASS: Health Wallet production is live with protected Nexa + Staff capability endpoints."
