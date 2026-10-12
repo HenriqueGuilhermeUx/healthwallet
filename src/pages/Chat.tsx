@@ -16,6 +16,7 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [context, setContext] = useState<any>(null)
+  const [pendingWebSearch, setPendingWebSearch] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -89,6 +90,73 @@ export default function Chat() {
     setInput('')
     setLoading(true)
 
+    if (pendingWebSearch) {
+      if (isAffirmative(question)) {
+        const request = pendingWebSearch
+        setPendingWebSearch(null)
+
+        try {
+          const response = await searchAppointmentAvailability(request)
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: String(Date.now() + 1),
+              role: 'assistant',
+              content: response,
+              timestamp: new Date(),
+            },
+          ])
+        } catch {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: String(Date.now() + 1),
+              role: 'assistant',
+              content:
+                'Não consegui pesquisar a disponibilidade agora. Nenhum dado clínico foi enviado ao Staff. Você pode tentar novamente mais tarde.',
+              timestamp: new Date(),
+            },
+          ])
+        } finally {
+          setLoading(false)
+        }
+        return
+      }
+
+      if (isNegative(question)) {
+        setPendingWebSearch(null)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: String(Date.now() + 1),
+            role: 'assistant',
+            content: 'Tudo bem. Não fiz nenhuma pesquisa externa.',
+            timestamp: new Date(),
+          },
+        ])
+        setLoading(false)
+        return
+      }
+
+      setPendingWebSearch(null)
+    }
+
+    if (isAppointmentSearchRequest(question)) {
+      setPendingWebSearch(question)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: String(Date.now() + 1),
+          role: 'assistant',
+          content:
+            'Posso pesquisar disponibilidade na web usando somente este pedido operacional. Não vou enviar seus exames, medicamentos, HealthScore, diagnóstico, prontuário ou histórico clínico ao Staff. Quer que eu pesquise?',
+          timestamp: new Date(),
+        },
+      ])
+      setLoading(false)
+      return
+    }
+
     const response = generateContextualResponse(question, context)
 
     setMessages((prev) => [
@@ -102,6 +170,49 @@ export default function Chat() {
     ])
 
     setLoading(false)
+  }
+
+  async function searchAppointmentAvailability(requestText: string) {
+    const { data } = await supabase.auth.getSession()
+    const accessToken = data.session?.access_token
+    if (!accessToken) throw new Error('health_session_required')
+
+    const response = await fetch('/api/staff/capabilities', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        capability: 'web.appointment.search',
+        message: requestText,
+        consent: true,
+      }),
+    })
+
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || payload?.success !== true) {
+      throw new Error(String(payload?.error || 'staff_capability_unavailable'))
+    }
+
+    const summary = String(payload?.response || 'Pesquisa concluída.').trim()
+    const options = Array.isArray(payload?.options) ? payload.options.slice(0, 5) : []
+    if (!options.length) return summary
+
+    const optionText = options
+      .map((option: any, index: number) => {
+        const parts = [
+          option?.provider ? String(option.provider) : '',
+          option?.date ? String(option.date) : '',
+          option?.time ? String(option.time) : '',
+          option?.location ? String(option.location) : '',
+        ].filter(Boolean)
+        const url = option?.bookingUrl ? `\n   ${String(option.bookingUrl)}` : ''
+        return `${index + 1}. ${parts.join(' · ')}${url}`
+      })
+      .join('\n')
+
+    return `${summary}\n\nOpções encontradas:\n${optionText}\n\nA pesquisa foi somente de disponibilidade. Nenhum dado clínico foi enviado ao Staff e nenhum agendamento foi concluído automaticamente.`
   }
 
   const suggestedQuestions = [
@@ -213,6 +324,29 @@ export default function Chat() {
         </div>
       </div>
     </div>
+  )
+}
+
+function normalizeIntent(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+function isAppointmentSearchRequest(value: string) {
+  const text = normalizeIntent(value)
+  const action = /(procur|pesquis|encontr|ver|veja|buscar|busque|agenda|agend|marc|horario|horarios|disponibilidade)/
+  const target = /(consulta|clinica|medico|medica|dentista|psicolog|fisioterap|nutricion|laboratorio|exame|telemedicina|especialista)/
+  return action.test(text) && target.test(text)
+}
+
+function isAffirmative(value: string) {
+  return /^(sim|pode|pode sim|quero|pesquise|procure|bora|ok|okay)[!?. ]*$/.test(
+    normalizeIntent(value).trim(),
+  )
+}
+
+function isNegative(value: string) {
+  return /^(nao|cancela|cancelar|deixa|deixa pra la|agora nao)[!?. ]*$/.test(
+    normalizeIntent(value).trim(),
   )
 }
 
