@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   validate:
-    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'feature/nexa-sovereignty') || startsWith(github.head_ref, 'feature/staff-capabilities')
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'feature/nexa-sovereignty') || (startsWith(github.head_ref, 'feature/staff-capabilities') || startsWith(github.head_ref, 'fix/healthwallet-native-staff'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
