@@ -6,6 +6,9 @@ on:
     paths:
       - 'netlify/functions/nexa-attention.mjs'
       - 'netlify/functions/nexa-session.mjs'
+      - 'netlify/functions/staff-session.mjs'
+      - 'netlify/functions/staff-capabilities.mjs'
+      - 'src/pages/Chat.tsx'
       - 'src/hooks/useAuth.tsx'
       - 'src/pages/Login.tsx'
       - 'src/App.tsx'
@@ -18,7 +21,7 @@ permissions:
 
 jobs:
   validate:
-    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'feature/nexa-sovereignty')
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'feature/nexa-sovereignty') || startsWith(github.head_ref, 'feature/staff-capabilities')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -36,7 +39,7 @@ jobs:
 
           while IFS= read -r path; do
             case "$path" in
-              .env.example|.github/workflows/nexa-attention-feed-ci.yml|.github/workflows/nexa-ecosystem-health-staging.yml|.github/workflows/nexa-production-deploy.yml|.github/workflows/nexoffice-addon-minimal-ci.yml|netlify/functions/nexa-attention.mjs|netlify/functions/nexa-session.mjs|src/App.tsx|src/hooks/useAuth.tsx|src/pages/Login.tsx)
+              .env.example|.github/workflows/nexa-attention-feed-ci.yml|.github/workflows/nexa-ecosystem-health-staging.yml|.github/workflows/nexa-production-deploy.yml|.github/workflows/nexoffice-addon-minimal-ci.yml|netlify/functions/nexa-attention.mjs|netlify/functions/nexa-session.mjs|netlify/functions/staff-session.mjs|netlify/functions/staff-capabilities.mjs|src/App.tsx|src/hooks/useAuth.tsx|src/pages/Login.tsx|src/pages/Chat.tsx)
                 ;;
               *)
                 echo "Unexpected Health Wallet file changed by Nexa integration: $path"
@@ -61,6 +64,8 @@ jobs:
         run: |
           node --check netlify/functions/nexa-attention.mjs
           node --check netlify/functions/nexa-session.mjs
+          node --check netlify/functions/staff-session.mjs
+          node --check netlify/functions/staff-capabilities.mjs
 
       - name: Assert privacy boundary
         run: |
@@ -77,6 +82,13 @@ jobs:
           grep -q "verifyOtp" src/hooks/useAuth.tsx
           grep -q 'path="/healthwallet"' src/App.tsx
           ! grep -q "healthwallet_nexa_user.*JSON.stringify" src/pages/Login.tsx
+          grep -q "web.appointment.search" netlify/functions/staff-capabilities.mjs
+          grep -q "persistedInStaff: false" netlify/functions/staff-capabilities.mjs
+          grep -q "clinicalContextIncluded: false" netlify/functions/staff-capabilities.mjs
+          ! grep -q "medical_records" netlify/functions/staff-capabilities.mjs
+          ! grep -q "medications" netlify/functions/staff-capabilities.mjs
+          ! grep -q "health_scores" netlify/functions/staff-capabilities.mjs
+          grep -q "Não vou enviar seus exames, medicamentos, HealthScore, diagnóstico, prontuário ou histórico clínico" src/pages/Chat.tsx
 
       - name: Enable Corepack
         run: corepack enable
