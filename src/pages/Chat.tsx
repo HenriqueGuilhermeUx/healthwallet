@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { Send, Bot, User, Loader2, Sparkles, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+
+const STAFF_CAPABILITIES_ENDPOINT = Capacitor.isNativePlatform()
+  ? 'https://mydatamed.com/api/staff/capabilities'
+  : '/api/staff/capabilities'
 
 interface Message {
   id: string
@@ -177,7 +182,7 @@ export default function Chat() {
     const accessToken = data.session?.access_token
     if (!accessToken) throw new Error('health_session_required')
 
-    const response = await fetch('/api/staff/capabilities', {
+    const response = await fetch(STAFF_CAPABILITIES_ENDPOINT, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${accessToken}`,

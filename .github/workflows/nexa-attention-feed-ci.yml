@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   validate:
-    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'feature/nexa-sovereignty') || startsWith(github.head_ref, 'feature/staff-capabilities')
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'feature/nexa-sovereignty') || (startsWith(github.head_ref, 'feature/staff-capabilities') || startsWith(github.head_ref, 'fix/healthwallet-native-staff'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -89,6 +89,8 @@ jobs:
           ! grep -q "medications" netlify/functions/staff-capabilities.mjs
           ! grep -q "health_scores" netlify/functions/staff-capabilities.mjs
           grep -q "Não vou enviar seus exames, medicamentos, HealthScore, diagnóstico, prontuário ou histórico clínico" src/pages/Chat.tsx
+          grep -q "Capacitor.isNativePlatform" src/pages/Chat.tsx
+          grep -q "https://mydatamed.com/api/staff/capabilities" src/pages/Chat.tsx
 
       - name: Enable Corepack
         run: corepack enable
