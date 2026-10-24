@@ -65,3 +65,9 @@ Deno.test("unverified clinician tenant never authorizes access", () => {
     ...template, actor: { userId: "us-clinician-1", role: "clinician" },
   }).allowed, false)
 })
+
+Deno.test("a grant without a specifically linked practitioner cannot authorize every clinician in a clinic", () => {
+  assert.equal(evaluateUSClinicalAccess({
+    ...template, grants: [{ ...grant, practitionerId: null }],
+  }).allowed, false)
+})
