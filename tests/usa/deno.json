@@ -1,0 +1,9 @@
+{
+  "nodeModulesDir": "none",
+  "compilerOptions": {
+    "strict": true
+  },
+  "tasks": {
+    "test": "deno test --config ./deno.json ./clinicalConsentPolicy.test.ts"
+  }
+}
