@@ -64,6 +64,10 @@ export function evaluateUSClinicalAccess(input: USClinicalAccessRequest): USClin
       !["patient", "clinician", "care_coordinator"].includes(actor.role)) {
     return { allowed: false, reason: "INVALID_IDENTITY" }
   }
+  // The scope decision is made for one requested resource category, no wildcards.
+  if (!["summary", "exams", "medications", "timeline", "documents", "device_data", "clinical_tasks"].includes(scope)) {
+    return { allowed: false, reason: "OUT_OF_SCOPE" }
+  }
   // Patient self-access does not confer delegated physician access.
   if (actor.role === "patient") {
     return actor.userId === patientId
@@ -72,10 +76,6 @@ export function evaluateUSClinicalAccess(input: USClinicalAccessRequest): USClin
   }
   if (!actor.tenantId || !Array.isArray(grants) || !["treatment", "care_coordination"].includes(purpose)) {
     return { allowed: false, reason: "INVALID_IDENTITY" }
-  }
-  // The scope decision is made for one requested resource category, no wildcards.
-  if (!["summary", "exams", "medications", "timeline", "documents", "device_data", "clinical_tasks"].includes(scope)) {
-    return { allowed: false, reason: "OUT_OF_SCOPE" }
   }
   let activeGrantMatched = false
   for (const g of grants) {
