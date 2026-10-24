@@ -77,20 +77,20 @@ export function evaluateUSClinicalAccess(input: USClinicalAccessRequest): USClin
   if (!["summary", "exams", "medications", "timeline", "documents", "device_data", "clinical_tasks"].includes(scope)) {
     return { allowed: false, reason: "OUT_OF_SCOPE" }
   }
-  let matched = false
+  let activeGrantMatched = false
   for (const g of grants) {
     if (g?.patientId !== patientId || g.tenantId !== actor.tenantId ||
         g.purpose !== purpose || !g.version ||
-        (g.practitionerId != null && g.practitionerId !== actor.userId)) continue
-    matched = true
+        g.practitionerId !== actor.userId) continue
     const issued = instant(g.issuedAt)
     const expiry = instant(g.expiresAt)
     const revoked = g.revokedAt == null ? null : instant(g.revokedAt)
     if (issued === null || expiry === null || (g.revokedAt !== null && revoked === null) ||
         now < issued || now >= expiry || (revoked !== null && now >= revoked)) continue
+    activeGrantMatched = true
     if (Array.isArray(g.scopes) && g.scopes.includes(scope)) {
       return { allowed: true, reason: "GRANTED" }
     }
   }
-  return { allowed: false, reason: matched ? "OUT_OF_SCOPE" : "NO_ACTIVE_CONSENT" }
+  return { allowed: false, reason: activeGrantMatched ? "OUT_OF_SCOPE" : "NO_ACTIVE_CONSENT" }
 }
