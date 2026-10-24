@@ -71,3 +71,12 @@ Deno.test("a grant without a specifically linked practitioner cannot authorize e
     ...template, grants: [{ ...grant, practitionerId: null }],
   }).allowed, false)
 })
+
+Deno.test("unknown resource categories fail closed even for patient self-access", () => {
+  assert.deepEqual(evaluateUSClinicalAccess({
+    ...template,
+    actor: { userId: "us-patient-1", role: "patient" },
+    scope: "unspecified-private-table" as "exams",
+    grants: [],
+  }), { allowed: false, reason: "OUT_OF_SCOPE" })
+})
