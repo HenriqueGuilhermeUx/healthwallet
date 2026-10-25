@@ -118,3 +118,13 @@ Reference: https://hl7.org/fhir/R4/search.html and https://hl7.org/fhir/R4/prove
 - Reference for RLS grants and privileged functions: https://supabase.com/docs/guides/database/postgres/row-level-security
 
 These artifacts do **not** constitute an operational clinical portal, secure production record store, or HIPAA certification.
+
+
+## 2026-10-25 — audit-before-read US clinical boundary
+
+- `src/usa/auditedClinicalRead.ts` is a reference server-side orchestrator for one verified patient/clinical scope. It evaluates consent, produces HMAC-pseudonymized access audit, requires a **durably committed** audit event with matching server-generated ID, and only then invokes the protected record reader.
+- Denied requests are audited as denial and never read any protected record; unavailable audit storage, mismatched acknowledgments or identity-verification errors halt the operation. Synthetic tests cover these cases in `tests/usa/auditedClinicalRead.test.ts`.
+- This is not itself a persistence layer or HIPAA compliance attestation. The US backend must reconstruct all request fields from verified identity, authenticated EHR relationships, tenant role and current consent, rather than accepting a browser-created `VerifiedUSClinicalGrant`.
+- **Race condition gate:** an actual read MUST recheck consent in the same consistent transaction or equivalent trusted security boundary after audit storage, so that consent revoked between policy evaluation and clinical read cannot silently authorize access.
+- The durable writer must be a privileged US service with append-only semantics, idempotent unique event IDs, tested event delivery and retention/rotation procedures. Merely returning `{ committed: true }` is not proof absent the independent database implementation and verification.
+- No real patient data, database writes, live EHR calls, user interface activation, or production publication.
