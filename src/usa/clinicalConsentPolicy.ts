@@ -77,20 +77,25 @@ export function evaluateUSClinicalAccess(input: USClinicalAccessRequest): USClin
   if (!actor.tenantId || !Array.isArray(grants) || !["treatment", "care_coordination"].includes(purpose)) {
     return { allowed: false, reason: "INVALID_IDENTITY" }
   }
-  let activeGrantMatched = false
-  for (const g of grants) {
-    if (g?.patientId !== patientId || g.tenantId !== actor.tenantId ||
-        g.purpose !== purpose || !g.version ||
-        g.practitionerId !== actor.userId) continue
-    const issued = instant(g.issuedAt)
-    const expiry = instant(g.expiresAt)
-    const revoked = g.revokedAt == null ? null : instant(g.revokedAt)
-    if (issued === null || expiry === null || (g.revokedAt !== null && revoked === null) ||
-        now < issued || now >= expiry || (revoked !== null && now >= revoked)) continue
-    activeGrantMatched = true
-    if (Array.isArray(g.scopes) && g.scopes.includes(scope)) {
-      return { allowed: true, reason: "GRANTED" }
-    }
+  // V1 requires one canonical, server-verified current grant per
+  // patient/clinic/practitioner/purpose. Conflicting or stale grant snapshots
+  // must never accidentally override a revocation.
+  const matching = grants.filter(g =>
+    g?.patientId === patientId && g.tenantId === actor.tenantId &&
+    g.purpose === purpose && g.practitionerId === actor.userId
+  )
+  if (matching.length !== 1) return { allowed: false, reason: "NO_ACTIVE_CONSENT" }
+  const g = matching[0]
+  const issued = instant(g.issuedAt)
+  const expiry = instant(g.expiresAt)
+  const revoked = g.revokedAt == null ? null : instant(g.revokedAt)
+  if (!g.version || issued === null || expiry === null ||
+      (g.revokedAt !== null && revoked === null) || now < issued ||
+      now >= expiry || (revoked !== null && now >= revoked)) {
+    return { allowed: false, reason: "NO_ACTIVE_CONSENT" }
   }
-  return { allowed: false, reason: activeGrantMatched ? "OUT_OF_SCOPE" : "NO_ACTIVE_CONSENT" }
+  if (!Array.isArray(g.scopes) || !g.scopes.includes(scope)) {
+    return { allowed: false, reason: "OUT_OF_SCOPE" }
+  }
+  return { allowed: true, reason: "GRANTED" }
 }
