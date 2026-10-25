@@ -95,3 +95,15 @@ Implement U.S.-specific insurance/member card semantics, unit systems, date form
 5. Do not claim HIPAA, FTC, SMART-on-FHIR or US Core certification from passing these synthetic tests. Professional security/legal review and EHR sandbox contract tests remain mandatory.
 
 Status: **branch code + synthetic CI only**. No real US patient, clinician, US Supabase database, US clinical credentials or EHR API called.
+
+
+## 2026-10-25 — MyDataMed USA physician follow-up V1 (synthetic only)
+
+- Added `src/usa/clinicianFollowupQueue.ts`, a pure **one-clinician/one-patient** follow-up read projection using the existing patient-specific `clinical_tasks` consent policy. It counts outstanding actions, arithmetic overdue dates and the next due item by controlled task category; it does not store PHI, diagnose, medically triage or notify patients.
+- Rejects mixed patients/tenants/clinicians, duplicate task identifiers, unsupported task kinds, inconsistent chronology and revoked consent. Tests in `tests/usa/clinicianFollowupQueue.test.ts`.
+- The FHIR `Observation` adapter additionally rejects unresolved `next` pages, total counts exceeding local entries, invalid calendar dates and malformed provider-origin allowlists. Otherwise a partial EHR page could incorrectly appear to be a complete longitudinal history.
+- These pure read contracts MUST execute only inside a verified US backend with real identity, RLS, audited consent source, EHR transport trust and accountable clinician. Browser assertions, `meta.source` text, and frontend roles are not cryptographic proof of authorization.
+- Clinical follow-up priority is **not** a medical risk score. Overdue merely means the task deadline is in the past.
+- There is still **no** American clinician portal, hospital integration, medical diagnosis model, production patient data, US Supabase tenant or deployed clinical migration.
+
+Reference: https://hl7.org/fhir/R4/search.html and https://hl7.org/fhir/R4/provenance.html for FHIR search completeness/provenance context. Apply US Core profile-specific constraints only after verifying a particular healthcare partner's SMART/FHIR implementation.
