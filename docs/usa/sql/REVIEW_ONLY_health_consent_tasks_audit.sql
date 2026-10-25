@@ -31,7 +31,7 @@ create table if not exists usa_health_private.clinical_consents (
   tenant_id uuid not null,
   practitioner_id uuid not null,
   purpose text not null check (purpose in ('treatment','care_coordination')),
-  scopes text[] not null check (array_length(scopes, 1) between 1 and 7),
+  scopes text[] not null check (cardinality(scopes) between 1 and 7),
   issued_at timestamptz not null,
   expires_at timestamptz not null,
   revoked_at timestamptz,
