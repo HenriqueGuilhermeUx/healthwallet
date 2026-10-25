@@ -27,6 +27,6 @@ jobs:
         with:
           deno-version: v2.x
       - name: Type check isolated policy and tests
-        run: deno check --config tests/usa/deno.json tests/usa/clinicalConsentPolicy.test.ts tests/usa/fhirObservationProjection.test.ts tests/usa/clinicianFollowupQueue.test.ts
+        run: deno check --config tests/usa/deno.json tests/usa/clinicalConsentPolicy.test.ts tests/usa/fhirObservationProjection.test.ts tests/usa/clinicianFollowupQueue.test.ts tests/usa/clinicalAuditContract.test.ts
       - name: Run fully synthetic consent tests (no patient data)
-        run: deno test --config tests/usa/deno.json tests/usa/clinicalConsentPolicy.test.ts tests/usa/fhirObservationProjection.test.ts tests/usa/clinicianFollowupQueue.test.ts
+        run: deno test --config tests/usa/deno.json tests/usa/clinicalConsentPolicy.test.ts tests/usa/fhirObservationProjection.test.ts tests/usa/clinicianFollowupQueue.test.ts tests/usa/clinicalAuditContract.test.ts
