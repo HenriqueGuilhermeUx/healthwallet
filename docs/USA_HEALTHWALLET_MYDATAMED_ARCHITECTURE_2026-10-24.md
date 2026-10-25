@@ -73,3 +73,25 @@ Implement U.S.-specific insurance/member card semantics, unit systems, date form
 6. Only after passing privacy/legal review, do a clinician-supervised limited pilot and phased Health Wallet feature rollout.
 
 **Current gate:** documentation only. No U.S. endpoint, infrastructure, EHR integration, BAA, migration, release or compliance certification has been created or verified.
+
+
+## Engineering increment — 2026-10-25 (branch-only; non-production)
+
+- `src/usa/clinicalConsentPolicy.ts`: a standalone US patient/clinician category-level policy requiring verified identity, exact tenant, exact practitioner, purpose, expiry, and a **single unambiguous** active consent snapshot. Revocation and duplicate/conflicting grants fail closed. It is not wired to live PHI or a clinical UI.
+- `src/usa/fhirObservationProjection.ts`: minimal FHIR R4 `Observation` projection intended for a later MyDataMed clinician timeline. It only accepts numeric LOINC observations with UCUM units, explicit relative `Patient/{id}` subject, clinical consent, timestamps and HTTPS provenance from an **allowlisted EHR origin**. It neither labels medical risk nor provides clinical recommendations. Unsupported FHIR resources and profiles fail closed.
+- `tests/usa/*.test.ts`: exclusively synthetic authorization and FHIR fixtures, with Deno-only isolated CI.
+- The US Core Implementation Guide version 9.0.0 (STU9, on FHIR R4) was published in 2026. USCDI v7 was released July 2026; these being *available* does **not** mean every certified EHR must yet support them. Production adapters must negotiate and pin capabilities/profile versions per source and current certification requirements, rather than assuming all EHR APIs implement the latest profile.
+  - https://hl7.org/fhir/us/core/index.html
+  - https://hl7.org/fhir/us/core/profiles-and-extensions.html
+  - https://isp.healthit.gov/all-uscdi-versions
+  - https://healthit.gov/certification-health-it/certification-criteria/standards-version-advancement-process-svap/
+
+### New safety gates
+
+1. Production consent grants must be server-generated, current, versioned, authenticated, and uniquely resolved for patient/clinic/clinician/purpose. The pure test contract **does not verify JWTs or persisted RLS** by itself.
+2. Bundle access is server-side, scoped and consent-checked. No EHR tokens are placed in the React application.
+3. FHIR v1 projection is explicitly limited to a single `Observation` numeric subset; heterogeneous lab panels, references, component observations, absent values, date-only dates, US Core extension constraints and different patient-reference forms require new approved adapters rather than silent omission.
+4. Mapping from the FHIR `meta.source` field does **not authenticate** an EHR response by itself. The backend must verify the actual trusted transport, issuer, credentials and signed/source context; origins in the example are synthetic.
+5. Do not claim HIPAA, FTC, SMART-on-FHIR or US Core certification from passing these synthetic tests. Professional security/legal review and EHR sandbox contract tests remain mandatory.
+
+Status: **branch code + synthetic CI only**. No real US patient, clinician, US Supabase database, US clinical credentials or EHR API called.
