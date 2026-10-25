@@ -107,3 +107,14 @@ Status: **branch code + synthetic CI only**. No real US patient, clinician, US S
 - There is still **no** American clinician portal, hospital integration, medical diagnosis model, production patient data, US Supabase tenant or deployed clinical migration.
 
 Reference: https://hl7.org/fhir/R4/search.html and https://hl7.org/fhir/R4/provenance.html for FHIR search completeness/provenance context. Apply US Core profile-specific constraints only after verifying a particular healthcare partner's SMART/FHIR implementation.
+
+
+## 2026-10-25 additional engineering: audit contract and schema design (no database changes)
+
+- `src/usa/clinicalAuditContract.ts`: pure synthetic-safe minimum-necessary access decision audit formatter. Server-only HMAC pseudonyms for clinician, patient and tenant are separated by domain and tenant; the output does not contain raw names, clinical values or medical notes. A real backend must provide its own cryptographically generated event ID, current verified identity, secret key rotation and durable append-only writer. **Pseudonymous patient-linked events can still be protected medical information.**
+- `tests/usa/clinicalAuditContract.test.ts`: synthetic verification for field minimization, deterministic pseudonyms, tenant separation, denial logging, malformed timestamps, invalid identifiers and short keys.
+- `docs/usa/sql/REVIEW_ONLY_health_consent_tasks_audit.sql`: DISARMED SQL design for a newly created, separate US-only schema containing canonical consent snapshots, physician follow-up tasks and clinical access audits, with RLS enabled and client privileges revoked. The file is NOT under migrations and was NOT run. It does not grant write access or claim append-only enforcement; a controlled service and negative DB-level tests are required.
+- Before using any US patient data: qualify HIPAA/FTC obligations, sign any applicable BAAs, independently audit Auth/RLS/consent + signed EHR source identity, approve keys and retention, run deny-by-default negative tests, clinical safety review, and enable monitoring for missed audit writes.
+- Reference for RLS grants and privileged functions: https://supabase.com/docs/guides/database/postgres/row-level-security
+
+These artifacts do **not** constitute an operational clinical portal, secure production record store, or HIPAA certification.
