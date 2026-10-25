@@ -103,3 +103,26 @@ Deno.test("FHIR resource categories are limited to Observation in this projectio
     ...observation, resourceType: "MedicationRequest",
   }), request))
 })
+
+
+Deno.test("FHIR projection rejects incomplete bundles instead of silently omitting records", () => {
+  assert.throws(() => projectAuthorizedFHIRObservations({
+    resourceType: "Bundle", type: "searchset",
+    total: 2,
+    entry: [{ resource: observation }],
+  }, request), /Incomplete FHIR result count/)
+  assert.throws(() => projectAuthorizedFHIRObservations({
+    resourceType: "Bundle", type: "searchset",
+    link: [{ relation: "next", url: "https://clinic.example.com/fhir/Observation?page=2" }],
+    entry: [{ resource: observation }],
+  }, request), /Incomplete paginated/)
+})
+
+Deno.test("FHIR observation calendar dates and allowlist origins must be valid", () => {
+  assert.throws(() => projectAuthorizedFHIRObservations(bundle({
+    ...observation, effectiveDateTime: "2026-02-30T10:00:00Z",
+  }), request), /Invalid FHIR calendar date/)
+  assert.throws(() => projectRaw(bundle(observation), request, ["https://clinic.example.com/path"]))
+  assert.throws(() => projectRaw(bundle(observation), request, ["https://user:password@clinic.example.com"]))
+  assert.throws(() => projectRaw(bundle(observation), request, ["http://clinic.example.com"]))
+})
