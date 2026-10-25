@@ -80,3 +80,13 @@ Deno.test("unknown resource categories fail closed even for patient self-access"
     grants: [],
   }), { allowed: false, reason: "OUT_OF_SCOPE" })
 })
+
+Deno.test("conflicting active and revoked snapshots never grant access", () => {
+  assert.equal(evaluateUSClinicalAccess({
+    ...template,
+    grants: [grant, { ...grant, revokedAt: "2026-10-20T00:00:00Z" }],
+  }).allowed, false)
+  assert.equal(evaluateUSClinicalAccess({
+    ...template, grants: [grant, grant],
+  }).allowed, false)
+})
