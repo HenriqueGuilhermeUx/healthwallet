@@ -25,7 +25,7 @@ export interface USClinicalAuditEvent {
   containsMedicalPayload: false
 }
 
-const HEX = /^[0-9a-fA-F-]{36}$/
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 function rejectInvalid(value: unknown, label: string): string {
   if (typeof value !== "string" || !value || value.length > 160 ||
       /[\x00-\x1f]/.test(value)) throw new Error("Invalid " + label)
@@ -35,6 +35,13 @@ function verifiedTime(value: unknown): string {
   if (typeof value !== "string" ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
       !Number.isFinite(Date.parse(value))) throw new Error("Invalid audit timestamp")
+  const year = Number(value.slice(0, 4))
+  const month = Number(value.slice(5, 7))
+  const day = Number(value.slice(8, 10))
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    throw new Error("Invalid audit calendar date")
+  }
   return value
 }
 
@@ -49,8 +56,12 @@ export async function createUSClinicalAuditEvent(
       typeof decision.allowed !== "boolean" ||
       decision.allowed !== ["PATIENT_SELF", "GRANTED"].includes(decision.reason) ||
       !(serverHmacSecret instanceof Uint8Array) || serverHmacSecret.byteLength < 32 ||
-      !HEX.test(eventId) || eventId.length !== 36) throw new Error("Invalid audit input")
+      !UUID.test(eventId)) throw new Error("Invalid audit input")
 
+  if (!["summary", "exams", "medications", "timeline", "documents", "device_data", "clinical_tasks"].includes(request.scope)) {
+    throw new Error("Invalid audit scope")
+  }
+  if (request.actor.role !== "patient" && !request.actor.tenantId) throw new Error("Missing clinician tenant")
   const tenant = rejectInvalid(request.actor.tenantId || "patient-self", "US tenant")
   const actor = rejectInvalid(request.actor.userId, "actor")
   const patient = rejectInvalid(request.patientId, "patient")
