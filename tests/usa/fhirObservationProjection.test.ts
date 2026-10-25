@@ -1,6 +1,9 @@
 import assert from "node:assert/strict"
-import { projectAuthorizedFHIRObservations } from "../../src/usa/fhirObservationProjection.ts"
+import { projectAuthorizedFHIRObservations as projectRaw } from "../../src/usa/fhirObservationProjection.ts"
 import type { USClinicalAccessRequest, VerifiedUSClinicalGrant } from "../../src/usa/clinicalConsentPolicy.ts"
+
+const projectAuthorizedFHIRObservations = (bundle: unknown, request: USClinicalAccessRequest) =>
+  projectRaw(bundle, request, ["https://clinic.example.com"])
 
 const grant: VerifiedUSClinicalGrant = {
   patientId: "patient-123",
@@ -80,6 +83,7 @@ Deno.test("rejects untraceable observations, unsafe source URLs, unreviewed code
   const invalid = [
     { ...observation, meta: { source: "https://clinic.example.com.evil.net" }, subject: { reference: "Patient/other" } },
     { ...observation, meta: { source: "http://insecure.example.com" } },
+    { ...observation, meta: { source: "https://clinic.example.com.evil.net/fhir" } },
     { ...observation, code: { coding: [{ system: "unknown", code: "10" }] } },
     { ...observation, valueQuantity: { ...observation.valueQuantity, value: Number.NaN } },
     { ...observation, status: "preliminary" },
