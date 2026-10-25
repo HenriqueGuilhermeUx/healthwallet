@@ -56,9 +56,14 @@ function sourceOrigin(s: unknown): string {
 export function projectAuthorizedFHIRObservations(
   bundle: unknown,
   request: USClinicalAccessRequest,
+  trustedProviderOrigins: readonly string[],
 ): USClinicalObservation[] {
   if (request.scope !== "exams" || !evaluateUSClinicalAccess(request).allowed) {
     throw new Error("FHIR access denied")
+  }
+  if (!Array.isArray(trustedProviderOrigins) || trustedProviderOrigins.length === 0 ||
+      trustedProviderOrigins.some(o => typeof o !== "string" || !o.startsWith("https://"))) {
+    throw new Error("No verified FHIR provider origin")
   }
   const root = asObject(bundle)
   if (root.resourceType !== "Bundle" || root.type !== "searchset" || !Array.isArray(root.entry) ||
@@ -95,6 +100,7 @@ export function projectAuthorizedFHIRObservations(
     }
     const ucumCode = boundedString(quantity.code, 30)
     const origin = sourceOrigin(asObject(resource.meta).source)
+    if (!trustedProviderOrigins.includes(origin)) throw new Error("Unrecognized FHIR provider origin")
     return {
       resourceType: "Observation" as const,
       id, patientId: request.patientId, loincCode,
