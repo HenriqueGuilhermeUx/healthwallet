@@ -35,7 +35,14 @@ function dateTime(s: unknown): number {
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(s)) {
     throw new Error("Invalid FHIR timestamp")
   }
-  const d = Date.parse(s)
+  const raw = s as string
+  const year = Number(raw.slice(0, 4))
+  const month = Number(raw.slice(5, 7))
+  const date = Number(raw.slice(8, 10))
+  const local = new Date(Date.UTC(year, month - 1, date))
+  if (local.getUTCFullYear() !== year || local.getUTCMonth() !== month - 1 ||
+      local.getUTCDate() !== date) throw new Error("Invalid FHIR calendar date")
+  const d = Date.parse(raw)
   if (!Number.isFinite(d)) throw new Error("Invalid FHIR timestamp")
   return d
 }
@@ -62,12 +69,30 @@ export function projectAuthorizedFHIRObservations(
     throw new Error("FHIR access denied")
   }
   if (!Array.isArray(trustedProviderOrigins) || trustedProviderOrigins.length === 0 ||
-      trustedProviderOrigins.some(o => typeof o !== "string" || !o.startsWith("https://"))) {
+      trustedProviderOrigins.some(o => {
+        if (typeof o !== "string") return true
+        try {
+          const u = new URL(o)
+          return u.protocol !== "https:" || u.origin !== o || !!u.username || !!u.password ||
+            !!u.hash || !!u.search || (u.pathname !== "/" && u.pathname !== "")
+        } catch { return true }
+      })) {
     throw new Error("No verified FHIR provider origin")
   }
   const root = asObject(bundle)
   if (root.resourceType !== "Bundle" || root.type !== "searchset" || !Array.isArray(root.entry) ||
       root.entry.length > 100) throw new Error("Invalid FHIR bundle")
+  const pageLinks = root.link
+  if (pageLinks !== undefined) {
+    if (!Array.isArray(pageLinks)) throw new Error("Invalid FHIR pagination metadata")
+    if (pageLinks.some((link: unknown) => asObject(link).relation === "next")) {
+      throw new Error("Incomplete paginated FHIR searchset")
+    }
+  }
+  if (root.total !== undefined &&
+      (!Number.isSafeInteger(root.total) || (root.total as number) > root.entry.length)) {
+    throw new Error("Incomplete FHIR result count")
+  }
   const observedNow = dateTime(request.serverNow)
   const ids = new Set<string>()
   return root.entry.map((entry: unknown) => {
