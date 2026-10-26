@@ -40,6 +40,11 @@ export interface USLongitudinalReadDependencies {
    */
   readWithCurrentConsentAndRLS(context: USVerifiedLongitudinalContext): Promise<{
     fhirBundle: unknown
+    /**
+     * ASSERTED by trusted server EHR transport adapter from actual TLS
+     * response host, never taken from FHIR meta.source or browser input.
+     */
+    verifiedTransportOrigin: string
     followupTasks: readonly USVerifiedFollowupTask[]
   }>
 }
@@ -84,8 +89,24 @@ export async function runUSAuditedLongitudinalRead(
   // A real adapter MUST re-check consent/RLS *inside* this read. No pure
   // TypeScript policy can prove the absence of a revocation race.
   const payload = await deps.readWithCurrentConsentAndRLS(context)
+  // FHIR resource.meta.source is UNTRUSTED resource content and can be
+  // spoofed. Require a separately supplied server-trusted TLS transport
+  // origin, pinned to the US provider registry. The resource metadata must
+  // identify that very same origin, not merely any trusted provider.
+  let transport: URL
+  try {
+    transport = new URL(payload.verifiedTransportOrigin)
+  } catch {
+    throw new Error("Unverified US FHIR transport origin")
+  }
+  if (transport.protocol !== "https:" || transport.origin !== payload.verifiedTransportOrigin ||
+      transport.username || transport.password || transport.search || transport.hash ||
+      !Array.isArray(context.trustedOrigins) ||
+      !context.trustedOrigins.includes(payload.verifiedTransportOrigin)) {
+    throw new Error("Unverified US FHIR transport origin")
+  }
   const data = buildUSClinicianLongitudinalOverview(
-    payload.fhirBundle, payload.followupTasks, exams, tasks, context.trustedOrigins,
+    payload.fhirBundle, payload.followupTasks, exams, tasks, [payload.verifiedTransportOrigin],
   )
   return { permitted: true, data, auditEventIds: ids }
 }
