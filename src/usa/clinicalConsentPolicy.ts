@@ -52,6 +52,23 @@ export type USClinicalAccessDecision = {
 function instant(value: string): number | null {
   if (typeof value !== "string" ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return null
+  const year = Number(value.slice(0, 4))
+  const month = Number(value.slice(5, 7))
+  const day = Number(value.slice(8, 10))
+  const hour = Number(value.slice(11, 13))
+  const minute = Number(value.slice(14, 16))
+  const second = Number(value.slice(17, 19))
+  const calendarDate = new Date(Date.UTC(year, month - 1, day))
+  if (calendarDate.getUTCFullYear() !== year ||
+      calendarDate.getUTCMonth() !== month - 1 ||
+      calendarDate.getUTCDate() !== day ||
+      hour > 23 || minute > 59 || second > 59) return null
+  const offset = value.match(/([+-])(\\d{2}):(\\d{2})$/)
+  if (offset) {
+    const hh = Number(offset[2])
+    const mm = Number(offset[3])
+    if (hh > 14 || mm > 59 || (hh === 14 && mm > 0)) return null
+  }
   const timestamp = Date.parse(value)
   return Number.isFinite(timestamp) ? timestamp : null
 }
@@ -61,7 +78,8 @@ export function evaluateUSClinicalAccess(input: USClinicalAccessRequest): USClin
   const now = instant(input.serverNow)
   if (now === null) return { allowed: false, reason: "INVALID_TIME" }
   if (!actor?.userId || !patientId ||
-      !["patient", "clinician", "care_coordinator"].includes(actor.role)) {
+      !["patient", "clinician", "care_coordinator"].includes(actor.role) ||
+      !["treatment", "care_coordination"].includes(purpose)) {
     return { allowed: false, reason: "INVALID_IDENTITY" }
   }
   // The scope decision is made for one requested resource category, no wildcards.
