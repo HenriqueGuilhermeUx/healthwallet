@@ -188,5 +188,39 @@ BEGIN
 END
 $test$;
 
+-- Temporarily grant SQL privileges so the probe exercises RLS itself,
+-- rather than relying only on revoked GRANTs. All grants are rolled back.
+GRANT USAGE ON SCHEMA usa_health_ci TO usa_health_anon_ci, usa_health_authenticated_ci;
+GRANT SELECT ON usa_health_ci.tasks TO usa_health_anon_ci, usa_health_authenticated_ci;
+GRANT INSERT ON usa_health_ci.tasks TO usa_health_authenticated_ci;
+SET LOCAL ROLE usa_health_anon_ci;
+DO $rls_anon$
+BEGIN
+ IF (SELECT count(*) FROM usa_health_ci.tasks) <> 0 THEN
+   RAISE EXCEPTION 'anonymous bypassed clinical tasks RLS';
+ END IF;
+END $rls_anon$;
+RESET ROLE;
+SET LOCAL ROLE usa_health_authenticated_ci;
+DO $rls_auth$
+DECLARE denied boolean := false;
+BEGIN
+ IF (SELECT count(*) FROM usa_health_ci.tasks) <> 0 THEN
+   RAISE EXCEPTION 'authenticated browser read private clinical tasks';
+ END IF;
+ BEGIN
+   INSERT INTO usa_health_ci.tasks
+    (id, tenant_id, patient_id, clinician_id, status, revision, updated_at)
+   VALUES('99999999-9999-4999-8999-999999999999',
+    '11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222',
+    '33333333-3333-4333-8333-333333333333','open',1,'2026-10-26T15:00:00Z');
+ EXCEPTION WHEN insufficient_privilege THEN denied := true;
+ END;
+ IF NOT denied THEN RAISE EXCEPTION 'authenticated browser inserted clinical task bypassing RLS'; END IF;
+ RAISE NOTICE 'PASS: impersonated SQL client roles denied by clinical RLS';
+END $rls_auth$;
+RESET ROLE;
+
 ROLLBACK;
 -- Entire CI-only schema and roles are rolled back; no patient data.
