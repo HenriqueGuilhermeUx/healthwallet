@@ -50,7 +50,7 @@ function setup(overrides: Partial<USLongitudinalReadDependencies> = {}) {
     },
     readWithCurrentConsentAndRLS: async () => {
       calls.push("read")
-      return { fhirBundle: bundle, followupTasks: [] }
+      return { fhirBundle: bundle, verifiedTransportOrigin: origin, followupTasks: [] }
     },
     ...overrides,
   }
@@ -115,4 +115,41 @@ Deno.test("real-time consent changes at protected read must abort the entire vie
   })
   await assert.rejects(runUSAuditedLongitudinalRead(deps), /Concurrent grant revoked/)
   assert.deepEqual(calls, ["context", "audit:allow+allow", "read_revalidation"])
+})
+
+
+Deno.test("refuses origin spoofing in FHIR metadata despite a recognized provider allowlist", async () => {
+  const origin2 = "https://alternate-verified-provider.example"
+  const f = setup({
+    loadVerifiedContext: async () => ({
+      exams, tasks, trustedOrigins: [origin, origin2],
+    }),
+    readWithCurrentConsentAndRLS: async () => ({
+      fhirBundle: { ...bundle, entry: [{ resource: {
+        ...bundle.entry[0].resource,
+        meta: { source: origin2 + "/FHIR/Observation" },
+      }}] },
+      verifiedTransportOrigin: origin, // actual trusted transport host
+      followupTasks: [],
+    }),
+  })
+  await assert.rejects(runUSAuditedLongitudinalRead(f.deps), /Unrecognized FHIR provider origin/)
+  assert.equal(f.calls.includes("audit:allow+allow"), true)
+})
+
+Deno.test("refuses forged or missing server-asserted EHR transport origin", async () => {
+  for (const claimed of [
+    "https://untrusted-hospital.example",
+    "https://synthetic-hospital.example.evil.invalid",
+    "https://synthetic-hospital.example/path",
+    "http://synthetic-hospital.example",
+    "",
+  ]) {
+    const f = setup({
+      readWithCurrentConsentAndRLS: async () => ({
+        fhirBundle: bundle, followupTasks: [], verifiedTransportOrigin: claimed,
+      }),
+    })
+    await assert.rejects(runUSAuditedLongitudinalRead(f.deps), /Unverified US FHIR transport origin/)
+  }
 })
