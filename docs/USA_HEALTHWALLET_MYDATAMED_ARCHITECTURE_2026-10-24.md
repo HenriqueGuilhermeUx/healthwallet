@@ -128,3 +128,11 @@ These artifacts do **not** constitute an operational clinical portal, secure pro
 - **Race condition gate:** an actual read MUST recheck consent in the same consistent transaction or equivalent trusted security boundary after audit storage, so that consent revoked between policy evaluation and clinical read cannot silently authorize access.
 - The durable writer must be a privileged US service with append-only semantics, idempotent unique event IDs, tested event delivery and retention/rotation procedures. Merely returning `{ committed: true }` is not proof absent the independent database implementation and verification.
 - No real patient data, database writes, live EHR calls, user interface activation, or production publication.
+
+
+## 2026-10-25 — dual-scope clinician audit-before-read pilot
+
+- `src/usa/auditedLongitudinalRead.ts` composes independently verified `exams` and `clinical_tasks` consent decisions for **the same patient, clinic, practitioner, purpose and server time**. It requires an atomic/durable confirmation of **two distinct audit events** before invoking any protected FHIR/task read callback.
+- `tests/usa/auditedLongitudinalRead.test.ts` uses synthetic observation records and negative examples: consent revoked in either scope, cross-tenant context, duplicate event identifiers, failed audit write acknowledgments and read-time revocation.
+- This code is ONLY an interface contract. A database service **must implement** true durable pair commits, tenant RLS, current consent rechecking inside a trusted read transaction, immutable audit log and PHI lifecycle controls. A callback simply returning `{committed: true}` does not constitute proof without an audited implementation.
+- No actual EHR, provider key, US Supabase tenant, medical record database or UI has been changed.
