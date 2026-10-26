@@ -90,3 +90,36 @@ Deno.test("conflicting active and revoked snapshots never grant access", () => {
     ...template, grants: [grant, grant],
   }).allowed, false)
 })
+
+
+Deno.test("impossible calendar days and invalid offsets cannot activate clinical consent", () => {
+  for (const serverNow of [
+    "2026-02-30T19:00:00Z",
+    "2026-10-24T24:00:00Z",
+    "2026-10-24T19:61:00Z",
+    "2026-10-24T19:00:60Z",
+    "2026-10-24T19:00:00+15:00",
+    "2026-10-24T19:00:00+14:01",
+  ]) {
+    assert.deepEqual(evaluateUSClinicalAccess({ ...template, serverNow }), {
+      allowed: false, reason: "INVALID_TIME",
+    })
+  }
+  for (const expiresAt of [
+    "2026-02-30T00:00:00Z",
+    "2026-11-30T00:00:00+15:00",
+  ]) {
+    assert.equal(evaluateUSClinicalAccess({
+      ...template, grants: [{ ...grant, expiresAt }],
+    }).allowed, false)
+  }
+})
+
+Deno.test("patient self-access still enforces a supported purpose", () => {
+  assert.deepEqual(evaluateUSClinicalAccess({
+    ...template,
+    actor: { userId: "us-patient-1", role: "patient" },
+    purpose: "anything" as "treatment",
+    grants: [],
+  }), { allowed: false, reason: "INVALID_IDENTITY" })
+})
