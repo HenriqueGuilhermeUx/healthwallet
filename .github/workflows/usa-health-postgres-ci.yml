@@ -56,3 +56,26 @@ jobs:
           psql -h localhost -U postgres -d usa_health_contract_ci -At -v ON_ERROR_STOP=1 \
             -c "select case when to_regnamespace('usa_health_ci') is null then 'PASS' else 'FAIL' end" \
             | grep -qx PASS
+
+      - name: Verify two-session clinical setup cannot run outside synthetic CI
+        env:
+          PGPASSWORD: synthetic_test_only
+        run: |
+          if psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_consent_race_setup.sql >/tmp/usa-race-guard.log 2>&1; then
+            echo "Unexpected unarmed clinical race setup" && exit 1
+          fi
+          grep -q 'REFUSING NON-EPHEMERAL USA HEALTH RACE SETUP' /tmp/usa-race-guard.log
+      - name: Two PostgreSQL connections - clinician authorization vs simultaneous revocation
+        env:
+          PGPASSWORD: synthetic_test_only
+          PGOPTIONS: -c app.usa_ephemeral_contract_ci=SYNTHETIC_ONLY
+        run: |
+          psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_consent_race_setup.sql
+          python3 tests/usa/postgres/EPHEMERAL_CI_ONLY_consent_race.py
+          psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -c 'DROP SCHEMA usa_health_race_ci CASCADE'
+          psql -h localhost -U postgres -d usa_health_contract_ci -At -v ON_ERROR_STOP=1 \
+            -c "select case when to_regnamespace('usa_health_race_ci') is null then 'PASS' else 'FAIL' end" \
+            | grep -qx PASS
