@@ -153,3 +153,10 @@ These artifacts do **not** constitute an operational clinical portal, secure pro
 - A test transaction executes a clinician task-and-audit mutation and **holds its `SELECT ... FOR SHARE` consent lock**. A separate PostgreSQL connection attempting revocation must block and exceed a short lock timeout. After the first transaction commits, revocation succeeds; the next otherwise-valid clinical mutation fails under the newly revoked consent.
 - The script also checks that exactly one audit event and one revision advancement occurred; CI refuses running the setup without the synthetic-only environment guard and drops the temporary schema. Exact-head `e89ba2b` PostgreSQL workflow run `40386038294` **PASSED**.
 - This validates one specific lock ordering under two separate sessions, **not** every serializability anomaly, missing-recheck backend path, real authenticated clinical role, HIPAA controls, privileged superuser/RLS enforcement, or operational disaster recovery. The complete production service remains unbuilt.
+
+
+## 2026-10-26 — independent FHIR transport provenance gate
+
+- `runUSAuditedLongitudinalRead` now requires the trusted server EHR/DB adapter to return `verifiedTransportOrigin` **independently of the FHIR resource**. The origin must be the exact canonical HTTPS origin from the provider registry.
+- The observation projection checks `resource.meta.source` **against that one transport origin**, not merely against an arbitrary trusted-origin list. A spoofed `meta.source` naming another recognized provider will be rejected. Synthetic tests cover missing, path-bearing and malicious/foreign origins.
+- The caller-provided `verifiedTransportOrigin` still depends on a real vetted, authenticated TLS/FHIR transport adapter and trusted provider configuration; it is **not** a certificate pin or independent attestation. An untrusted caller can lie. No live EHR fetch or real PHI is enabled.
