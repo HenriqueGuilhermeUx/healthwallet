@@ -145,3 +145,11 @@ These artifacts do **not** constitute an operational clinical portal, secure pro
 - Tested actual PostgreSQL behavior for a successful revision, stale update rejection, cross-tenant access, duplicate audit UUID rolling back a task mutation, revoked grant blocking a valid revision, and client roles having no private table/function grants.
 - **Not tested in this fixture:** an authenticated end-to-end US service and its actual identity/tenant assertions, concurrent sessions with revoke/update contention, HIPAA requirements/BAAs, append-only audit against owner/administrator, PHI retention/backup/key security, EHR source trust and production-level monitoring. Real US security and consent enforcement must be independently verified and reviewed.
 - Verified on GitHub Actions: `MyDataMed USA Ephemeral PostgreSQL Transaction Contract` run `40382353743` passed for commit `207036e`.
+
+
+## 2026-10-26 — two real concurrent PostgreSQL sessions
+
+- `tests/usa/postgres/EPHEMERAL_CI_ONLY_consent_race_setup.sql` and `EPHEMERAL_CI_ONLY_consent_race.py` extend the existing disposable PostgreSQL 17 workflow.
+- A test transaction executes a clinician task-and-audit mutation and **holds its `SELECT ... FOR SHARE` consent lock**. A separate PostgreSQL connection attempting revocation must block and exceed a short lock timeout. After the first transaction commits, revocation succeeds; the next otherwise-valid clinical mutation fails under the newly revoked consent.
+- The script also checks that exactly one audit event and one revision advancement occurred; CI refuses running the setup without the synthetic-only environment guard and drops the temporary schema. Exact-head `e89ba2b` PostgreSQL workflow run `40386038294` **PASSED**.
+- This validates one specific lock ordering under two separate sessions, **not** every serializability anomaly, missing-recheck backend path, real authenticated clinical role, HIPAA controls, privileged superuser/RLS enforcement, or operational disaster recovery. The complete production service remains unbuilt.
