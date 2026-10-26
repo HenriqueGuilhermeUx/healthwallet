@@ -136,3 +136,12 @@ These artifacts do **not** constitute an operational clinical portal, secure pro
 - `tests/usa/auditedLongitudinalRead.test.ts` uses synthetic observation records and negative examples: consent revoked in either scope, cross-tenant context, duplicate event identifiers, failed audit write acknowledgments and read-time revocation.
 - This code is ONLY an interface contract. A database service **must implement** true durable pair commits, tenant RLS, current consent rechecking inside a trusted read transaction, immutable audit log and PHI lifecycle controls. A callback simply returning `{committed: true}` does not constitute proof without an audited implementation.
 - No actual EHR, provider key, US Supabase tenant, medical record database or UI has been changed.
+
+
+## 2026-10-26 — disposable PostgreSQL 17 transaction verification (NO patient data)
+
+- `tests/usa/postgres/EPHEMERAL_CI_ONLY_followup_atomicity.sql`, executed by `.github/workflows/usa-health-postgres-ci.yml`, runs only on a disposable `usa_health_contract_ci` database with an explicit synthetic CI session flag. An unarmed attempt must fail, and all roles/tables are rolled back when tests finish.
+- Tests a schema-private `SECURITY INVOKER` function: locks the exact patient/clinic/clinician clinical consent row using `SELECT ... FOR SHARE`, checks current grant/revocation, locks target task by owner and revision, performs compare-and-swap status update, and inserts the matching audit event **in the same database statement/transaction**.
+- Tested actual PostgreSQL behavior for a successful revision, stale update rejection, cross-tenant access, duplicate audit UUID rolling back a task mutation, revoked grant blocking a valid revision, and client roles having no private table/function grants.
+- **Not tested in this fixture:** an authenticated end-to-end US service and its actual identity/tenant assertions, concurrent sessions with revoke/update contention, HIPAA requirements/BAAs, append-only audit against owner/administrator, PHI retention/backup/key security, EHR source trust and production-level monitoring. Real US security and consent enforcement must be independently verified and reviewed.
+- Verified on GitHub Actions: `MyDataMed USA Ephemeral PostgreSQL Transaction Contract` run `40382353743` passed for commit `207036e`.
