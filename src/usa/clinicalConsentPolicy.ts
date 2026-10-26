@@ -63,7 +63,7 @@ function instant(value: string): number | null {
       calendarDate.getUTCMonth() !== month - 1 ||
       calendarDate.getUTCDate() !== day ||
       hour > 23 || minute > 59 || second > 59) return null
-  const offset = value.match(/([+-])(\\d{2}):(\\d{2})$/)
+  const offset = value.match(/([+-])(\d{2}):(\d{2})$/)
   if (offset) {
     const hh = Number(offset[2])
     const mm = Number(offset[3])
