@@ -49,6 +49,24 @@ jobs:
         run: |
           psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
             -f tests/usa/postgres/EPHEMERAL_CI_ONLY_followup_atomicity.sql
+      - name: Verify positive tenant RLS test refuses unarmed execution
+        env:
+          PGPASSWORD: synthetic_test_only
+        run: |
+          if psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_positive_tenant_rls.sql >/tmp/usa-positive-guard.log 2>&1; then
+            echo "Unexpected unarmed positive RLS fixture" && exit 1
+          fi
+          grep -q 'REFUSING NON-EPHEMERAL USA TENANT RLS TEST' /tmp/usa-positive-guard.log
+      - name: Prove positive tenant-scoped RLS using distinct real PostgreSQL roles
+        env:
+          PGPASSWORD: synthetic_test_only
+          PGOPTIONS: -c app.usa_ephemeral_contract_ci=SYNTHETIC_ONLY
+        run: |
+          psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_positive_tenant_rls.sql
+          psql -h localhost -U postgres -d usa_health_contract_ci -At -v ON_ERROR_STOP=1 \
+            -c "select case when to_regnamespace('usa_tenant_rls_ci') is null then 'PASS' else 'FAIL' end" | grep -qx PASS
       - name: Check rollback of all synthetic clinical test data
         env:
           PGPASSWORD: synthetic_test_only
