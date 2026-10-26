@@ -1,0 +1,32 @@
+name: USA Health Consent Policy — Isolated CI
+
+on:
+  push:
+    branches:
+      - feature/usa-healthwallet-mydatamed-architecture-20261024
+    paths:
+      - 'src/usa/**'
+      - 'tests/usa/**'
+      - 'docs/USA_HEALTHWALLET_MYDATAMED_ARCHITECTURE_2026-10-24.md'
+      - '.github/workflows/usa-health-consent-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-consent:
+    name: Synthetic cross-tenant clinical consent tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type check isolated policy and tests
+        run: deno check --config tests/usa/deno.json tests/usa/clinicalConsentPolicy.test.ts tests/usa/fhirObservationProjection.test.ts tests/usa/clinicianFollowupQueue.test.ts tests/usa/clinicalAuditContract.test.ts tests/usa/auditedClinicalRead.test.ts tests/usa/clinicianLongitudinalOverview.test.ts tests/usa/auditedLongitudinalRead.test.ts tests/usa/followupTransitionPolicy.test.ts tests/usa/auditedFollowupMutation.test.ts
+      - name: Run fully synthetic consent tests (no patient data)
+        run: deno test --config tests/usa/deno.json tests/usa/clinicalConsentPolicy.test.ts tests/usa/fhirObservationProjection.test.ts tests/usa/clinicianFollowupQueue.test.ts tests/usa/clinicalAuditContract.test.ts tests/usa/auditedClinicalRead.test.ts tests/usa/clinicianLongitudinalOverview.test.ts tests/usa/auditedLongitudinalRead.test.ts tests/usa/followupTransitionPolicy.test.ts tests/usa/auditedFollowupMutation.test.ts

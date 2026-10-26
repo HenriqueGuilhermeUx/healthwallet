@@ -1,0 +1,99 @@
+name: MyDataMed USA Ephemeral PostgreSQL Transaction Contract
+
+on:
+  push:
+    branches:
+      - feature/usa-healthwallet-mydatamed-architecture-20261024
+    paths:
+      - 'tests/usa/postgres/**'
+      - '.github/workflows/usa-health-postgres-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-clinical-mutation:
+    name: Disposable Postgres 17 clinical revision/audit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic_test_only
+          POSTGRES_DB: usa_health_contract_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d usa_health_contract_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Ensure SQL contract cannot run without ephemeral CI guard
+        env:
+          PGPASSWORD: synthetic_test_only
+        run: |
+          if psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_followup_atomicity.sql > /tmp/usa-health-guard.log 2>&1; then
+            echo "Unexpected unarmed clinical schema execution" && exit 1
+          fi
+          grep -q 'REFUSING NON-EPHEMERAL USA HEALTH TEST' /tmp/usa-health-guard.log
+      - name: Assert atomic US clinician consent and follow-up transaction invariants
+        env:
+          PGPASSWORD: synthetic_test_only
+          PGOPTIONS: -c app.usa_ephemeral_contract_ci=SYNTHETIC_ONLY
+        run: |
+          psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_followup_atomicity.sql
+      - name: Verify positive tenant RLS test refuses unarmed execution
+        env:
+          PGPASSWORD: synthetic_test_only
+        run: |
+          if psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_positive_tenant_rls.sql >/tmp/usa-positive-guard.log 2>&1; then
+            echo "Unexpected unarmed positive RLS fixture" && exit 1
+          fi
+          grep -q 'REFUSING NON-EPHEMERAL USA TENANT RLS TEST' /tmp/usa-positive-guard.log
+      - name: Prove positive tenant-scoped RLS using distinct real PostgreSQL roles
+        env:
+          PGPASSWORD: synthetic_test_only
+          PGOPTIONS: -c app.usa_ephemeral_contract_ci=SYNTHETIC_ONLY
+        run: |
+          psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_positive_tenant_rls.sql
+          psql -h localhost -U postgres -d usa_health_contract_ci -At -v ON_ERROR_STOP=1 \
+            -c "select case when to_regnamespace('usa_tenant_rls_ci') is null then 'PASS' else 'FAIL' end" | grep -qx PASS
+      - name: Check rollback of all synthetic clinical test data
+        env:
+          PGPASSWORD: synthetic_test_only
+        run: |
+          psql -h localhost -U postgres -d usa_health_contract_ci -At -v ON_ERROR_STOP=1 \
+            -c "select case when to_regnamespace('usa_health_ci') is null then 'PASS' else 'FAIL' end" \
+            | grep -qx PASS
+
+      - name: Verify two-session clinical setup cannot run outside synthetic CI
+        env:
+          PGPASSWORD: synthetic_test_only
+        run: |
+          if psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_consent_race_setup.sql >/tmp/usa-race-guard.log 2>&1; then
+            echo "Unexpected unarmed clinical race setup" && exit 1
+          fi
+          grep -q 'REFUSING NON-EPHEMERAL USA HEALTH RACE SETUP' /tmp/usa-race-guard.log
+      - name: Two PostgreSQL connections - clinician authorization vs simultaneous revocation
+        env:
+          PGPASSWORD: synthetic_test_only
+          PGOPTIONS: -c app.usa_ephemeral_contract_ci=SYNTHETIC_ONLY
+        run: |
+          psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -f tests/usa/postgres/EPHEMERAL_CI_ONLY_consent_race_setup.sql
+          python3 tests/usa/postgres/EPHEMERAL_CI_ONLY_consent_race.py
+          psql -h localhost -U postgres -d usa_health_contract_ci -v ON_ERROR_STOP=1 \
+            -c 'DROP SCHEMA usa_health_race_ci CASCADE'
+          psql -h localhost -U postgres -d usa_health_contract_ci -At -v ON_ERROR_STOP=1 \
+            -c "select case when to_regnamespace('usa_health_race_ci') is null then 'PASS' else 'FAIL' end" \
+            | grep -qx PASS
