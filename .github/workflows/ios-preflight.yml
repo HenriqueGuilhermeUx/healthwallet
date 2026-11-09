@@ -47,8 +47,25 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -workspace ios/App/App.xcworkspace -scheme App -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO -derivedDataPath "$RUNNER_TEMP/ios-derived" build 2>&1 | tee ios-preflight-build.log
+      - name: Launch app on iPhone simulator (smoke)
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$RUNNER_TEMP/ios-derived/Build/Products/Debug-iphonesimulator/App.app"
+          test -d "$APP_PATH"
+          DEVICE_ID="$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{const d=Object.values(JSON.parse(s).devices).flat().find(x=>x.isAvailable && x.name.startsWith("iPhone"));if(!d)process.exit(1);console.log(d.udid)})')"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Info.plist")"
+          echo "Smoke testing $BUNDLE_ID on $DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl install "$DEVICE_ID" "$APP_PATH"
+          xcrun simctl launch "$DEVICE_ID" "$BUNDLE_ID"
+          sleep 5
+          xcrun simctl terminate "$DEVICE_ID" "$BUNDLE_ID"
+          xcrun simctl shutdown "$DEVICE_ID" || true
       - name: Archive unsigned simulator .app for QA
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-app
