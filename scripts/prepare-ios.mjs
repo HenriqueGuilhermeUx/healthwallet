@@ -19,7 +19,7 @@ if (process.platform !== 'darwin') {
   console.error('iOS preparation requires macOS with Xcode. No changes were made.');
   process.exit(1);
 }
-run(manager, ["build:prod"]);
+if (process.env.IOS_WEB_BUILD_READY !== "1") run(manager, ["build:prod"]);
 if (!existsSync(join(cwd, "dist"))) {
   console.error("Web build directory not found; iOS generation aborted.");
   process.exit(1);
