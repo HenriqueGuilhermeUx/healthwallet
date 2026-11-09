@@ -37,7 +37,7 @@ jobs:
       - name: Build health wallet web bundle before temporary native dependency
         run: pnpm build:prod
       - name: Add matching Capacitor iOS dependency in ephemeral runner
-        run: npm install --no-save --package-lock=false --no-audit --no-fund @capacitor/ios@7.4.3
+        run: pnpm add @capacitor/ios@7.4.3
       - name: Prepare iOS platform
         env:
           IOS_WEB_BUILD_READY: '1'
