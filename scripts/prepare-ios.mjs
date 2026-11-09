@@ -19,14 +19,13 @@ if (process.platform !== 'darwin') {
   console.error('iOS preparation requires macOS with Xcode. No changes were made.');
   process.exit(1);
 }
-if (!existsSync(join(cwd, 'node_modules', '@capacitor', 'ios'))) {
-  console.error('Missing @capacitor/ios: install the matching major/minor for this app, review lockfile, then retry.');
-  process.exit(1);
-}
-
 run(manager, ["build:prod"]);
 if (!existsSync(join(cwd, "dist"))) {
-  console.error('Web build directory not found; iOS generation aborted.');
+  console.error("Web build directory not found; iOS generation aborted.");
+  process.exit(1);
+}
+if (!existsSync(join(cwd, 'node_modules', '@capacitor', 'ios'))) {
+  console.error('Missing @capacitor/ios: install the matching major/minor for this app, review lockfile, then retry.');
   process.exit(1);
 }
 const platformExists = existsSync(join(cwd, 'ios'));
