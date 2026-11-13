@@ -36,3 +36,30 @@
 | Artefatos finais | Ícone/splash comerciais, screenshots reais, classificação, suporte e testes de revisão | PENDENTE |
 
 **Critério de saída:** nenhuma aprovação comercial automática com base no smoke CI. Revisar evidências por requisito e obter aprovação humana individual da Fase 2. Nenhuma chave, conta real, token, informação de saúde ou dado do paciente neste repositório.
+
+## Auditoria pontual de fluxos reais — 13/11/2026
+
+### Escopo de Apple Saúde, consentimento e publicidade da função
+
+- `src/services/nativeHealthSync.ts` declara explicitamente `IOS_READ_TYPES: ['steps']` e `ANDROID_READ_TYPES: ['steps']`. Apenas passos são lidos automaticamente; as demais métricas ficam disponíveis por inserção manual na tela `DeviceData`. **Não afirmar sincronização automática de sono, batimentos, pressão, peso ou SpO2**.
+- A comunicação de `src/pages/DeviceData.tsx` foi alinhada a essa realidade na branch de preparação (commit `ec4c3e4`). Essa alteração é somente de texto, não altera permissões, banco ou os serviços de sincronização. O PR permanece draft; como UI é compartilhada, avaliar também a redação Android antes de eventual merge.
+- A sincronização sob `requestAuthorization: false` depende de conexão e autorização prévias, e a rotina automática tenta atualizar dados a cada seis horas. **Exigir teste de revogação/recusa no iPhone** e comprovação do tratamento de exceções, porque o smoke de abertura não exercita isso.
+- `src/hooks/useAuth.tsx` implementa `supabase.auth.signInWithPassword`, `signUp`, `signOut`, restauração por `getSession` e possível handoff federado Nexa. Presença de código **não comprova** que fluxos, recuperação de conta e exclusão funcionem no iPhone; QA ainda pendente.
+
+### SOS — risco funcional relevante
+
+- Em `src/pages/Emergency.tsx`, o botão **ACIONAR AJUDA** obtém geolocalização, cria um registro em `sos_events` incluindo `notified_contacts` e grava evento clínico; o código inspecionado **não confirma entrega automática de mensagens, SMS, push ou chamada aos contatos**. As ações `tel:` separadas fornecem chamada manual.
+- Não inferir que a persistência de `notified_contacts` dispara entrega. O título `Contatos que recebem alerta` pode criar expectativa de notificação automática, especialmente em emergência; antes da publicação, validar o mecanismo de envio e recibo reais, ou ajustar a interface para descrever apenas registro e chamada manual. **Gate de segurança bloqueado até evidência.**
+- Testar localização negada, ausência de rede, contato não cadastrado, histórico de SOS ativo, status resolvido/falso alarme, e instrução explícita de que HealthWallet não substitui emergência pública (SAMU 192).
+
+### Bloqueios específicos novos
+
+| Verificação | Estado |
+| --- | --- |
+| Escopo automático Apple Saúde (passos) e texto da tela | Corrigido na branch iOS; teste funcional pendente |
+| SOS: comprovação real de alertas a contatos | **BLOQUEADO** |
+| Restauração, logout e exclusão de conta | QA pendente |
+| Consentimento e revogação HealthKit | QA pendente |
+| Declarações App Privacy e localização | QA pendente |
+
+Não usar pacientes reais, geolocalização real ou tokens neste PR. Não ativar efeitos externos a partir do CI.
