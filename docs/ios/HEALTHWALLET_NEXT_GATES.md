@@ -63,3 +63,11 @@
 | Declarações App Privacy e localização | QA pendente |
 
 Não usar pacientes reais, geolocalização real ou tokens neste PR. Não ativar efeitos externos a partir do CI.
+
+## Mitigação de comunicação SOS em branch iOS — 13/11/2026
+
+Na branch exploratória do HealthWallet, commit `5bd2a4b`, a tela `src/pages/Emergency.tsx` passou a evitar afirmar que contatos cadastrados **receberam** alertas sem confirmação de entrega. A interface distingue **registrar solicitação** de **ligar para 192 ou para contato principal** e informa que um registro não confirma envio de mensagens ou chegada de socorro. Botões `tel:`, `sos_events` e fluxo do backend foram preservados; nenhuma mensagem foi enviada por esta alteração.
+
+**Pendente antes de publicação:** rastrear possíveis efeitos de backend no evento SOS (trigger, Edge Function, webhook, SMS ou push), testar se existe entrega real, incluir observabilidade/estado de entrega e verificar UX de rejeição de permissão e modo offline. Esta mudança é uma mitigação de comunicação, não uma certificação de segurança operacional nem de atendimento de emergência.
+
+O workflow iniciado após essa alteração ainda requer verificação. Por se tratar de código visual compartilhado com Android/web, **não realizar merge sem revisar impacto entre plataformas**.
