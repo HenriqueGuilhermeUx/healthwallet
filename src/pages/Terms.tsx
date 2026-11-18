@@ -76,6 +76,7 @@ export default function Terms() {
             Alterações significativas serão comunicadas por e-mail ou notificação no aplicativo.
           </p>
 
+          {/* Contato institucional centralizado no Alternative Mail Corporate. */}
           <h2 className="text-lg font-semibold text-foreground">8. Contato</h2>
           <p className="text-sm">
             Para questões sobre estes termos, entre em contato pelo e-mail:
