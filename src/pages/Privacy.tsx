@@ -115,7 +115,7 @@ export default function Privacy() {
             Para questões sobre privacidade ou exercer seus direitos:
           </p>
           <ul className="list-disc list-inside text-sm space-y-1">
-            <li>E-mail: <span className="text-emerald-600">privacidade@healthwallet.com.br</span></li>
+            <li>E-mail: <span className="text-emerald-600">corporate@alternativeventures.com.br</span></li>
             <li>Encarregado de Dados (DPO): equipe HealthWallet</li>
           </ul>
         </div>
