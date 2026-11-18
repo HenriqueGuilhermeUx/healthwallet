@@ -64,6 +64,34 @@ jobs:
           sleep 5
           xcrun simctl terminate "$DEVICE_ID" "$BUNDLE_ID"
           xcrun simctl shutdown "$DEVICE_ID" || true
+      - name: Install and launch HealthWallet in iPad simulator (technical smoke)
+        timeout-minutes: 16
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$RUNNER_TEMP/ios-derived/Build/Products/Debug-iphonesimulator/App.app"
+          test -d "$APP_PATH"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Info.plist")"
+          test "$BUNDLE_ID" = "br.com.healthwallet.app"
+          DEVICE_ID="$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{const d=Object.values(JSON.parse(s).devices).flat().find(x=>x.isAvailable&&x.name.startsWith("iPad"));if(!d)process.exit(1);console.log(d.udid)})')"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl install "$DEVICE_ID" "$APP_PATH"
+          xcrun simctl launch "$DEVICE_ID" "$BUNDLE_ID"
+          sleep 5
+          mkdir -p ios-smoke-evidence
+          xcrun simctl io "$DEVICE_ID" screenshot ios-smoke-evidence/healthwallet-ipad-launch.png
+          xcrun simctl terminate "$DEVICE_ID" "$BUNDLE_ID" || true
+          xcrun simctl shutdown "$DEVICE_ID" || true
+          echo "PASS: iPad install/launch/screenshot; functional QA still required"
+      - name: Archive dedicated iPad simulator screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipad-launch-screenshot
+          path: ios-smoke-evidence/healthwallet-ipad-launch.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Archive unsigned simulator .app for QA
         if: always()
         uses: actions/upload-artifact@v4
