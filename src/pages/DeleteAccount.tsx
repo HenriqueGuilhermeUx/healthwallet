@@ -38,14 +38,14 @@ export default function DeleteAccount() {
             Solicitação de exclusão de conta HealthWallet
           </div>
           <a
-            href="mailto:privacidade@healthwallet.com.br?subject=Solicita%C3%A7%C3%A3o%20de%20exclus%C3%A3o%20de%20conta%20HealthWallet"
+            href="mailto:corporate@alternativeventures.com.br?subject=Solicita%C3%A7%C3%A3o%20de%20exclus%C3%A3o%20de%20conta%20HealthWallet"
             className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white font-semibold py-3 hover:bg-emerald-700 transition-colors"
           >
             <Mail className="w-5 h-5" />
             Enviar solicitação
           </a>
           <p className="text-xs text-muted-foreground">
-            E-mail: privacidade@healthwallet.com.br
+            E-mail: corporate@alternativeventures.com.br
           </p>
         </section>
 
