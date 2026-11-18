@@ -79,7 +79,7 @@ export default function Terms() {
           <h2 className="text-lg font-semibold text-foreground">8. Contato</h2>
           <p className="text-sm">
             Para questões sobre estes termos, entre em contato pelo e-mail:
-            <span className="text-emerald-600"> contato@healthwallet.com.br</span>
+            <span className="text-emerald-600"> corporate@alternativeventures.com.br</span>
           </p>
         </div>
       </div>
