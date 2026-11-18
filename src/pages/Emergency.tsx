@@ -162,7 +162,7 @@ export default function Emergency() {
           <AlertTriangle className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">SOS / Ajuda Rápida</h1>
-            <p className="text-white/80 text-sm">Botão rápido para idosos, familiares e cuidadores.</p>
+            <p className="text-white/80 text-sm">Registre uma solicitação de ajuda e acesse os telefones de emergência.</p>
           </div>
         </div>
       </div>
@@ -192,6 +192,10 @@ export default function Emergency() {
       </button>
 
       {error && <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{error}</div>}
+
+      <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-xl p-3" role="note">
+        O registro de ajuda não confirma o envio de mensagens ou a chegada de socorro. Para emergência imediata, ligue 192 ou telefone diretamente para seu contato.
+      </p>
 
       <div className="grid grid-cols-2 gap-3">
         <a href="tel:192" className="py-4 rounded-xl bg-white border border-red-200 text-red-700 font-semibold flex flex-col items-center justify-center gap-2">
@@ -231,7 +235,7 @@ export default function Emergency() {
       </section>
 
       <section className="bg-white rounded-xl border p-4 space-y-3">
-        <h2 className="font-bold">Contatos que recebem alerta</h2>
+        <h2 className="font-bold">Contatos cadastrados para emergência</h2>
         {[...contacts, ...familyContacts].length > 0 ? (
           <div className="space-y-2">
             {[...contacts, ...familyContacts].map((contact, idx) => (
@@ -242,7 +246,7 @@ export default function Emergency() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Cadastre familiares na tela Família para alertas rápidos.</p>
+          <p className="text-sm text-muted-foreground">Cadastre familiares na tela Família para consultar e telefonar aos seus contatos.</p>
         )}
       </section>
     </div>

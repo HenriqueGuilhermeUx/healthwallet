@@ -320,7 +320,7 @@ export default function DeviceData() {
           </div>
           <h1 className="text-2xl font-bold">Meus dispositivos</h1>
           <p className="text-white/85 text-sm mt-2">
-            Sincronize automaticamente passos, sono, batimentos, pressão, peso e SpO2 para enriquecer seu histórico e refinar o MedScore.
+            No app instalado, sincronize automaticamente seus passos após autorizar Apple Saúde ou Health Connect. Sono, batimentos, pressão, peso e SpO2 podem ser registrados manualmente.
           </p>
         </div>
       </section>
