@@ -1,6 +1,6 @@
 import pdfParse from 'pdf-parse'
 
-export async function handler(event: any) {
+export async function handler(event) {
   try {
     const { fileUrl, fileName } = JSON.parse(event.body || '{}')
 
@@ -79,7 +79,7 @@ Não substitua consulta médica.
     }
 
     const text = json.output_text || ''
-    let parsed: any
+    let parsed
 
     try {
       parsed = JSON.parse(text)
@@ -98,19 +98,19 @@ Não substitua consulta médica.
       extractedText: parsed.extractedText || extractedText.slice(0, 3000),
       error: null,
     })
-  } catch (error: any) {
+  } catch (error) {
     return ok(fallback(error.message || 'Erro inesperado.'))
   }
 }
 
-function ok(body: any) {
+function ok(body) {
   return {
     statusCode: 200,
     body: JSON.stringify(body),
   }
 }
 
-function fallback(reason: string) {
+function fallback(reason) {
   return {
     summary:
       'Exame recebido com sucesso, mas a análise automática não conseguiu interpretar o arquivo.',
