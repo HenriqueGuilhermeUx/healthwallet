@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Brain, Loader2, Copy, CheckCircle, AlertCircle } from 'lucide-react'
-import { analyzeExamWithAI, getMockExamAnalysis } from '@/lib/openai'
+import { analyzeExamWithAI } from '@/lib/openai'
 
 const EXAM_TYPES = [
   { value: 'hemograma', label: 'Hemograma Completo' },
@@ -47,9 +47,8 @@ export default function ExamTranslator() {
       setResult(aiResult)
     } catch (err) {
       console.error('AI Analysis failed:', err)
-      // Fallback to mock data
-      setResult(getMockExamAnalysis(selectedType))
-      setError('Usando análise simulada. Configure VITE_OPENAI_API_KEY para análise com IA real.')
+      // Nunca mostrar resultado simulado como se fosse do exame do paciente.
+      setError('Não foi possível analisar o exame agora. Tente novamente em alguns minutos.')
     }
 
     setLoading(false)
